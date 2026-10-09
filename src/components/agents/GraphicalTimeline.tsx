@@ -1,3 +1,4 @@
+import { CodexActivityEvent } from "../shared/CodexActivityEvent";
 import { configWarningFingerprint, useConfigWarningVisibility } from "./configWarningVisibility";
 import { CodeBuddyMcpApp } from "./CodeBuddyMcpApp";
 import { useId, useState } from "react";
@@ -112,6 +113,7 @@ export function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { it
 
 const standardItemTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "contextCompaction"]);
 export function CodexEventCard({ item }: { item: SessionItem }) {
+  if (item.type === "sleep" || item.type === "imageGeneration") return <CodexActivityEvent item={item} className="codex-app-server-message codexEvent" />;
   if (item.type === "reasoning") {
     const summary = reasoningSummary(item);
     if (!summary) return null;

@@ -45,6 +45,8 @@ function displayItem(item) {
 function historyItems(thread) {
   return (thread?.turns || []).flatMap(turn => (turn.items || []).map(item => ({ ...displayItem(item),
     ...(item.type === "enteredReviewMode" ? { id: `${item.id}:enteredReviewMode` } : {}),
+    ...(["sleep", "imageGeneration"].includes(item.type) && !item.status
+      ? { status: turn.status || "completed" } : {}),
     ...(item.type === "contextCompaction" ? { status: "completed" } : {}),
     ...(item.type === "reasoning" ? { status: turn.status === "inProgress" ? "inProgress" : turn.status || "completed" } : {}),
     ...(turn.id ? { turnId: turn.id } : {}) }))).filter(item => item?.id);

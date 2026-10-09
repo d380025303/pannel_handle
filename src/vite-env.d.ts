@@ -1156,7 +1156,7 @@ export type CodexAppServerSnapshot = {
   goalError?: string | null;
   error: string | null;
   pendingPlan: { itemId: string } | null;
-  items: Array<{ id: string; type: string; turnId?: string; rewindMessageId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
+  items: Array<{ id: string; type: string; turnId?: string; rewindMessageId?: string; text?: string; command?: string; output?: string; status?: string; durationMs?: number; savedPath?: string | null; changes?: unknown;
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
     summary?: Array<string | { text?: string }>;
     compactionId?: string; compactionSummary?: unknown[]; compactionError?: string; compactionSource?: string;
@@ -1354,7 +1354,7 @@ export type CodexAppServerApi = {
   chooseFiles: (id: string) => Promise<string[]>;
   previewAttachment: (id: string, filePath: string) => Promise<{ kind: "image"; dataUrl: string } | { kind: "text"; text: string }
     | { kind: "unsupported" } | { kind: "too_large"; size: number; limit: number }>;
-  pasteImage: (id: string) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
+  pasteImage: (id: string, image?: { name: string; bytes: Uint8Array }) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
   discardImage: (id: string, filePath: string) => Promise<void>;
   askSideQuestion: (id: string, question: string) => Promise<CodexAppServerSnapshot>;
   cancelSideQuestion: (id: string, requestId: string) => Promise<CodexAppServerSnapshot>;

@@ -127,13 +127,13 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     });
     ipcMain.handle("codex-app-server:preview-attachment", (_event, id, filePath) =>
       codexAppServerSessionService.previewAttachment(String(id || ""), filePath));
-    ipcMain.handle("codex-app-server:paste-image", async (_event, id) => {
+    ipcMain.handle("codex-app-server:paste-image", async (_event, id, image) => {
       const sessionId = String(id || "");
       codexAppServerSessionService.snapshot(sessionId);
       const session = terminalManager.getSession(sessionId);
       const localCwd = session?.type === "ssh" && session.agentLocation === "local"
         ? codexAppServerSessionService.getWorkspaceCwd(sessionId) : undefined;
-      const result = await clipboardImageService.pasteImageToSession(sessionId, { localCwd });
+      const result = await clipboardImageService.pasteImageToSession(sessionId, { localCwd, image });
       if (result.status === "saved") codexAppServerSessionService.allowPastedImage(sessionId, result.path);
       return result;
     });

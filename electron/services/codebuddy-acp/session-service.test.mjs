@@ -33,6 +33,29 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("previews unsent pasted images and revokes access when they are discarded", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-acp-image-preview-"));
+    const imagePath = path.join(directory, "capture.png");
+    const buffer = Buffer.from([137, 80, 78, 71]);
+    fs.writeFileSync(imagePath, buffer);
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread-1" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: directory });
+      await expect(service.previewAttachment("one", imagePath)).rejects.toThrow("只能预览当前会话的附件");
+      service.allowPastedImage("one", imagePath);
+      expect(await service.previewAttachment("one", imagePath)).toEqual({
+        kind: "image", dataUrl: `data:image/png;base64,${buffer.toString("base64")}` });
+      expect(service.snapshot("one").items).toEqual([]);
+      await service.discardPastedImage("one", imagePath);
+      await expect(service.previewAttachment("one", imagePath)).rejects.toThrow("只能预览当前会话的附件");
+    } finally { service.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("keeps an ACP turn running while its independent side question completes and cancels the worker on close", async () => {
     let prompt; let emitResponse;
     const sent = [];

@@ -35,6 +35,7 @@ import { resolveCodexFileLink } from "./utils/codexFileLink";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
+import { DesktopMascot } from "./components/app/DesktopMascot";
 import { DEFAULT_TITLE_BAR_ACTION_ORDER, withSettingsAction } from "./components/app/titleBarActions";
 import type { TitleBarActionId } from "./components/app/titleBarActions";
 import { SkillsManager } from "./components/skills/SkillsManager";
@@ -1212,6 +1213,21 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         </main>
       </div>
 
+      <DesktopMascot
+        locale={locale}
+        status={terminalSessions.activeAgentStatus?.status}
+        sessionTitle={terminalSessions.activeSession?.title}
+        onAction={action => {
+          if (action === "settings") { setShowSettingsModal(true); return; }
+          if (action === "create") { handleOpenCreateModal(); return; }
+          if (action === "sessions") { terminalSessions.openPicker(); return; }
+          if (action !== "mcp" && mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+          setShowTokenStats(false);
+          setShowIdea(false);
+          setShowSkills(action === "skills");
+          setShowMcp(action === "mcp");
+        }}
+      />
       <RemoteAgentApprovalCard sessions={terminalSessions.sessions} />
       <CodexWorkspaceTrustDialog />
 

@@ -37,6 +37,32 @@ describe("clipboard-image-service", () => {
     expect(remoteFileService.writeBinaryFile).not.toHaveBeenCalled();
   });
 
+  it.each(["windows", "wsl", "ssh"])("saves copied JPEG bytes for %s without reading the system image", async type => {
+    const clipboard = { readImage: vi.fn() };
+    const writeBinaryFile = vi.fn(async (_id, remotePath) => ({ remotePath }));
+    const service = createClipboardImageService({ clipboard,
+      terminalManager: { getSession: () => ({ type, cwd: type === "windows" ? "C:\\work" : "/work" }) },
+      remoteFileService: { writeBinaryFile } });
+    const result = await service.pasteImageToSession("run-1", { image: { name: "original.JPG", bytes: new Uint8Array([1, 2, 3]) } });
+    expect(result.path).toMatch(/\.jpg$/);
+    expect(result.path).toContain(".pannel-handle-images");
+    expect(writeBinaryFile).toHaveBeenCalledWith("run-1", result.path, Buffer.from([1, 2, 3]));
+    expect(clipboard.readImage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ name: "x.svg", bytes: new Uint8Array([1]) }, "不支持的图片格式"],
+    [{ name: "x.png", bytes: new Uint8Array() }, "图片文件为空"],
+    [{ name: "x.png", bytes: new Uint8Array(10 * 1024 * 1024 + 1) }, "10 MiB"],
+    [{ name: "x.png", bytes: [1] }, "无效的图片文件"]
+  ])("rejects invalid copied image payloads", async (image, error) => {
+    const writeBinaryFile = vi.fn();
+    const service = createClipboardImageService({ clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: vi.fn() }, remoteFileService: { writeBinaryFile } });
+    await expect(service.pasteImageToSession("run-1", { image })).rejects.toThrow(error);
+    expect(writeBinaryFile).not.toHaveBeenCalled();
+  });
+
   it("saves a Windows clipboard image under the session image directory", async () => {
     const pngBuffer = Buffer.from([1, 2, 3]);
     const session = { id: "run-1", type: "windows" };

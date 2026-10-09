@@ -1,3 +1,4 @@
+import { CodexActivityEvent } from "../../src/components/shared/CodexActivityEvent";
 import { CompactionCard } from "../../src/components/shared/CompactionCard";
 import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
 import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
@@ -68,6 +69,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
             <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
           </div>}</article>;
+        if (snapshot.provider === "codex" && (item.type === "sleep" || item.type === "imageGeneration")) return <CodexActivityEvent key={item.id} item={item} className="graphical-card" />;
         if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
         return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong>{item.text && <MarkdownBlock content={item.text} />}{item.summary?.map((value, index) => <p key={index}>{typeof value === "string" ? value : value.text}</p>)}</article>;
       })}

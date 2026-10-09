@@ -146,3 +146,21 @@ it("suppresses equal warnings only in the selected template and allows retry aft
     expect(screen.getByText("different warning")).toBeTruthy();
   } finally { cleanup(); window.terminalApi = previous; }
 });
+
+ it("renders Codex activities with optional details and preserves event filtering", () => {
+  const sleep = { id: "sleep", type: "sleep", status: "completed", durationMs: 1500 };
+  const image = { id: "image", type: "imageGeneration", status: "failed", savedPath: "C:/result.png" };
+  const { rerender } = render(<CodexEventCard item={sleep} />);
+  expect(screen.getByText("等待时长：1.5 秒")).toBeTruthy();
+  expect(screen.getByText("已完成")).toBeTruthy();
+  rerender(<CodexEventCard item={image} />);
+  expect(screen.getByText("图片生成")).toBeTruthy();
+  expect(screen.getByText("失败")).toBeTruthy();
+  expect(screen.getByText("结果路径：C:/result.png")).toBeTruthy();
+  rerender(<CodexEventCard item={{ id: "image", type: "imageGeneration" }} />);
+  expect(screen.queryByText(/结果路径/)).toBeNull();
+  expect(screen.queryByText(/未识别/)).toBeNull();
+  expect(timeline([sleep, image]).map(entry => entry.kind)).toEqual(["item", "item"]);
+  const snapshot = { provider: "opencode", items: [sleep, image], diagnostics: [] } as unknown as CodexAppServerSnapshot;
+  expect(groupTimeline(snapshot)).toEqual([]);
+});

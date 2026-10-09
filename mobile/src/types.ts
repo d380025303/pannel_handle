@@ -57,7 +57,7 @@ export type ComputerFileEntry = { name: string; path: string; type: "drive" | "d
 export type GraphicalItem = { rewindMessageId?: string; mcpApp?: { serverName: string; resourceUri: string; revision?: number }; id: string; type: string; turnId?: string; text?: string; command?: string;
   summary?: Array<string | { text?: string }>;
     compactionId?: string; compactionSummary?: unknown[]; compactionError?: string; compactionSource?: string; senderThreadId?: string; receiverThreadId?: string; prompt?: string; agentStatus?: string;
-  output?: string; status?: string; toolName?: string; toolKind?: string; explanation?: string;
+  output?: string; status?: string; durationMs?: number; savedPath?: string | null; toolName?: string; toolKind?: string; explanation?: string;
   tool?: string; server?: string; query?: string; arguments?: unknown; result?: unknown;
   changes?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;
   attachments?: Array<{ name: string; path?: string }>;

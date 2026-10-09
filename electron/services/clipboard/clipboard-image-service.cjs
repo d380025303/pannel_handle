@@ -68,10 +68,24 @@ function createClipboardImageService({
   now = () => new Date(),
   randomBytes = crypto.randomBytes
 }) {
-  async function pasteImageToSession(sessionId, { localCwd } = {}) {
-    const image = clipboard.readImage();
-    const pngBuffer = getPngBuffer(image);
-    if (!pngBuffer) {
+  async function pasteImageToSession(sessionId, { localCwd, image: fileImage } = {}) {
+    let ext = ".png";
+    let imageBuffer;
+    if (fileImage !== undefined) {
+      if (!fileImage || typeof fileImage.name !== "string" || !(fileImage.bytes instanceof Uint8Array)) {
+        throw new Error("无效的图片文件。");
+      }
+      ext = path.extname(fileImage.name).toLowerCase();
+      if (![".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext)) {
+        throw new Error("不支持的图片格式。");
+      }
+      if (!fileImage.bytes.byteLength) throw new Error("图片文件为空或无法读取。");
+      if (fileImage.bytes.byteLength > 10 * 1024 * 1024) throw new Error("图片文件不能超过 10 MiB。");
+      imageBuffer = Buffer.from(fileImage.bytes);
+    } else {
+      imageBuffer = getPngBuffer(clipboard.readImage());
+    }
+    if (!imageBuffer) {
       return { status: "no_image" };
     }
 
@@ -81,22 +95,22 @@ function createClipboardImageService({
     }
 
     if (localCwd) {
-      const fileName = createImageFileName(now(), randomBytes);
+      const fileName = createImageFileName(now(), randomBytes, ext);
       const directory = path.win32.join(localCwd, IMAGE_DIR_NAME);
       await fs.promises.mkdir(directory, { recursive: true });
       const filePath = path.win32.join(directory, fileName);
-      await fs.promises.writeFile(filePath, pngBuffer, { flag: "wx" });
-      return { status: "saved", path: filePath, size: pngBuffer.length };
+      await fs.promises.writeFile(filePath, imageBuffer, { flag: "wx" });
+      return { status: "saved", path: filePath, size: imageBuffer.length };
     }
 
     const basePath = await resolveSessionWorkingDirectory(session, remoteFileService, sessionId);
-    const fileName = createImageFileName(now(), randomBytes);
+    const fileName = createImageFileName(now(), randomBytes, ext);
     const remotePath = joinSessionPath(session, basePath, fileName);
-    const saved = await remoteFileService.writeBinaryFile(sessionId, remotePath, pngBuffer);
+    const saved = await remoteFileService.writeBinaryFile(sessionId, remotePath, imageBuffer);
     return {
       status: "saved",
       path: saved.remotePath,
-      size: pngBuffer.length
+      size: imageBuffer.length
     };
   }
 

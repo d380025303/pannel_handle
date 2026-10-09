@@ -1537,7 +1537,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function previewAttachment(id, file) {
     const entry = entryFor(id);
-    if (!entry.allowedFiles.has(file) && !entry.items.some(item => item.attachments?.some(value => value.path === file))) throw new Error("只能预览当前会话的附件。");
+    if (!entry.allowedFiles.has(file) && !entry.pastedImages.has(file)
+      && !entry.items.some(item => item.attachments?.some(value => value.path === file))) throw new Error("只能预览当前会话的附件。");
     const remote = isRemote(entry) && file.startsWith("/");
     const mime = IMAGE_MIME[path.extname(file).toLowerCase()];
     const limit = mime ? IMAGE_LIMIT : PREVIEW_LIMIT;

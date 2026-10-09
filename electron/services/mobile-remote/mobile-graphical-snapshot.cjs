@@ -80,6 +80,7 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
       compactionId: item.compactionId, compactionSummary: item.compactionSummary, compactionError: item.compactionError, compactionSource: item.compactionSource,
       summary: item.summary, senderThreadId: item.senderThreadId, receiverThreadId: item.receiverThreadId, prompt: item.prompt, agentStatus: item.agentStatus,
       command: item.command, output: item.output, status: item.status,
+      durationMs: item.durationMs, savedPath: item.savedPath,
       toolName: item.toolName, toolKind: item.toolKind, explanation: item.explanation,
       tool: item.tool, server: item.server, query: item.query,
       arguments: item.arguments, result: item.result, changes: item.changes, locations: item.locations, toolContent: item.toolContent,

@@ -5,6 +5,19 @@ const { registerIpcHandlers, updateSessionFromIpc } = await import("./ipc-handle
 const { createGraphicalSessionRouter } = createRequire(import.meta.url)("../services/codebuddy-acp/session-router.cjs");
 
 describe("session IPC handlers", () => {
+  it("forwards copied image bytes and authorizes the saved local Agent image", async () => {
+    const handlers = new Map();
+    const image = { name: "copied.jpg", bytes: new Uint8Array([1]) };
+    const service = { snapshot: vi.fn(), getWorkspaceCwd: () => "C:\\work", allowPastedImage: vi.fn() };
+    const clipboardImageService = { pasteImageToSession: vi.fn(async () => ({ status: "saved", path: "C:\\work\\saved.jpg", size: 1 })) };
+    registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager: { getSession: () => ({ type: "ssh", agentLocation: "local" }) },
+      codexAppServerSessionService: service, clipboardImageService });
+    await handlers.get("codex-app-server:paste-image")({}, "run-1", image);
+    expect(clipboardImageService.pasteImageToSession).toHaveBeenCalledWith("run-1", { localCwd: "C:\\work", image });
+    expect(service.allowPastedImage).toHaveBeenCalledWith("run-1", "C:\\work\\saved.jpg");
+  });
+
   it("forwards OpenCode fork and delete IPC through the graphical router", async () => {
     const handlers = new Map();
     const openCode = { forkThread: vi.fn(async () => ({ threadId: "branch" })), deleteThread: vi.fn(async () => {}) };

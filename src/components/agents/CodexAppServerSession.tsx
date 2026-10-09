@@ -898,7 +898,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       } }
     catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
   }
-  async function pasteImage() {
+  async function pasteImage(files: File[] = []) {
     if (!supportsCodexImageInput(timelineRef.current || snapshot)) { setError(IMAGE_INPUT_UNSUPPORTED); return; }
     if (pastingRef.current || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || !snapshot.threadId) return;
@@ -907,27 +907,50 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setPastingImage(true);
     setError("");
     const input = textareaRef.current;
-    const token = addInlineImage(input?.selectionStart ?? draft.length, input?.selectionEnd ?? draft.length, null);
+    let caret = input?.selectionStart ?? draft.length;
+    let end = input?.selectionEnd ?? draft.length;
+    const available = 10 - attachments.length;
+    const errors = files.length > available ? ["最多附加 10 个文件，已跳过超出部分。"] : [];
     try {
-      const result = await window.codexAppServerApi.pasteImage(sessionId);
-      if (result.status === "no_image") throw new Error("剪贴板中没有可用的图片。");
-      if (currentSessionRef.current !== sessionId || !inlineImagesRef.current.some(image => image.token === token)) {
-        await window.codexAppServerApi.discardImage(sessionId, result.path);
-        return;
+      for (const file of files.length ? files.slice(0, available) : [undefined]) {
+        if (currentSessionRef.current !== sessionId) break;
+        const token = addInlineImage(caret, end, null);
+        end = caret;
+        try {
+          let image: { name: string; bytes: Uint8Array } | undefined;
+          if (file) {
+            if (!sendableImageFile(file.name)) throw new Error("不支持的图片格式。");
+            if (!file.size) throw new Error("图片文件为空或无法读取。");
+            if (file.size > 10 * 1024 * 1024) throw new Error("图片文件不能超过 10 MiB。");
+            image = { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
+          }
+          const result = image
+            ? await window.codexAppServerApi.pasteImage(sessionId, image)
+            : await window.codexAppServerApi.pasteImage(sessionId);
+          if (result.status === "no_image") throw new Error("剪贴板中没有可用的图片。");
+          if (currentSessionRef.current !== sessionId || !inlineImagesRef.current.some(value => value.token === token)) {
+            await window.codexAppServerApi.discardImage(sessionId, result.path);
+            continue;
+          }
+          pastedImagesRef.current.add(result.path);
+          inlineImagesRef.current = inlineImagesRef.current.map(value => value.token === token ? { ...value, path: result.path } : value);
+          setInlineImages(inlineImagesRef.current);
+          setAttachments(current => [...current, result.path]);
+          caret += token.length;
+          end = caret;
+        } catch (cause) {
+          if (currentSessionRef.current === sessionId) {
+            errors.push(file ? `${file.name}：${message(cause)}` : message(cause));
+            inlineImagesRef.current = inlineImagesRef.current.filter(value => value.token !== token);
+            setInlineImages(inlineImagesRef.current);
+            setDraft(current => current.replace(token, ""));
+          }
+        }
       }
-      pastedImagesRef.current.add(result.path);
-      inlineImagesRef.current = inlineImagesRef.current.map(image => image.token === token ? { ...image, path: result.path } : image);
-      setInlineImages(inlineImagesRef.current);
-      setAttachments(current => [...current, result.path]);
-    } catch (cause) {
-      if (currentSessionRef.current === sessionId) {
-        setError(message(cause));
-        inlineImagesRef.current = inlineImagesRef.current.filter(image => image.token !== token);
-        setInlineImages(inlineImagesRef.current);
-        setDraft(current => current.replace(token, ""));
-      }
+    } finally {
+      pastingRef.current = false;
+      if (currentSessionRef.current === sessionId) { setPastingImage(false); setError(errors.join("\n")); }
     }
-    finally { pastingRef.current = false; if (currentSessionRef.current === sessionId) setPastingImage(false); }
   }
   async function removeAttachment(filePath: string) {
     if (pastedImagesRef.current.has(filePath)) {
@@ -1594,9 +1617,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         if (mention) setFileMention(mention);
         else closeFileMention();
       }} onPaste={event => {
-        if (!Array.from(event.clipboardData.items).some(item => item.type.startsWith("image/"))) return;
+        const files = Array.from(event.clipboardData.files || []).filter(file => file.type.startsWith("image/") || sendableImageFile(file.name));
+        if (!files.length && !Array.from(event.clipboardData.items).some(item => item.type.startsWith("image/"))) return;
         event.preventDefault();
-        void pasteImage();
+        void pasteImage(files);
       }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
         if (slashQuery !== null && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {

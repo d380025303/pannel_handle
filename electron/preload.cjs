@@ -214,7 +214,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   executePlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:execute-plan", id, itemId),
   chooseFiles: id => ipcRenderer.invoke("codex-app-server:choose-files", id),
   previewAttachment: (id, filePath) => ipcRenderer.invoke("codex-app-server:preview-attachment", id, filePath),
-  pasteImage: id => ipcRenderer.invoke("codex-app-server:paste-image", id),
+  pasteImage: (id, image) => ipcRenderer.invoke("codex-app-server:paste-image", id, image),
   discardImage: (id, filePath) => ipcRenderer.invoke("codex-app-server:discard-image", id, filePath),
   askSideQuestion: (id, question) => ipcRenderer.invoke("codex-app-server:ask-side-question", id, question),
   cancelSideQuestion: (id, requestId) => ipcRenderer.invoke("codex-app-server:cancel-side-question", id, requestId),

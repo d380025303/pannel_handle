@@ -80,7 +80,8 @@ export function codexReasoningSummary(item: GraphicalItem) {
 export function groupTimeline(items: GraphicalItem[], provider?: AgentProvider): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const item of items) {
-    if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)) continue;
+    if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)
+      && !(provider === "codex" && ["sleep", "imageGeneration"].includes(item.type))) continue;
     if (provider === "codex" && item.type === "reasoning" && !codexReasoningSummary(item)) continue;
     const previous = entries.at(-1);
     if (toolTypes.has(item.type)) {

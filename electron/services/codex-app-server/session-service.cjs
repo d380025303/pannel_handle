@@ -552,6 +552,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "item/started" || message.method === "item/completed") {
       const item = displayItem(params.item);
       if (item?.id) {
+        if (["sleep", "imageGeneration"].includes(item.type) && !item.status)
+          item.status = message.method === "item/completed" ? "completed" : "inProgress";
         if (item.type === "reasoning") item.status = message.method === "item/completed" ? "completed" : "inProgress";
         if (item.type === "contextCompaction") {
           item.status = message.method === "item/completed" ? "completed" : "inProgress";
@@ -621,7 +623,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "turn/completed") {
       entry.turnStatus = params.turn?.status || "failed";
       const completedTurnId = params.turn?.id || entry.turnId || null;
-      for (const item of entry.items) if (item.type === "reasoning" && item.status === "inProgress"
+      for (const item of entry.items) if (["reasoning", "sleep", "imageGeneration"].includes(item.type) && ["inProgress", "in_progress", "pending"].includes(item.status)
         && item.turnId === completedTurnId) item.status = entry.turnStatus;
       if (params.turn?.error) {
         recordError(entry, params.turn.error, completedTurnId);

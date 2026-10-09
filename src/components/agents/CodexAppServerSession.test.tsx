@@ -2847,6 +2847,75 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(dismissPlan).toHaveBeenCalledWith("run-1", "codebuddy-plan:91"));
   });
 
+  it("pastes multiple copied files in order and continues after a failure", async () => {
+    const files = ["first.jpg", "bad.png", "last.webp"].map(name => {
+      const file = new File([new Uint8Array([1, 2, 3])], name, { type: "image/jpeg" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => new Uint8Array([1, 2, 3]).buffer });
+      return file;
+    });
+    pasteImage.mockResolvedValueOnce({ status: "saved", path: "C:\\project\\first.jpg", size: 3 })
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValueOnce({ status: "saved", path: "C:\\project\\last.webp", size: 3 });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    fireEvent.paste(input, { clipboardData: { files, items: [{ type: "image/jpeg" }] } });
+    await screen.findByText("last.webp");
+    expect(pasteImage).toHaveBeenNthCalledWith(1, "run-1", { name: "first.jpg", bytes: new Uint8Array([1, 2, 3]) });
+    expect(pasteImage).toHaveBeenNthCalledWith(3, "run-1", { name: "last.webp", bytes: new Uint8Array([1, 2, 3]) });
+    expect((await screen.findByRole("alert")).textContent).toContain("bad.png：disk full");
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "", ["C:\\project\\first.jpg", "C:\\project\\last.webp"], [], [
+      { type: "image", path: "C:\\project\\first.jpg" }, { type: "image", path: "C:\\project\\last.webp" }]));
+  });
+
+  it("limits a copied file batch to ten attachments", async () => {
+    const files = Array.from({ length: 11 }, (_, index) => {
+      const file = new File(["x"], `${index}.png`, { type: "image/png" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => new Uint8Array([1]).buffer });
+      pasteImage.mockResolvedValueOnce({ status: "saved", path: `C:\\project\\${index}.png`, size: 1 });
+      return file;
+    });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.paste(input, { clipboardData: { files, items: [] } });
+    expect((await screen.findByRole("alert")).textContent).toContain("已跳过超出部分");
+    expect(pasteImage).toHaveBeenCalledTimes(10);
+    // The eleventh result was never consumed.
+    pasteImage.mockReset().mockResolvedValue({ status: "saved", path: "C:\\project\\.pannel-handle-images\\capture.png", size: 3 });
+  });
+
+  it.each([
+    ["empty.png", 0, "图片文件为空"],
+    ["large.png", 10 * 1024 * 1024 + 1, "10 MiB"],
+    ["drawing.svg", 1, "不支持的图片格式"]
+  ])("rejects copied %s before transferring bytes", async (name, size, error) => {
+    const file = new File(["x"], name, { type: "image/png" });
+    Object.defineProperty(file, "size", { value: size });
+    const arrayBuffer = vi.fn();
+    Object.defineProperty(file, "arrayBuffer", { value: arrayBuffer });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.paste(input, { clipboardData: { files: [file], items: [] } });
+    expect((await screen.findByRole("alert")).textContent).toContain(error);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(pasteImage).not.toHaveBeenCalled();
+  });
+
+  it("discards a copied file when its placeholder is removed while saving", async () => {
+    let finish!: (value: { status: "saved"; path: string; size: number }) => void;
+    pasteImage.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const file = new File(["x"], "copied.png", { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new Uint8Array([1]).buffer });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.paste(input, { clipboardData: { files: [file], items: [] } });
+    await waitFor(() => expect(pasteImage).toHaveBeenCalled());
+    fireEvent.change(input, { target: { value: "" } });
+    await act(async () => finish({ status: "saved", path: "C:\\project\\copied.png", size: 1 }));
+    await waitFor(() => expect(discardImage).toHaveBeenCalledWith("run-1", "C:\\project\\copied.png"));
+    expect(screen.queryByText("copied.png")).toBeNull();
+  });
+
   it("adds pasted images as removable attachments and sends them with text", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
@@ -2855,6 +2924,8 @@ describe("CodexAppServerSession", () => {
     input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
     expect(await screen.findByText("capture.png")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "预览 capture.png" }).querySelector("img")?.getAttribute("src"))
+      .toBe("data:image/png;base64,AA=="));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "检查这张图", ["C:\\project\\.pannel-handle-images\\capture.png"], [], [
       { type: "text", text: "检查这张图" }, { type: "image", path: "C:\\project\\.pannel-handle-images\\capture.png" }]));

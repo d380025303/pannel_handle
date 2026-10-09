@@ -2147,3 +2147,36 @@ it("rejects a text-only default model before transferring a remote image", async
     expect(received.some(value => value.method === "turn/start")).toBe(false);
   } finally { service.shutdown(); }
 });
+
+it("preserves and settles sleep and image generation events without duplicate items", async () => {
+  const child = fakeProcess([]);
+  const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+    terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+  const emit = (method, item) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", turnId: "turn-1", item } })}\n`);
+  try {
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:/project" });
+    for (const type of ["sleep", "imageGeneration"]) {
+      emit("item/started", { id: type, type, durationMs: 1000 });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items.find(item => item.id === type)?.status).toBe("inProgress"));
+      emit("item/completed", { id: type, type, durationMs: 1000, savedPath: "C:/image.png", ...(type === "imageGeneration" ? { status: "failed" } : {}) });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items.find(item => item.id === type)?.status).toBe(type === "sleep" ? "completed" : "failed"));
+    }
+    expect(service.snapshot("run-1").items).toHaveLength(2);
+    emit("item/started", { id: "pending-sleep", type: "sleep", durationMs: 10000 });
+    child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } } })}\n`);
+    await vi.waitFor(() => expect(service.snapshot("run-1").items.find(item => item.id === "pending-sleep")?.status).toBe("interrupted"));
+
+  } finally { service.close("run-1"); }
+});
+it("preserves activity details through history and mobile projection", () => {
+  const { historyItems } = require("./snapshot-helpers.cjs");
+  const { toMobileGraphicalSnapshot } = require("../mobile-remote/mobile-graphical-snapshot.cjs");
+  const items = historyItems({ turns: [{ id: "t", status: "completed", items: [
+    { id: "s", type: "sleep", durationMs: 1000 },
+    { id: "i", type: "imageGeneration", status: "failed", savedPath: "C:/image.png" }
+  ] }] });
+  expect(items.map(item => item.status)).toEqual(["completed", "failed"]);
+  expect(toMobileGraphicalSnapshot({ provider: "codex", items }).items).toMatchObject([
+    { durationMs: 1000, status: "completed" }, { savedPath: "C:/image.png", status: "failed" }
+  ]);
+});
