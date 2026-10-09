@@ -3,11 +3,12 @@ import type { CSSProperties, PointerEvent } from "react";
 import { Minus, Sparkles } from "lucide-react";
 import type { AgentRunStatus, Locale } from "../../vite-env";
 import mascotImage from "../../assets/mascot/panel-navigator.png";
-import idleImage from "../../assets/mascot/gifs/panna-idle.gif";
 import waveImage from "../../assets/mascot/gifs/panna-wave.gif";
 import workingImage from "../../assets/mascot/gifs/panna-working.gif";
 import celebrateImage from "../../assets/mascot/gifs/panna-celebrate.gif";
 import stillImage from "../../assets/mascot/gifs/frames/idle/01.png";
+import halfClosedImage from "../../assets/mascot/gifs/frames/idle/03.png";
+import closedImage from "../../assets/mascot/gifs/frames/idle/04.png";
 import "./DesktopMascot.css";
 
 export type MascotAction = "create" | "sessions" | "terminal" | "skills" | "mcp" | "settings";
@@ -15,7 +16,7 @@ type Preferences = { collapsed: boolean; animated: boolean; x?: number; y?: numb
 const storageKey = "pannel-handle.desktop-mascot.v1";
 const motionQuery = "(prefers-reduced-motion: reduce)";
 const animations = {
-  idle: { image: idleImage, duration: 3000 },
+  idle: { image: stillImage, duration: 3000 },
   wave: { image: waveImage, duration: 2080 },
   working: { image: workingImage, duration: 3000 },
   celebrate: { image: celebrateImage, duration: 2080 }
@@ -27,9 +28,20 @@ function useMascotAnimation(allowed: boolean) {
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.(motionQuery).matches ?? false);
   const [visible, setVisible] = useState(() => !document.hidden);
   const [failed, setFailed] = useState(false);
+  const [blinkFrame, setBlinkFrame] = useState(stillImage);
   const [playback, setPlayback] = useState<{ animation: Animation; serial: number; loaded: boolean }>({ animation: "idle", serial: 0, loaded: false });
   const previousAction = useRef<Animation | undefined>(undefined);
   const enabled = allowed && visible && !reducedMotion && !failed;
+
+  useEffect(() => {
+    const images = [stillImage, halfClosedImage, closedImage].map(src => {
+      const image = new Image();
+      image.onerror = () => setFailed(true);
+      image.src = src;
+      return image;
+    });
+    return () => images.forEach(image => { image.onerror = null; });
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia?.(motionQuery);
@@ -61,10 +73,36 @@ function useMascotAnimation(allowed: boolean) {
     return () => window.clearTimeout(timer);
   }, [enabled, playback]);
 
+  useEffect(() => {
+    setBlinkFrame(stillImage);
+    if (!enabled || !playback.loaded || playback.animation !== "idle") return;
+    let timer: number;
+    const schedule = (callback: () => void, delay: number) => {
+      timer = window.setTimeout(callback, delay);
+    };
+    const wait = () => schedule(() => blink(Math.random() < 0.25), 2500 + Math.random() * 3500);
+    const blink = (double: boolean) => {
+      setBlinkFrame(halfClosedImage);
+      schedule(() => {
+        setBlinkFrame(closedImage);
+        schedule(() => {
+          setBlinkFrame(halfClosedImage);
+          schedule(() => {
+            setBlinkFrame(stillImage);
+            if (double) schedule(() => blink(false), 120 + Math.random() * 100);
+            else wait();
+          }, 80);
+        }, 80);
+      }, 60);
+    };
+    wait();
+    return () => window.clearTimeout(timer);
+  }, [enabled, playback.animation, playback.serial, playback.loaded]);
+
   return {
     enabled,
     failed,
-    image: failed ? mascotImage : enabled ? animations[playback.animation].image : stillImage,
+    image: failed ? mascotImage : enabled ? playback.animation === "idle" ? blinkFrame : animations[playback.animation].image : stillImage,
     key: `${enabled ? "motion" : "still"}-${playback.serial}`,
     onLoad: () => {
       if (!enabled) return;
@@ -89,7 +127,7 @@ function loadPreferences(): Preferences {
 function boundPosition(x: number, y: number, collapsed: boolean) {
   return {
     x: Math.max(8, Math.min(x, window.innerWidth - (collapsed ? 52 : 144) - 8)),
-    y: Math.max(44, Math.min(y, window.innerHeight - (collapsed ? 52 : 192) - 8))
+    y: Math.max(44, Math.min(y, window.innerHeight - (collapsed ? 52 : 232) - 8))
   };
 }
 

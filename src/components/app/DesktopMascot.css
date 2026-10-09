@@ -1,8 +1,8 @@
-.desktop-mascot { position: fixed; z-index: 50; width: 144px; height: 192px; pointer-events: none; color: var(--color-text); font-size: 12px; }
+.desktop-mascot { position: fixed; z-index: 50; width: 144px; height: 232px; pointer-events: none; color: var(--color-text); font-size: 12px; }
 .desktop-mascot button, .desktop-mascot input { font: inherit; }
 .desktop-mascot button { cursor: pointer; color: inherit; }
 .desktop-mascot button:focus-visible, .desktop-mascot input:focus-visible { outline: 2px solid var(--color-info-text); outline-offset: 2px; }
-.desktop-mascot-controls { display: flex; justify-content: center; gap: 6px; position: absolute; bottom: 0; left: 0; right: 0; height: 32px; pointer-events: auto; z-index: 1; }
+.desktop-mascot-controls { display: flex; justify-content: center; gap: 6px; position: absolute; bottom: 0; left: 0; right: 0; height: 40px; padding-top: 8px; box-sizing: border-box; pointer-events: auto; z-index: 1; }
 .desktop-mascot-controls button { display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-panel); width: 40px; height: 32px; padding: 0; }
 .desktop-mascot-controls[hidden] { display: none; }
 .desktop-mascot.is-dragging .desktop-mascot-character { cursor: grabbing; }

@@ -15,4 +15,4 @@ CELEBRATE
 undefined
 
 
-Wave stabilization (2026-10-09): Regenerate the transparent 4x2 wave sheet with the first character as master; keep head, face, hair, torso, tablet, legs and feet identical, only gently wave the raised forearm. Final assembly uses only the first cell with deterministic local deformation to guarantee static body consistency.
+Wave anatomy repair (2026-10-09): Transparent 4x2 sheet, eight consecutive full-body poses of the same character. Keep head, face, hair, torso, tablet, legs and feet aligned. Only rotate the raised hand and forearm around a stationary elbow, from -15 to +20 degrees. Clean five-finger hand with distinct thumb, consistent finger lengths, compact palm and normal wrist inside sleeve; maintain separation from hair. Never stretch, squash or smear the hand. Final assembly uses the original painted keyframes with common scale and lower-body alignment, without pixel deformation.

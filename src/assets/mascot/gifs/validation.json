@@ -17,14 +17,7 @@
     "durationMs": 2080,
     "loop": "infinite",
     "transparent": true,
-    "bytes": 702335,
-    "staticBodyUnchanged": true,
-    "motionRegion": {
-      "left": 320,
-      "top": 198,
-      "width": 88,
-      "height": 102
-    }
+    "bytes": 712344
   },
   {
     "file": "panna-working.gif",

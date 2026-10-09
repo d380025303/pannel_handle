@@ -178,19 +178,43 @@ describe("DesktopMascot", () => {
     return render(<DesktopMascot locale="zh-CN" onAction={vi.fn()} />);
   }
 
+  it.each([false, true])("plays a complete blink, with optional second blink: %s", double => {
+    startAnimation();
+    vi.mocked(Math.random).mockReturnValue(0.5).mockReturnValueOnce(0).mockReturnValueOnce(0);
+    fireEvent.load(character());
+    advance(2499);
+    expect(character().getAttribute("src")).toContain("idle/01.png");
+    vi.mocked(Math.random).mockReturnValueOnce(double ? 0 : 0.5);
+    advance(1);
+    expect(character().getAttribute("src")).toContain("idle/03.png");
+    advance(60);
+    expect(character().getAttribute("src")).toContain("idle/04.png");
+    advance(80);
+    expect(character().getAttribute("src")).toContain("idle/03.png");
+    advance(80);
+    expect(character().getAttribute("src")).toContain("idle/01.png");
+    advance(170);
+    expect(character().getAttribute("src")).toContain(double ? "idle/03.png" : "idle/01.png");
+    advance(220);
+    expect(character().getAttribute("src")).toContain("idle/01.png");
+    advance(5110);
+    expect(character().getAttribute("src")).toContain("panna-working.gif");
+  });
+
   it.each([
     [0, "wave", 2080],
     [0.4, "working", 3000],
     [0.9, "celebrate", 2080]
   ] as const)("plays random action %s for one full cycle after image load", (random, name, duration) => {
     const { rerender } = startAnimation();
-    vi.mocked(Math.random).mockReturnValueOnce(0).mockReturnValueOnce(random);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    vi.mocked(Math.random).mockReturnValueOnce(0);
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     advance(20000);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     fireEvent.load(character());
     advance(7999);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
+    vi.mocked(Math.random).mockReturnValueOnce(random);
     advance(1);
     const actionImage = character();
     expect(actionImage.getAttribute("src")).toContain(`panna-${name}.gif`);
@@ -204,15 +228,19 @@ describe("DesktopMascot", () => {
     advance(duration - 1);
     expect(character()).toBe(actionImage);
     advance(1);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
   });
 
   it("waits up to fifteen seconds and avoids repeating the previous random action", () => {
     startAnimation();
-    vi.mocked(Math.random).mockReturnValueOnce(0.9999).mockReturnValueOnce(0);
+    vi.mocked(Math.random).mockReturnValueOnce(0.9999).mockReturnValueOnce(1);
     fireEvent.load(character());
-    advance(14998);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    advance(5999);
+    expect(character().getAttribute("src")).toContain("idle/01.png");
+    advance(1);
+    expect(character().getAttribute("src")).toContain("idle/03.png");
+    advance(8998);
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     advance(2);
     expect(character().getAttribute("src")).toContain("panna-wave.gif");
     fireEvent.load(character());
@@ -237,9 +265,9 @@ describe("DesktopMascot", () => {
     expect(screen.getByRole("complementary").querySelector("img")).toBeNull();
     expect(timerCount()).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: "展开看板娘" }));
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     fireEvent.load(character());
-    expect(timerCount()).toBe(1);
+    expect(timerCount()).toBe(2);
     unmount();
     expect(timerCount()).toBe(0);
   });
@@ -256,7 +284,7 @@ describe("DesktopMascot", () => {
     expect(timerCount()).toBe(0);
     hidden.mockReturnValue(false);
     fireEvent(document, new Event("visibilitychange"));
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
   });
 
   it("respects reduced motion initially and when the system preference changes", () => {
@@ -269,7 +297,7 @@ describe("DesktopMascot", () => {
     expect(timerCount()).toBe(0);
     reduced = false;
     act(() => { media.dispatchEvent(new Event("change")); });
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     fireEvent.load(character());
     reduced = true;
     act(() => { media.dispatchEvent(new Event("change")); });
