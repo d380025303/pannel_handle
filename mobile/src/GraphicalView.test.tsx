@@ -14,6 +14,18 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+it("shows Codex child activity cards and translated read-only member status", () => {
+  const { emit } = fixture({ ...session, agentProvider: "codex" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, provider: "codex",
+    items: [{ id: "activity", type: "subAgentActivity", kind: "started", agentThreadId: "child", agentPath: "/root/scout" }],
+    subAgents: { expanded: true, selectedThreadId: "child", loading: false, error: null, warning: null,
+      members: [{ threadId: "child", parentThreadId: "root", name: "scout", role: "", task: "inspect", status: "completed", createdAt: 0, loading: false, error: null, items: [{ id: "reply", type: "agentMessage", text: "child reply" }] }] }
+  } });
+  expect(screen.getByText("子 Agent · 开始任务")).toBeTruthy();
+  expect(screen.getByText(/scout ·.*已完成/)).toBeTruthy();
+  expect(screen.getByText("child reply")).toBeTruthy();
+});
+
 it("shows and clears OpenCode retry status from remote snapshots", () => {
   const { emit } = fixture({ ...session, agentProvider: "opencode" });
   const current = { ...snapshot, provider: "opencode" as const, busy: true,

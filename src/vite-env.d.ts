@@ -1161,7 +1161,7 @@ export type CodexAppServerSnapshot = {
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
     summary?: Array<string | { text?: string }>;
     compactionId?: string; compactionSummary?: unknown[]; compactionError?: string; compactionSource?: string;
-    review?: string; path?: string; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
+    review?: string; path?: string; agentThreadId?: string; agentPath?: string; kind?: string; receiverThreadIds?: string[]; agentsStates?: Record<string, { status: string; message?: string | null }>; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
     prompt?: string; agentStatus?: string;
     mcpApp?: { serverName: string; resourceUri: string; revision?: number };
     result?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;

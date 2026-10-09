@@ -1,19 +1,413 @@
-.mobile-codebuddy-panel .modal-overlay, .mobile-codebuddy-panel .codex-plugin-backdrop { position: fixed; inset: 0; z-index: 70; background: #0008; display: flex; align-items: flex-end; }
-.mobile-codebuddy-panel .modal-dialog, .mobile-codebuddy-panel .codex-plugin-dialog { box-sizing: border-box; width: 100%; max-width: 100%; max-height: 90dvh; overflow: auto; border-radius: 18px 18px 0 0; padding: 16px; background: var(--surface, #202127); color: inherit; }
-.mobile-codebuddy-panel .codebuddy-side-dialog { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.mobile-codebuddy-panel .codebuddy-side-dialog label { margin: 0; }
-.mobile-codebuddy-panel .codebuddy-side-dialog button { margin: 0; }
-.mobile-codebuddy-panel .codebuddy-side-answer-body pre { white-space: pre; overflow-wrap: normal; }
-.mobile-codebuddy-panel header, .mobile-codebuddy-panel .codex-app-server-history-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.mobile-codebuddy-panel label { display: grid; gap: 8px; margin: 12px 0; }
-.mobile-codebuddy-panel textarea, .mobile-codebuddy-panel input:not([type=checkbox]):not([type=radio]), .mobile-codebuddy-panel select { box-sizing: border-box; width: 100%; min-height: 40px; }
-.mobile-codebuddy-panel button { min-height: 40px; margin: 4px; }
-.mobile-codebuddy-panel svg { width: 18px; height: 18px; }
-.mobile-codebuddy-panel .codebuddy-jobs-body, .mobile-codebuddy-panel .mcp-manager-body { display: flex; flex-direction: column; gap: 12px; }
-.mobile-codebuddy-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.mobile-codebuddy-panel .mcp-key-value-row { display: flex; gap: 4px; flex-wrap: wrap; }
-.mobile-codebuddy-panel .codex-plugin-tabs { display: flex; flex-wrap: wrap; }
-.mobile-codebuddy-panel [role=alert] { color: #ff9898; }
+.mobile-codebuddy-panel {
+  --color-text: #d8e2f0;
+  --color-text-strong: #e2e8f0;
+  --color-text-secondary: #a8bdd4;
+  --color-text-muted: #9fb5ce;
+  --color-text-on-accent: #ffffff;
+  --color-bg-panel: #111c2c;
+  --color-bg-control: #19283b;
+  --color-bg-control-hover: #24374f;
+  --color-bg-hover: #24374f;
+  --color-border: #344459;
+  --color-border-strong: #50627b;
+  --color-accent: #22d3ee;
+  --color-danger-text: #fecdd3;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  outline: none;
+  color: var(--color-text);
+  color-scheme: dark;
+}
+
+.mobile-codebuddy-panel .modal-overlay,
+.mobile-codebuddy-panel .codex-plugin-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: #020617bb;
+}
+
+.mobile-codebuddy-panel .modal-dialog,
+.mobile-codebuddy-panel .codex-plugin-dialog {
+  box-sizing: border-box;
+  width: min(100%, 520px);
+  max-width: 100%;
+  max-height: 90dvh;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.mobile-codebuddy-panel .codebuddy-side-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.mobile-codebuddy-panel .codebuddy-side-content {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.mobile-codebuddy-panel .codebuddy-side-dialog label,
+.mobile-codebuddy-panel .codebuddy-side-dialog button {
+  margin: 0;
+}
+
+.mobile-codebuddy-panel header,
+.mobile-codebuddy-panel .codex-app-server-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-codebuddy-panel h2 {
+  min-width: 0;
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.mobile-codebuddy-panel .codex-plugin-dialog header > div,
+.mobile-codebuddy-panel .codex-plugin-identity > span:last-child,
+.mobile-codebuddy-panel .codex-plugin-marketplace > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-codebuddy-panel .codex-plugin-dialog small {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mobile-codebuddy-panel .codex-plugin-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.mobile-codebuddy-panel .codex-plugin-icon {
+  flex: none;
+}
+
+.mobile-codebuddy-panel .codex-plugin-toolbar,
+.mobile-codebuddy-panel .codebuddy-jobs-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mobile-codebuddy-panel .codex-plugin-toolbar input {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+.mobile-codebuddy-panel .codebuddy-jobs-list > button {
+  display: flex;
+  width: 100%;
+  margin: 4px 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+
+.mobile-codebuddy-panel .codebuddy-jobs-list > button span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.mobile-codebuddy-panel .codebuddy-jobs-form,
+.mobile-codebuddy-panel .codebuddy-marketplace-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-codebuddy-panel .codebuddy-scheduled-list {
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-codebuddy-panel .codebuddy-scheduled-list > li {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.mobile-codebuddy-panel .codebuddy-scheduled-list p {
+  margin: 0 0 8px;
+}
+
+.mobile-codebuddy-panel header > button,
+.mobile-codebuddy-panel .codex-app-server-history-header > button {
+  flex: none;
+}
+
+.mobile-codebuddy-panel label {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mobile-codebuddy-panel textarea,
+.mobile-codebuddy-panel input:not([type=checkbox]):not([type=radio]),
+.mobile-codebuddy-panel select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: #080d16;
+  font: inherit;
+  font-size: 16px;
+}
+
+.mobile-codebuddy-panel textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.mobile-codebuddy-panel button {
+  min-height: 44px;
+  max-width: 100%;
+  margin: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+
+.mobile-codebuddy-panel button:hover:not(:disabled) {
+  background: var(--color-bg-control-hover);
+}
+
+.mobile-codebuddy-panel button.primary {
+  border-color: #0891b2;
+  color: #ffffff;
+  background: #0e7490;
+}
+
+.mobile-codebuddy-panel button.primary:hover:not(:disabled) {
+  background: #155e75;
+}
+
+.mobile-codebuddy-panel button:disabled,
+.mobile-codebuddy-panel input:disabled,
+.mobile-codebuddy-panel select:disabled,
+.mobile-codebuddy-panel textarea:disabled {
+  opacity: .48;
+}
+
+.mobile-codebuddy-panel button:focus-visible,
+.mobile-codebuddy-panel input:focus-visible,
+.mobile-codebuddy-panel select:focus-visible,
+.mobile-codebuddy-panel textarea:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: 2px;
+}
+
+.mobile-codebuddy-panel button[aria-selected=true],
+.mobile-codebuddy-panel button.active,
+.mobile-codebuddy-panel button.selected {
+  border-color: #0e7490;
+  background: #123747;
+}
+
+.mobile-codebuddy-panel svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.mobile-codebuddy-panel .codebuddy-jobs-body,
+.mobile-codebuddy-panel .mcp-manager-body,
+.mobile-codebuddy-panel .mcp-workspace {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-codebuddy-panel pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mobile-codebuddy-panel .codebuddy-side-answer-body pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.mobile-codebuddy-panel .mcp-key-value-row,
+.mobile-codebuddy-panel .codex-plugin-tabs,
+.mobile-codebuddy-panel .codex-plugin-row-actions,
+.mobile-codebuddy-panel .codex-app-server-goal-actions,
+.mobile-codebuddy-panel .codebuddy-jobs-actions,
+.mobile-codebuddy-panel .mcp-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mobile-codebuddy-panel .mcp-key-value-row > input {
+  flex: 1 1 120px;
+  width: auto;
+}
+
+.mobile-codebuddy-panel .codex-plugin-row,
+.mobile-codebuddy-panel .codebuddy-jobs-list,
+.mobile-codebuddy-panel .codebuddy-jobs-detail,
+.mobile-codebuddy-panel .mcp-sidebar,
+.mobile-codebuddy-panel .mcp-editor-panel {
+  min-width: 0;
+}
+
+.mobile-codebuddy-panel .codex-plugin-row,
+.mobile-codebuddy-panel .codebuddy-jobs-message {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.mobile-codebuddy-panel .codebuddy-scheduled-toggle,
+.mobile-codebuddy-panel .mcp-enabled-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-codebuddy-panel [role=alert] {
+  color: var(--color-danger-text);
+}
+
+.mobile-codebuddy-panel .codex-app-server-goal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-control);
+}
+
+.mobile-codebuddy-panel .codex-app-server-goal-summary span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.mobile-codebuddy-panel .codex-version-control {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mobile-codebuddy-panel .codex-version-header,
+.mobile-codebuddy-panel .codex-version-actions,
+.mobile-codebuddy-panel .codex-version-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mobile-codebuddy-panel .codex-version-header {
+  justify-content: space-between;
+}
+
+.mobile-codebuddy-panel .codex-version-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.mobile-codebuddy-panel .codex-version-actions button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  padding: 0;
+  margin: 0;
+}
+
+.mobile-codebuddy-panel .codex-version-detail,
+.mobile-codebuddy-panel .codex-version-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.mobile-codebuddy-panel .codex-version-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.mobile-codebuddy-panel .codex-version-confirm p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.mobile-codebuddy-panel .codex-version-progress pre {
+  max-height: 140px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #080d16;
+}
+
+.mobile-codebuddy-panel .codex-version-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: mobile-codebuddy-version-spin 1s linear infinite;
+}
+
+@keyframes mobile-codebuddy-version-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-codebuddy-panel .codex-version-spinner { animation: none; }
+}
 .graphical-team { padding: 8px; }.graphical-team pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .graphical-timeline .codex-app-server-tool-group { border: 1px solid var(--color-border-default, #444); border-radius: 12px; margin: 8px 0; padding: 8px; }
@@ -21,7 +415,7 @@
 .graphical-timeline .codex-app-server-tool-group svg { width: 18px; height: 18px; flex-shrink: 0; }
 .graphical-timeline .codex-app-server-tool-group pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .graphical-timeline .codebuddy-mcp-app.fullscreen { inset: 0; padding: 12px; padding-bottom: env(safe-area-inset-bottom); }
-.mobile-codebuddy-panel { outline: none; }
+
 
 .graphical-timeline .codex-app-server-event { border: 1px solid var(--color-border-default, #444); border-radius: 12px; margin: 8px 0; padding: 8px; }
 .graphical-timeline .codex-app-server-event-summary, .graphical-timeline .codex-app-server-tool-heading { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; }

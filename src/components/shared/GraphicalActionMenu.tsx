@@ -68,7 +68,7 @@ export function GraphicalActionMenu({ children, secondaryActions = [], mobile = 
       {nested}
     </> : <>
       {primary}
-      {nested.length > 0 && <button ref={triggerRef} type="button" role={mobile ? undefined : "menuitem"}
+      {nested.length > 0 && <button ref={triggerRef} type="button" className="graphical-menu-secondary-trigger" role={mobile ? undefined : "menuitem"}
         aria-haspopup={mobile ? undefined : "menu"} aria-expanded={false} onClick={() => setSecondary(true)}>{t("graphicalMenu.other")} <span aria-hidden="true">›</span></button>}
     </>}
   </div>;

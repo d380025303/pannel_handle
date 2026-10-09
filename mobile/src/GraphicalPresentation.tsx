@@ -73,7 +73,7 @@ export function permissionLabel(permission?: string | null) {
 
 type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
-const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError", "reasoning", "collabAgentToolCall", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
+const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError", "reasoning", "collabAgentToolCall", "collabToolCall", "subAgentActivity", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
 export function codexReasoningSummary(item: GraphicalItem) {
   return item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n").trim() || "";
 }

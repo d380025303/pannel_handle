@@ -1969,7 +1969,7 @@ describe("Codex App Server session", () => {
 
 
 describe("Codex sub-agent observation integration", () => {
-  it("routes child notifications before root filtering and resets observers on thread switches", async () => {
+  it.each(["collabAgentToolCall", "subAgentActivity"])("routes %s child notifications before root filtering and resets observers on thread switches", async type => {
     const received = [];
     const child = fakeProcess(received, message => {
       if (message.method === "thread/list") return { data: [], nextCursor: null };
@@ -1981,7 +1981,7 @@ describe("Codex sub-agent observation integration", () => {
     const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params })}\n`);
     try {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
-      emit("item/completed", { threadId: "thread-1", item: { id: "spawn", type: "collabAgentToolCall", tool: "spawnAgent", receiverThreadIds: ["child"], agentsStates: {}, prompt: "inspect" } });
+      emit("item/completed", { threadId: "thread-1", item: type === "subAgentActivity" ? { id: "spawn", type, kind: "started", agentThreadId: "child", agentPath: "/root/scout" } : { id: "spawn", type, tool: "spawnAgent", receiverThreadIds: ["child"], agentsStates: {}, prompt: "inspect" } });
       emit("item/started", { threadId: "child", turnId: "child-turn", item: { id: "answer", type: "agentMessage", text: "" } });
       emit("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "child reply" });
       await vi.waitFor(() => expect(service.snapshot("run-1").subAgents.members[0].items[0].text).toBe("child reply"));

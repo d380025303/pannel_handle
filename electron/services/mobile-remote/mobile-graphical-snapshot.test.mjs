@@ -2,6 +2,15 @@ import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 const require = createRequire(import.meta.url);
 const { toMobileGraphicalSnapshot } = require("./mobile-graphical-snapshot.cjs");
+it("preserves new activities and multiple collaboration targets in root and child snapshots", () => {
+  const items = [{ id: "activity", type: "subAgentActivity", agentThreadId: "child", agentPath: "/root/child", kind: "started" },
+    { id: "wait", type: "collabAgentToolCall", receiverThreadIds: ["a", "b"], agentsStates: { a: { status: "completed", message: "done" } }, newThreadId: "a" }];
+  const value = toMobileGraphicalSnapshot({ items, subAgents: { members: [{ threadId: "child", items }] } });
+  for (const projected of [value.items, value.subAgents.members[0].items]) {
+    expect(projected[0]).toMatchObject(items[0]);
+    expect(projected[1]).toMatchObject(items[1]);
+  }
+});
 it("passes model image capabilities to the phone without guessing missing fields", () => {
   const value = toMobileGraphicalSnapshot({ models: [{ id: "text", inputModalities: ["text"] }, { id: "old" }] });
   expect(value.models[0].inputModalities).toEqual(["text"]);

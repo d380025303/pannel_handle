@@ -14,6 +14,26 @@ function fixture(implementation = async () => ({})) {
 afterEach(() => { for (const observer of observers.splice(0)) observer.dispose(); vi.useRealTimers(); });
 
 describe("Codex read-only sub-agent observer", () => {
+  it("discovers activity-only members, preserves interaction status and restores nested history", async () => {
+    const activity = (id, kind = "started") => ({ id: `${id}:${kind}`, type: "subAgentActivity", agentThreadId: id, agentPath: `/root/${id}`, kind });
+    const { observer } = fixture();
+    observer.reset("root", [activity("a"), activity("b"), activity("c")]); await settle();
+    itemEvent(observer, "root", activity("a"));
+    itemEvent(observer, "a", activity("nested"));
+    itemEvent(observer, "root", activity("b", "completed"));
+    itemEvent(observer, "root", activity("b", "interacted"));
+    itemEvent(observer, "root", activity("c", "interrupted"));
+    expect(observer.snapshot().members).toHaveLength(4);
+    expect(observer.snapshot().members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ threadId: "a", name: "/root/a", status: "running" }),
+      expect.objectContaining({ threadId: "b", status: "completed" }),
+      expect.objectContaining({ threadId: "c", status: "interrupted" }),
+      expect.objectContaining({ threadId: "nested", parentThreadId: "a" })
+    ]));
+    observer.reset("other"); await settle();
+    expect(observer.snapshot().members).toEqual([]);
+    expect(itemEvent(observer, "a", activity("foreign"))).toBe(false);
+  });
   it("discovers paginated nested descendants, rejects unrelated records and reads selected history without resuming", async () => {
     const { observer, request } = fixture(async (method, params) => method === "thread/list" ? params.cursor
       ? { data: [{ id: "child", parentThreadId: "root", agentNickname: "Scout", createdAt: 1 }], nextCursor: null }

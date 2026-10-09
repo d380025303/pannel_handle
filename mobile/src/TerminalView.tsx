@@ -192,8 +192,8 @@ export function TerminalView({ session, deviceId, connectionEpoch, send, onTermi
       {quickError && <div className="command-error" role="alert">{quickError}</div>}
       <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand} />
       <div className="terminal-toolbar" aria-label="终端专用按键">
-        <button className={ctrl ? "latched" : ""} type="button" onClick={() => setCtrl((value) => !value)}>Ctrl</button>
-        <button className={alt ? "latched" : ""} type="button" onClick={() => setAlt((value) => !value)}>Alt</button>
+        <button className={ctrl ? "latched" : ""} type="button" aria-pressed={ctrl} onClick={() => setCtrl((value) => !value)}>Ctrl</button>
+        <button className={alt ? "latched" : ""} type="button" aria-pressed={alt} onClick={() => setAlt((value) => !value)}>Alt</button>
         {KEYS.map(([label, value]) => <button key={label} type="button" onClick={() => sendInput(value)}>{label}</button>)}
         <button type="button" onClick={() => { setPasteError(""); setPasteOpen(true); }}>粘贴</button>
         <button type="button" onClick={copySelection}>复制</button>
@@ -208,7 +208,7 @@ export function TerminalView({ session, deviceId, connectionEpoch, send, onTermi
             <h3>粘贴到终端</h3>
             <p>请长按下方文本框，使用系统或输入法剪贴板粘贴。</p>
             {pasteError && <p role="alert">{pasteError}</p>}
-            <textarea autoFocus value={pasteText} onChange={(event) => setPasteText(event.target.value)} />
+            <textarea aria-label="粘贴到终端的文本" autoFocus value={pasteText} onChange={(event) => setPasteText(event.target.value)} />
             <div><button type="button" onClick={() => setPasteOpen(false)}>取消</button><button type="submit" className="primary">发送</button></div>
           </form>
         </div>
@@ -218,7 +218,7 @@ export function TerminalView({ session, deviceId, connectionEpoch, send, onTermi
           <div className="text-sheet">
             <h3>复制终端文本</h3>
             <p>长按文本并使用系统复制。</p>
-            <textarea readOnly value={copyText} onFocus={(event) => event.currentTarget.select()} />
+            <textarea aria-label="复制终端文本" readOnly value={copyText} onFocus={(event) => event.currentTarget.select()} />
             <div><button type="button" className="primary" onClick={() => setCopyText(null)}>完成</button></div>
           </div>
         </div>

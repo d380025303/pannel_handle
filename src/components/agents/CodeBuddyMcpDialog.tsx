@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { McpManager } from "../mcp/McpManager";
 import type { CodeBuddyMcpRuntime, CodexAppServerSnapshot, TerminalSession } from "../../vite-env";
 import "./codebuddy-mcp.css";
@@ -42,7 +43,7 @@ export function CodeBuddyMcpDialog({ session, snapshot, onClose, onRestart, api 
   const tools = [...new Set(snapshot.items.map(item => item.tool || item.toolName || "").filter(name => name.startsWith("mcp__")))];
   return <div className="modal-overlay" onClick={close}>
     <div className="modal-dialog codebuddy-mcp-dialog" role="dialog" aria-modal="true" aria-label="CodeBuddy MCP 管理" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}>
-      <div className="codex-app-server-history-header"><h2>CodeBuddy MCP 管理</h2><button type="button" aria-label="关闭 MCP 管理" onClick={close}>关闭</button></div>
+      <div className="codex-app-server-history-header"><h2>CodeBuddy MCP 管理</h2><button type="button" aria-label="关闭 MCP 管理" onClick={close}><X aria-hidden="true" /></button></div>
       <section className="codebuddy-mcp-runtime" aria-label="MCP 运行状态">
         <button type="button" onClick={() => void refresh()}>刷新记录</button>
         <button type="button" disabled={busy || snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions?.length || snapshot.pendingPlan)} onClick={() => void restart()}>重启会话并应用配置</button>

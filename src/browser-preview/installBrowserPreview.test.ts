@@ -11,11 +11,32 @@ describe("installBrowserPreview", () => {
   it("installs every renderer bridge used by the application", () => {
     expect(Object.keys(window)).toEqual(expect.arrayContaining([
       "environmentApi", "terminalApi", "screenshotApi", "openRouterApi", "naraRouterApi", "miniMaxApi",
-      "agentConversationApi", "codexWorkspaceTrustApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
+      "agentConversationApi", "codexAppServerApi", "codexPluginApi", "codexWorkspaceTrustApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
       "dingTalkApi", "clipboardApi", "externalLinkApi", "remoteFileApi", "remoteSystemApi", "skillsApi",
       "mcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
       "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi"
     ]));
+  });
+
+  it("provides graphical preview panels and keeps their changes in memory", async () => {
+    const snapshot = await window.codexAppServerApi.snapshot("preview");
+    expect(snapshot.items.length).toBeGreaterThan(0);
+    expect(snapshot.goal?.objective).toContain("浏览器预览");
+    const catalog = await window.codexPluginApi.list("preview");
+    expect(catalog.installed.length).toBeGreaterThan(0);
+    const changed = await window.codexPluginApi.setEnabled("preview", "project", { plugin: "preview-tools", marketplace: "preview-marketplace", enabled: false });
+    expect(changed.overrides[changed.pluginId].enabled).toBe(false);
+    expect((await window.codexAppServerApi.readConfiguration("preview")).profiles.data?.length).toBeGreaterThan(0);
+    await window.codexAppServerApi.setPermissionProfile("preview", "preview-workspace");
+    expect((await window.codexAppServerApi.readConfiguration("preview")).runtime.permissionProfileId).toBe("preview-workspace");
+    expect((await window.codexAppServerApi.listCapabilities("preview")).mcp[0].resources.length).toBeGreaterThan(0);
+    expect((await window.codexAppServerApi.readPluginSkill("preview", "preview-tools", "preview-marketplace", "ui-review")).contents).toContain("浏览器预览");
+    expect((await window.codexAppServerApi.listHistory("preview")).data.length).toBeGreaterThan(0);
+    const terminals = await window.codexAppServerApi.listBackgroundTerminals("preview");
+    await window.codexAppServerApi.terminateBackgroundTerminal("preview", terminals[0].processId);
+    expect(await window.codexAppServerApi.listBackgroundTerminals("preview")).toEqual([]);
+    await window.codexAppServerApi.setGoal("preview", { objective: "预览变更", status: "paused" });
+    expect((await window.codexAppServerApi.getGoal("preview")).goal).toMatchObject({ objective: "预览变更", status: "paused" });
   });
 
   it("keeps workspace trust idle and prevents real Hook operations in browser preview", async () => {

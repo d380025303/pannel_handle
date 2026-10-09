@@ -129,10 +129,11 @@ export function OpenCodeAuthDialog({ sessionId, auth, onClose }: Props) {
     if (event.key === "Escape" && !busy) onClose();
   }}>
     <div className="modal-dialog opencode-auth-dialog" role="dialog" aria-modal="true" aria-label="登录 OpenCode">
-      <h2>登录 OpenCode</h2>
+      <div className="modal-header"><h3>登录 OpenCode</h3></div>
+      <div className="modal-body">
       {!auth?.methods.length ? <p>当前 OpenCode 未提供终端登录方式。请在对应运行环境中执行 <code>opencode auth login</code>，完成后重新连接图形会话。</p>
         : <>
-          <label>登录方式 <select aria-label="登录方式" value={methodId} disabled={busy} onChange={event => setMethodId(event.target.value)}>
+          <label className="modal-label">登录方式 <select className="modal-input" aria-label="登录方式" value={methodId} disabled={busy} onChange={event => setMethodId(event.target.value)}>
             {auth.methods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}
           </select></label>
           <p>{auth.methods.find(method => method.id === methodId)?.description}</p>
@@ -140,9 +141,10 @@ export function OpenCodeAuthDialog({ sessionId, auth, onClose }: Props) {
           <div className="opencode-auth-terminal terminal-host" ref={hostRef} />
           {state.error && <p role="alert">{state.error}</p>}
         </>}
-      <div className="modal-actions">
-        {!!auth?.methods.length && <button type="button" disabled={busy} onClick={() => void start()}>{state.status === "failed" || state.status === "cancelled" ? "重试登录" : "开始登录"}</button>}
-        <button type="button" onClick={onClose}>{state.status === "running" || starting ? "取消登录" : "关闭"}</button>
+      </div>
+      <div className="modal-footer">
+        {!!auth?.methods.length && <button className="modal-button primary" type="button" disabled={busy} onClick={() => void start()}>{state.status === "failed" || state.status === "cancelled" ? "重试登录" : "开始登录"}</button>}
+        <button className="modal-button" type="button" onClick={onClose}>{state.status === "running" || starting ? "取消登录" : "关闭"}</button>
       </div>
     </div>
   </div>;

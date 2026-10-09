@@ -1,6 +1,9 @@
 import type {
   AppConfig,
   CodexExecutionPermission,
+  CodexAppServerSnapshot,
+  CodexPluginCatalog,
+  CodeBuddyPluginCatalog,
   FileTransferTask,
   GitRepositorySnapshot,
   McpDocument,
@@ -177,6 +180,7 @@ function createRouterState(modelId: string): { config: OpenRouterConfig; models:
       supportedParameters: ["tools", "reasoning"],
       pricing: { prompt: "0.000001", completion: "0.000004" },
       compatible: true,
+      agentVerifications: { opencode: { status: "passed", checkedAt: now }, codebuddy: { status: "passed", checkedAt: now } },
       verification: { modelId, status: "passed", checkedAt: now }
     }]
   };
@@ -186,6 +190,18 @@ export function installBrowserPreview() {
   let sessions: TerminalSession[] = [];
   let previewExecutionPermission: CodexExecutionPermission = "askApproval";
   let previewSkillEnabled = true;
+  let previewProfileId: string | null = null;
+  let previewGoal: CodexAppServerSnapshot["goal"] = { threadId: "preview-thread", objective: "浏览器预览：检查图形会话的布局、长文本和弹窗滚动", status: "active", tokenBudget: 100000, tokensUsed: 12500, timeUsedSeconds: 240 };
+  let backgroundTerminals = [{ itemId: "preview-command", processId: "preview-process", command: "pnpm test:desktop -- 浏览器预览示例（不会执行）", cwd: "C:/workspace/pannel-handle", osPid: 12345, cpuPercent: 1.2, rssKb: 24576 }];
+  let pluginCatalog: CodexPluginCatalog = { environment: "浏览器预览（内存数据）", installed: [{ name: "preview-tools", displayName: "预览工具集", marketplaceName: "preview-marketplace", description: "仅用于视觉验收，包含 Skills、Apps 与 MCP 服务。", enabled: true, source: { type: "local" } }], available: [{ name: "preview-documents", marketplaceName: "preview-marketplace", description: "文档工具预览", enabled: false }], marketplaces: [{ name: "preview-marketplace", path: "C:/preview/plugins", source: "浏览器内存示例" }], errors: [] };
+  const pluginOverrides: Record<string, { enabled?: boolean }> = {};
+  const buddyCatalog = (): CodeBuddyPluginCatalog => ({ environment: "浏览器预览", installed: [{ id: "preview-buddy-plugin", name: "preview-tools", marketplaceName: "preview-marketplace", scope: "project", enabled: true, version: "1.0.0-preview", dependencyErrors: [] }], available: [{ name: "preview-documents", marketplaceName: "preview-marketplace", description: "浏览器预览文档工具" }], marketplaces: [{ name: "preview-marketplace", source: "C:/preview/plugins", description: "浏览器内存示例", autoUpdate: false }], errors: [] });
+  const previewSnapshot = (): CodexAppServerSnapshot => ({ threadId: "preview-thread", provider: "codex", backend: "openai", windowsSandboxSetup: { available: true, mode: "unelevated", status: "idle", error: null }, effort: "medium", model: "preview-model", models: [{ id: "preview-model", displayName: "浏览器预览模型", inputModalities: ["text", "image"], fastAvailable: true, defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "平衡速度与推理深度" }, { reasoningEffort: "high", description: "更深入的推理" }] }], mode: "default", executionPermission: previewExecutionPermission, permissionProfileId: previewProfileId, busy: false, error: null, pendingPlan: null, goal: copy(previewGoal), approvals: [], capabilities: { history: true, plan: true, attachments: true, permissions: true }, items: [
+    { id: "preview-user", turnId: "preview-turn", type: "userMessage", text: "浏览器预览：检查图形会话界面，包含长路径 C:/workspace/pannel-handle/src/components/agents/CodexAppServerSession.tsx。" },
+    { id: "preview-reasoning", turnId: "preview-turn", type: "reasoning", summary: ["核对主题颜色、按钮状态与内容滚动区域。"] },
+    { id: "preview-command", turnId: "preview-turn", type: "commandExecution", command: "pnpm test:desktop", output: "浏览器预览输出：14 tests passed\n此命令没有实际执行。", status: "completed", durationMs: 1250 },
+    { id: "preview-assistant", turnId: "preview-turn", type: "agentMessage", text: "## 浏览器预览示例\n\n会话内容用于检查 **深色石板** 主题的视觉呈现。\n\n- 菜单、弹窗与配置面板\n- 长文本换行和键盘焦点\n\n```ts\nconst preview = '仅在浏览器内存中运行';\n```", status: "completed" }
+  ] });
   let library = copy(savedSessions);
   let config = copy(initialConfig);
   let transfers = copy(initialTransfers);
@@ -446,21 +462,59 @@ export function installBrowserPreview() {
       openExternal: async () => ({ ok: true }),
       onSnapshot: () => () => undefined
     } satisfies Window["agentConversationApi"],
+    openCodeAuthApi: { start: async () => ({ generation: 1, history: "浏览器预览认证终端，不会连接真实账号。\r\n", seq: 1 }), cancel: async () => undefined, write: () => undefined, resize: () => undefined, onData: () => () => undefined, onState: () => () => undefined } satisfies Window["openCodeAuthApi"],
+    codeBuddyPluginApi: {
+      list: async () => buddyCatalog(), reload: async () => buddyCatalog(), install: async () => buddyCatalog(), uninstall: async () => buddyCatalog(), enable: async () => buddyCatalog(), disable: async () => buddyCatalog(), update: async () => buddyCatalog(), addMarketplace: async () => buddyCatalog(), refreshMarketplace: async () => buddyCatalog(), removeMarketplace: async () => buddyCatalog(), setAutoUpdate: async () => buddyCatalog()
+    } satisfies Window["codeBuddyPluginApi"],
+    codeBuddyMcpApi: {
+      runtime: async () => ({ threadId: "preview-thread", supported: true, reason: "浏览器预览", statuses: [{ name: "filesystem", status: "connected", error: null, updatedAt: now }] }),
+      restart: async () => ({ ...previewSnapshot(), provider: "codebuddy" }), images: async () => [],
+      load: async () => ({ toolName: "preview", html: "<p>浏览器预览 MCP App</p>" }), read: async (_id, _thread, _item, uri) => ({ contents: [{ uri, text: "浏览器预览 MCP 资源", mimeType: "text/plain" }] }),
+      prepare: async (_id, _thread, _item, name, args) => ({ token: "preview-token", serverName: "filesystem", toolName: name, arguments: args }), resolve: async () => ({ content: [{ type: "text", text: "浏览器预览结果" }] }), dispose: async () => undefined
+    } satisfies Window["codeBuddyMcpApi"],
+    codeBuddyVersionApi: { check: async () => ({ status: "available", currentVersion: "1.0.0-preview", latestVersion: "1.1.0-preview", method: "npm", environment: "windows" }), update: async () => ({ status: "current", currentVersion: "1.1.0-preview", latestVersion: "1.1.0-preview", method: "npm", environment: "windows", restartRequired: true }) } satisfies Window["codeBuddyVersionApi"],
+    codexPluginApi: {
+      list: async () => copy(pluginCatalog),
+      readConfig: async () => ({ overrides: copy(pluginOverrides) }),
+      setEnabled: async (_id, _scope, input) => { const pluginId = `${input.plugin}@${input.marketplace}`; pluginOverrides[pluginId] = { enabled: input.enabled }; pluginCatalog.installed = pluginCatalog.installed.map(item => item.name === input.plugin ? { ...item, enabled: input.enabled } : item); return { pluginId, enabled: input.enabled, overrides: copy(pluginOverrides) }; },
+      install: async (_id, name, marketplace) => { pluginCatalog.installed.push({ name, marketplaceName: marketplace, enabled: true, description: "浏览器预览安装" }); return copy(pluginCatalog); },
+      uninstall: async (_id, name) => { pluginCatalog.installed = pluginCatalog.installed.filter(item => item.name !== name); return copy(pluginCatalog); },
+      addMarketplace: async (_id, source) => { pluginCatalog.marketplaces.push({ name: source, path: source }); return copy(pluginCatalog); },
+      refreshMarketplace: async () => copy(pluginCatalog),
+      removeMarketplace: async (_id, name) => { pluginCatalog.marketplaces = pluginCatalog.marketplaces.filter(item => item.name !== name); return copy(pluginCatalog); }
+    } satisfies Window["codexPluginApi"],
     codexAppServerApi: {
-      readConfiguration: async () => ({ config: { status: "ready" as const, data: { values: { model: "preview-model", features: {} }, layers: [] } }, requirements: { status: "ready" as const, data: null }, profiles: { status: "ready" as const, data: [] }, legacy: [], cwd: "预览工作区", runtime: { executionPermission: "askApproval" as const, permissionProfileId: null, mode: "default" } }),
-      setPermissionProfile: async (_id: string, profileId: string) => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, permissionProfileId: profileId, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      readConfiguration: async () => ({ config: { status: "ready" as const, data: { values: { model: "preview-model", model_reasoning_effort: "medium", features: { skills: true }, approval_policy: "on-request" }, layers: [{ type: "project", path: "C:/workspace/pannel-handle/.codex/config.toml", disabled: false, values: { model: "preview-model" } }] } }, requirements: { status: "ready" as const, data: { allowedApprovalPolicies: ["on-request", "never"] } }, profiles: { status: "ready" as const, data: [{ id: "preview-workspace", allowed: true, reason: null, description: "浏览器预览：工作区权限档" }, { id: "preview-restricted", allowed: false, reason: "浏览器预览禁用状态示例" }] }, legacy: ["readOnly", "askApproval", "fullAccess"].map(id => ({ id, allowed: true, reason: null })), cwd: "C:/workspace/pannel-handle（浏览器预览）", runtime: { model: "preview-model", effort: "medium", executionPermission: previewExecutionPermission, permissionProfileId: previewProfileId, mode: "default" } }),
+      setPermissionProfile: async (_id: string, profileId: string) => { previewProfileId = profileId; return previewSnapshot(); },
 
       setSubAgentView: async () => undefined,
       refreshSubAgents: async () => undefined,
-      setupWindowsSandbox: async () => { throw new Error("浏览器预览不支持 Windows 沙箱初始化。"); },
-      snapshot: async () => ({ threadId: "preview-thread", model: "preview-model", models: [{ id: "preview-model", displayName: "Preview", inputModalities: ["text", "image"], fastAvailable: false, defaultReasoningEffort: null, supportedReasoningEfforts: [] }], mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setupWindowsSandbox: async (_id, mode) => ({ ...previewSnapshot(), windowsSandboxSetup: { available: true, mode, status: "succeeded", error: null } }),
+      snapshot: async id => {
+        const provider = sessions.find(session => session.id === id)?.agentProvider;
+        const result: CodexAppServerSnapshot = { ...previewSnapshot(), provider: provider === "codebuddy" || provider === "opencode" ? provider : "codex",
+          windowsSandboxSetup: { available: true, mode: "unelevated", status: "idle", error: null }, effort: "medium",
+          nativeMode: "build", nativeModes: [{ id: "build", name: "构建", description: "浏览器预览默认模式" }, { id: "plan", name: "规划", description: "浏览器预览规划模式" }],
+          acpOptions: [{ id: "effort", name: "推理强度", type: "select", currentValue: "medium", options: [{ value: "medium", name: "中" }, { value: "high", name: "高" }] }],
+          availableCommands: [{ name: "preview", description: "浏览器预览命令" }] };
+        const scene = new URLSearchParams(window.location.search).get("scene");
+        if (scene === "question") result.questions = [{ requestId: "preview-question", submitting: false, params: { threadId: "preview-thread", turnId: "preview-turn", questions: [
+          { id: "theme", header: "主题验收", question: "浏览器预览：选择需要检查的界面区域。", isOther: true, options: [{ label: "会话区域", description: "检查消息、推理和工具输出的布局。" }, { label: "更多操作", description: "检查菜单与弹窗的主题和滚动。" }] },
+          { id: "details", header: "补充说明", question: "浏览器预览：还有哪些长文本布局需要检查？", required: false }
+        ] } }];
+        if (scene === "approval") result.approvals = [{ requestId: "preview-approval", method: "item/commandExecution/requestApproval", params: { command: "pnpm test:desktop（浏览器预览，不执行）", cwd: "C:/workspace/pannel-handle", reason: "浏览器预览：检查审批控件及长命令换行。", availableDecisions: ["accept", "acceptForSession", "decline", "cancel"] } }];
+        if (scene === "plan") { result.mode = "plan"; result.pendingPlan = { itemId: "preview-plan" }; result.items.push({ id: "preview-plan", type: "plan", turnId: "preview-turn", text: "# 浏览器预览计划\n\n1. 检查会话区域布局。\n2. 检查更多操作及内部弹窗。\n3. 完成深色石板主题视觉验收。" }); }
+        if (scene === "team") { result.provider = "codebuddy"; result.team = { name: "浏览器预览团队", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "界面检查", description: "浏览器预览成员", status: "completed", items: [{ id: "preview-team-message", type: "agentMessage", text: "浏览器预览：已检查菜单布局。" }], tokenUsage: { inputTokens: 2400, outputTokens: 800 }, toolCallCount: 3 }] }; }
+        if (scene === "subagents") result.subAgents = { expanded: true, selectedThreadId: "preview-child", loading: false, error: null, warning: null, members: [{ threadId: "preview-child", parentThreadId: "preview-thread", name: "界面检查", role: "worker", task: "浏览器预览：检查图形会话主题", status: "completed", createdAt: now, loading: false, error: null, items: [{ id: "preview-child-message", type: "agentMessage", text: "浏览器预览：已核对更多操作区域的主题控件。" }] }] };
+        return result;
+      },
       listModelMetadata: async () => [],
       readAccount: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       startLogin: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: { type: "chatgpt", loginId: "preview", url: "https://example.com" }, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       cancelLogin: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       logout: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       refreshAccountUsage: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      listHistory: async () => ({ data: [], nextCursor: null }),
+      listHistory: async (_id, _cursor, archived) => ({ data: [{ id: "preview-history", title: "浏览器预览：图形会话界面验收与长文本滚动检查", updatedAt: Math.floor((now - 3600000) / 1000), source: "browser-preview", status: "idle", archived: Boolean(archived), isPinned: true }], nextCursor: null }),
       readInitialUserInput: async () => null,
       revertThread: async () => { throw new Error("预览模式不支持 OpenCode 回退。"); },
       restoreThread: async () => { throw new Error("预览模式不支持 OpenCode 恢复。"); },
@@ -472,49 +526,48 @@ export function installBrowserPreview() {
       listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: previewSkillEnabled, scope: "user" }],
         apps: [{ id: "github", name: "GitHub", description: "代码托管", accessible: true, enabled: true, callable: true }],
         mcp: [{ name: "filesystem", status: "connected", authStatus: "unsupported", toolsError: null,
-          resources: [], resourceTemplates: [], tools: [{ name: "read_file", description: "读取文件" }] }], errors: {} }),
-      readPluginDetail: async () => { throw new Error("预览模式不支持插件详情。"); },
-      readPluginSkill: async () => { throw new Error("预览模式不支持插件 Skill 读取。"); },
-      readAppDetail: async () => { throw new Error("预览模式不支持 App 详情。"); },
-      readMcpResource: async () => { throw new Error("预览模式不支持 MCP 资源读取。"); },
+          resources: [{ uri: "preview://readme", name: "浏览器预览说明", description: "用于资源详情视觉验收", mimeType: "text/markdown" }], resourceTemplates: [{ uriTemplate: "preview://files/{path}", name: "预览文件", description: "内存模板" }], tools: [{ name: "read_file", description: "读取文件（浏览器预览，不会访问真实文件）" }] }], errors: {} }),
+      readPluginDetail: async (_id, name, marketplace) => ({ name, marketplaceName: marketplace, description: "浏览器预览插件详情，所有数据仅保存在内存中。", version: "1.0.0-preview", source: { type: "local" }, installed: true, enabled: true, shareUrl: null, remotePluginId: "preview-plugin", skills: [{ name: "ui-review", description: "检查界面布局、主题和滚动区域", enabled: true }], apps: [{ name: "GitHub 预览" }], mcpServers: ["filesystem"] }),
+      readPluginSkill: async () => ({ contents: "# ui-review（浏览器预览）\n\n检查深色石板主题的控件状态、长文本换行与弹窗滚动。\n\n" + "浏览器预览示例说明。\n".repeat(35), truncated: false }),
+      readAppDetail: async (_id, id) => ({ id, name: "GitHub 预览", description: "浏览器内存示例，不连接真实账号。", accessible: true, enabled: true, callable: true, distributionChannel: "browser-preview", installUrl: null, pluginDisplayNames: ["预览工具集"], tools: [{ name: "read_issue", title: "读取预览任务", description: "显示静态预览信息", enabled: true, disabledReason: null, readOnly: true }] }),
+      readMcpResource: async (_id, _server, uri) => ({ contents: [{ uri, mimeType: "text/markdown", text: "# 浏览器预览资源\n\n这是一段用于检查详情布局的内存文本。", binary: false, truncated: false }], truncated: false }),
       loginMcpServer: async () => ({ authorizationUrl: "https://example.com/oauth" }),
       reloadMcpServers: async () => undefined,
-      resume: async (_id, threadId) => ({ threadId, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
-      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      resume: async (_id, threadId) => ({ ...previewSnapshot(), threadId }),
+      newThread: async () => ({ ...previewSnapshot(), threadId: `preview-thread-${nextId++}` }),
       renameThread: async () => undefined,
       pinThread: async (_id, _threadId, isPinned) => ({ isPinned }),
       deleteThread: async () => { throw new Error("预览模式不支持删除会话。"); },
       forkTurnToNewSession: async () => { throw new Error("预览模式不支持从此回合新建会话。"); },
-      forkThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      forkThread: async () => ({ ...previewSnapshot(), threadId: `preview-thread-${nextId++}` }),
       archiveThread: async () => undefined,
       unarchiveThread: async () => undefined,
       compactThread: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, compactionStatus: "completed", error: null, pendingPlan: null, items: [], approvals: [] }),
       startReview: async () => { throw new Error("预览模式不支持代码审查。"); },
-      listBackgroundTerminals: async () => [],
+      listBackgroundTerminals: async () => copy(backgroundTerminals),
       askSideQuestion: async () => { throw new Error("预览模式不支持旁问。"); },
       cancelSideQuestion: async () => { throw new Error("预览模式不支持旁问。"); },
-      listScheduledTasks: async () => { throw new Error("预览模式不支持定时任务。"); },
-      createScheduledTask: async () => { throw new Error("预览模式不支持定时任务。"); },
-      deleteScheduledTask: async () => { throw new Error("预览模式不支持定时任务。"); },
-      listJobs: async () => [],
-      jobDispatchContext: async () => ({}),
-      listResumableJobs: async () => [],
-      dispatchJob: async () => { throw new Error("预览模式不支持后台智能体。"); },
-      resumeJob: async () => { throw new Error("预览模式不支持后台智能体。"); },
-      jobTranscript: async () => ({ sessionId: null, updates: [] }),
-      jobAction: async () => { throw new Error("预览模式不支持后台智能体。"); },
+      listScheduledTasks: async () => [{ id: "preview-task", cron: "0 9 * * 1-5", prompt: "浏览器预览：检查界面状态", recurring: true, durable: false, enabled: true, createdAt: now }],
+      createScheduledTask: async () => undefined,
+      deleteScheduledTask: async () => undefined,
+      listJobs: async () => [{ id: "preview-job", cwd: "C:/workspace/pannel-handle", name: "浏览器预览后台任务", prompt: "检查深色石板主题", state: "completed", alive: false, settled: true, createdAt: now }],
+      jobDispatchContext: async () => ({ cwd: "C:/workspace/pannel-handle", agents: [{ name: "preview-agent", description: "浏览器预览智能体" }] }),
+      listResumableJobs: async () => [{ sessionId: "preview-job-session", cwd: "C:/workspace/pannel-handle", title: "浏览器预览历史任务", updatedAt: now }],
+      dispatchJob: async () => ({ id: "preview-job", message: "浏览器预览：未执行真实任务" }),
+      resumeJob: async () => ({ id: "preview-job", message: "浏览器预览：未恢复真实任务" }),
+      jobTranscript: async () => ({ sessionId: "preview-job-session", updates: [{ type: "agentMessage", text: "浏览器预览后台任务记录。" }] }),
+      jobAction: async () => ({ ok: true, message: "浏览器预览内存操作" }),
       watchJob: async () => undefined,
       unwatchJob: async () => undefined,
       onJobsEvent: () => () => undefined,
       onJobTranscript: () => () => undefined,
-      terminateBackgroundTerminal: async () => { throw new Error("预览模式没有后台终端。"); },
-      cleanBackgroundTerminals: async () => undefined,
-      getGoal: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, goal: null, error: null, pendingPlan: null, items: [], approvals: [] }),
-      setGoal: async (_id, changes) => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false,
-        goal: { threadId: "preview-thread", objective: changes.objective || "预览目标", status: changes.status || "active", tokenBudget: changes.tokenBudget }, error: null, pendingPlan: null, items: [], approvals: [] }),
-      clearGoal: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, goal: null, error: null, pendingPlan: null, items: [], approvals: [] }),
-      refreshGoal: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, goal: null, error: null, pendingPlan: null, items: [], approvals: [] }),
-      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      terminateBackgroundTerminal: async (_id, processId) => { backgroundTerminals = backgroundTerminals.filter(item => item.processId !== processId); return { terminated: true }; },
+      cleanBackgroundTerminals: async () => { backgroundTerminals = []; },
+      getGoal: async () => previewSnapshot(),
+      setGoal: async (_id, changes) => { previewGoal = { ...previewGoal, threadId: "preview-thread", objective: changes.objective || previewGoal?.objective || "浏览器预览目标", status: changes.status || "active", tokenBudget: changes.tokenBudget }; return previewSnapshot(); },
+      clearGoal: async () => { previewGoal = null; return previewSnapshot(); },
+      refreshGoal: async () => previewSnapshot(),
+      setMode: async (_id, mode) => ({ ...previewSnapshot(), mode }),
       setNativeMode: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setModel: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listMainAgents: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
@@ -524,9 +577,7 @@ export function installBrowserPreview() {
       setEffort: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setFastMode: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setMultitask: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
-      setExecutionPermission: async (_id, permission) => { previewExecutionPermission = permission; return {
-        threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission,
-        busy: false, error: null, pendingPlan: null, items: [], approvals: [] }; },
+      setExecutionPermission: async (_id, permission) => { previewExecutionPermission = permission; previewProfileId = null; return previewSnapshot(); },
       dismissPlan: async () => ({ threadId: "preview-thread", mode: "plan", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       executePlan: async () => undefined,
       chooseFiles: async () => [],
@@ -696,7 +747,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "agentConversationApi" | "codexAppServerApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "agentConversationApi" | "codexAppServerApi" | "codexPluginApi" | "codeBuddyPluginApi" | "codeBuddyMcpApi" | "codeBuddyVersionApi" | "openCodeAuthApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

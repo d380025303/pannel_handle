@@ -23,7 +23,7 @@ export function CodexWindowsSandboxDialog({ sessionId, setup, disabled, onClose 
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
       <div className="codex-app-server-history-header"><h2 id="codex-sandbox-title">Windows 沙箱初始化</h2>
         <button type="button" aria-label="关闭沙箱初始化" onClick={onClose}><X aria-hidden="true" /></button></div>
-      <fieldset disabled={running || disabled}><legend>初始化模式</legend>
+      <fieldset className="codex-app-server-sandbox-modes" disabled={running || disabled}><legend>初始化模式</legend>
         <label><input type="radio" name="sandbox-mode" checked={mode === "elevated"} onChange={() => setMode("elevated")} />管理员模式</label>
         <label><input type="radio" name="sandbox-mode" checked={mode === "unelevated"} onChange={() => setMode("unelevated")} />非管理员模式</label>
       </fieldset>

@@ -6,6 +6,19 @@ import { DiagnosticCard, CodexEventCard, groupTimeline, TeamMemberTimeline, Tool
 
 afterEach(cleanup);
 
+it("renders activity lifecycle separately from completed collaboration calls and all targets", () => {
+  const { rerender } = render(<CodexEventCard item={{ id: "a", type: "subAgentActivity", kind: "started", agentThreadId: "child", agentPath: "/root/scout" }} />);
+  expect(screen.getByText("子 Agent · 开始任务")).toBeTruthy();
+  expect(screen.queryByText(/未识别/)).toBeNull();
+  rerender(<CodexEventCard item={{ id: "a", type: "subAgentActivity", kind: "completed", agentThreadId: "child" }} />);
+  expect(screen.getByText("子 Agent · 任务完成")).toBeTruthy();
+  rerender(<CodexEventCard item={{ id: "wait", type: "collabAgentToolCall", tool: "wait", status: "completed", receiverThreadIds: ["a", "b"], agentsStates: { a: { status: "running" }, b: { status: "completed", message: "member result" } }, prompt: "inspect task" }} />);
+  expect(screen.getByText(/调用已完成/)).toBeTruthy();
+  expect(screen.getByText("目标线程：a · 运行中")).toBeTruthy();
+  expect(screen.getByText("目标线程：b · 已完成")).toBeTruthy();
+  expect(screen.getByText("member result")).toBeTruthy();
+});
+
 it("renders OpenCode structured results only on expansion and keeps expansion on updates", () => {
   const item = { id: "a", type: "toolCall", toolName: "Edit", arguments: false, result: 0,
     output: "unique output", locations: [{ path: "/work/a", line: 4 }], toolContent: [

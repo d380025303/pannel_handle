@@ -51,6 +51,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   margin: 0;
   font-size: 16px;
 }
@@ -82,9 +83,11 @@
   flex-direction: column;
   gap: 14px;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   padding: 8px 20px 20px;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .codebuddy-side-description, .codebuddy-side-notice {
@@ -173,6 +176,15 @@
 .codebuddy-side-actions button:disabled {
   opacity: .45;
   cursor: not-allowed;
+}
+
+.codebuddy-side-actions button:hover:not(:disabled),
+.codebuddy-side-answer-header button:hover:not(:disabled) {
+  background: var(--color-bg-control-hover);
+}
+
+.codebuddy-side-actions button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 85%, var(--color-bg-panel));
 }
 
 .codebuddy-side-status {

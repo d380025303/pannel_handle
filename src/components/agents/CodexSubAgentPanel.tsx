@@ -3,9 +3,7 @@ import { ChevronRight, RefreshCw } from "lucide-react";
 import type { CodexSubAgents } from "../../vite-env";
 import { TeamMemberTimeline } from "./GraphicalTimeline";
 
-const labels: Record<string, string> = { running: "运行中", pendingInit: "初始化中", idle: "空闲", completed: "已完成",
-  waitingOnApproval: "等待审批", waitingOnUserInput: "等待回答", failed: "失败", errored: "失败",
-  notLoaded: "未加载", shutdown: "已关闭", interrupted: "已中断", deleted: "已删除", notFound: "未找到", unknown: "状态未知" };
+import { subAgentStatusLabels as labels } from "../shared/CodexSubAgentEvent";
 type Props = { sessionId: string; threadId: string; state: CodexSubAgents; minimalMode?: boolean; onLinkClick?: (href: string) => void };
 
 export function CodexSubAgentPanel({ sessionId, threadId, state, minimalMode = false, onLinkClick }: Props) {

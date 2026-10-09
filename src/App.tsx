@@ -1041,7 +1041,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     </div>
                   </footer>
                 )}
-                {isAppServerSession && <footer className="terminal-footer">
+                {isAppServerSession && <footer className="terminal-footer graphical-terminal-footer">
                   <QuickCommandBar
                     quickCommands={terminalSessions.quickCommandsForActiveSession}
                     activeSessionId={terminalSessions.activeId}

@@ -90,8 +90,8 @@ export function CodeBuddyScheduledTasksDialog({ api = window.codexAppServerApi, 
           <p>五段格式：分钟 小时 日 月 星期，按 CodeBuddy 进程本地时区执行。一次性任务在表达式下次匹配时执行一次。</p>
           <div>{[["每 5 分钟", "*/5 * * * *"], ["每天 9 点", "0 9 * * *"], ["每周一 9 点", "0 9 * * 1"]].map(([label, value]) =>
             <button type="button" key={value} disabled={pending} onClick={() => setCron(value)}>{label}</button>)}</div>
-          <label><input type="checkbox" checked={recurring} disabled={pending} onChange={event => setRecurring(event.target.checked)} />重复执行</label>
-          <label><input type="checkbox" checked={durable} disabled={pending} onChange={event => setDurable(event.target.checked)} />重启后保留</label>
+          <label className="codebuddy-scheduled-toggle"><input type="checkbox" checked={recurring} disabled={pending} onChange={event => setRecurring(event.target.checked)} />重复执行</label>
+          <label className="codebuddy-scheduled-toggle"><input type="checkbox" checked={durable} disabled={pending} onChange={event => setDurable(event.target.checked)} />重启后保留</label>
           <button type="submit" className="primary" disabled={disabled || !prompt.trim() || cron.trim().split(/\s+/).length !== 5}>创建任务</button>
         </form>
       </div>

@@ -45,7 +45,7 @@ export function CodexConfigurationPanel({ sessionKey, locked, read, selectProfil
   }, [sessionKey]);
   const disabled = busy || locked;
   return <section className="codex-configuration-panel" aria-label="Codex 配置与权限" aria-busy={busy}>
-    <button type="button" disabled={busy} onClick={() => void run()}>刷新配置</button>
+    <button type="button" className="modal-button" disabled={busy} onClick={() => void run()}>刷新配置</button>
     {busy && <p role="status">正在读取／应用…</p>}
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
@@ -69,14 +69,14 @@ export function CodexConfigurationPanel({ sessionKey, locked, read, selectProfil
       <h4>执行权限</h4>
       <p>选择成功后保存到关联会话模板；其他已运行实例保持原权限。Plan 回合使用只读策略。</p>
       {view.legacy.map(option => <div key={option.id} className="codex-configuration-option">
-        <button type="button" disabled={disabled || !option.allowed} aria-pressed={!view.runtime.permissionProfileId && view.runtime.executionPermission === option.id}
+        <button type="button" className="modal-button" disabled={disabled || !option.allowed} aria-pressed={!view.runtime.permissionProfileId && view.runtime.executionPermission === option.id}
           onClick={() => void run({ profile: false, id: option.id })}>{labels[option.id] || option.id}</button>
         {option.reason && <p>{option.reason}</p>}
       </div>)}
       <h4>命名权限档</h4>
       {view.profiles.status !== "ready" ? <p>{view.profiles.error || "无法读取权限档。"}</p>
         : !view.profiles.data?.length ? <p>没有可用的命名权限档。</p> : view.profiles.data.map(profile => <div key={profile.id} className="codex-configuration-option">
-          <button type="button" aria-pressed={view.runtime.permissionProfileId === profile.id} disabled={disabled || !profile.allowed}
+          <button type="button" className="modal-button" aria-pressed={view.runtime.permissionProfileId === profile.id} disabled={disabled || !profile.allowed}
             onClick={() => void run({ profile: true, id: profile.id })}>{profile.id}</button>
           {profile.description && <p>{profile.description}</p>}{profile.reason && <p>{profile.reason}</p>}
         </div>)}

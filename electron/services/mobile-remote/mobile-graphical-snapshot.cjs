@@ -78,6 +78,8 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
       rewindMessageId: item.rewindMessageId, mcpApp: item.mcpApp ? { serverName: item.mcpApp.serverName, resourceUri: item.mcpApp.resourceUri, revision: item.mcpApp.revision } : undefined,
       id: item.id, type: item.type, turnId: item.turnId, text: item.text,
       compactionId: item.compactionId, compactionSummary: item.compactionSummary, compactionError: item.compactionError, compactionSource: item.compactionSource,
+      agentThreadId: item.agentThreadId, agentPath: item.agentPath, kind: item.kind,
+      receiverThreadIds: item.receiverThreadIds, agentsStates: item.agentsStates, newThreadId: item.newThreadId,
       summary: item.summary, senderThreadId: item.senderThreadId, receiverThreadId: item.receiverThreadId, prompt: item.prompt, agentStatus: item.agentStatus,
       command: item.command, output: item.output, status: item.status,
       durationMs: item.durationMs, savedPath: item.savedPath,

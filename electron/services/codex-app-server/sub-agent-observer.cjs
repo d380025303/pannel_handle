@@ -1,6 +1,6 @@
 const { displayItem, historyItems } = require("./snapshot-helpers.cjs");
 
-const isCollaboration = item => ["collabToolCall", "collabAgentToolCall"].includes(item?.type);
+const isCollaboration = item => ["collabToolCall", "collabAgentToolCall", "subAgentActivity"].includes(item?.type);
 function runtimeStatus(value) {
   if (value?.type === "active") return value.activeFlags?.includes("waitingOnApproval") ? "waitingOnApproval"
     : value.activeFlags?.includes("waitingOnUserInput") ? "waitingOnUserInput" : "running";
@@ -40,7 +40,7 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
     if (thread.status) {
       const status = runtimeStatus(thread.status);
       // Stored history reports notLoaded even for a previously completed agent.
-      if (status !== "notLoaded" || !["completed", "failed", "shutdown"].includes(member.status)) member.status = status;
+      if (status !== "notLoaded" || !["completed", "failed", "shutdown", "interrupted"].includes(member.status)) member.status = status;
     }
     member.createdAt = thread.createdAt || member.createdAt;
     members.set(thread.id, member);
@@ -49,6 +49,15 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
   }
   function collaboration(item, sender = root) {
     if (!isCollaboration(item) || (sender !== root && !members.has(sender))) return;
+    if (item.type === "subAgentActivity") {
+      if (!item.agentThreadId) return;
+      const member = members.get(item.agentThreadId) || add({ id: item.agentThreadId }, sender);
+      if (!member) return;
+      if (item.agentPath) member.name = item.agentPath;
+      const status = { started: "running", interrupted: "interrupted", completed: "completed" }[item.kind];
+      if (status) member.status = status;
+      return;
+    }
     const receivers = [...new Set([...(item.receiverThreadIds || []), item.receiverThreadId, item.newThreadId].filter(Boolean))];
     for (const threadId of receivers) {
       const spawning = /spawn/i.test(item.tool || "") || threadId === item.newThreadId;

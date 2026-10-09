@@ -193,6 +193,10 @@ describe("agent token live statistics", () => {
     await harness.intervals[0]();
     await vi.waitFor(() => expect(sink.appendMessages).toHaveBeenCalledWith("panel-1", [expect.objectContaining({ id: "current", text: "current" })]));
 
+    harness.files.append(`${JSON.stringify({ type: "compacted", timestamp: "2026-01-01T00:00:00Z", payload: { message: "Conversation summary" } })}\n`);
+    await harness.intervals[0]();
+    await vi.waitFor(() => expect(sink.appendMessages).toHaveBeenCalledWith("panel-1", [expect.objectContaining({ kind: "summary", text: "Conversation summary" })]));
+
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "Stop" }, session: harness.session });
     await flush();
     expect(sink.completeTurn).toHaveBeenCalledWith("panel-1");

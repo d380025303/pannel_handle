@@ -2,10 +2,102 @@
 .opencode-mobile-terminal .xterm { height: 100%; }
 .opencode-mobile-panel .graphical-sheet-list select { max-width: 100%; }
 .opencode-mobile-panel .graphical-sheet-list small { display: block; white-space: normal; overflow-wrap: anywhere; }
-.opencode-mobile-panel .codex-version-confirm { position: static; width: 100%; }
-.opencode-mobile-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.opencode-mobile-panel { min-width: 0; overflow-wrap: anywhere; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .opencode-mobile-panel .graphical-sheet-list button span { display: block; }
 .opencode-mobile-panel .graphical-sheet-list input, .opencode-mobile-panel .graphical-sheet-list select { width: 100%; min-height: 44px; padding: 10px; border: 1px solid #344459; border-radius: 8px; color: #e2e8f0; background: #19283b; }
 .opencode-mobile-panel .graphical-actions button { width: auto; min-width: 44px; }
-.opencode-mobile-panel .codex-version-control { padding: 12px; overflow-wrap: anywhere; }
+.opencode-mobile-panel .codex-version-control {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #344459;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.opencode-mobile-panel .codex-version-header,
+.opencode-mobile-panel .codex-version-actions,
+.opencode-mobile-panel .codex-version-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.opencode-mobile-panel .codex-version-header {
+  justify-content: space-between;
+}
+.opencode-mobile-panel .codex-version-title {
+  min-width: 0;
+  flex: 1;
+}
+.opencode-mobile-panel .codex-version-control button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #50627b;
+  border-radius: 8px;
+  color: #d8e2f0;
+  background: #19283b;
+}
+
+.opencode-mobile-panel .codex-version-control button:disabled {
+  opacity: .48;
+}
+.opencode-mobile-panel .codex-version-control button:hover:not(:disabled) {
+  background: #24374f;
+}
+.opencode-mobile-panel .codex-version-control button:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: 2px;
+}
+.opencode-mobile-panel .codex-version-actions button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  padding: 0;
+}
+.opencode-mobile-panel .codex-version-detail,
+.opencode-mobile-panel .codex-version-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #a8bdd4;
+  font-size: 12px;
+}
+
+.opencode-mobile-panel .codex-version-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.opencode-mobile-panel .codex-version-confirm p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.opencode-mobile-panel .codex-version-control [role=alert] {
+  color: #fecdd3;
+}
+.opencode-mobile-panel .codex-version-progress pre {
+  max-height: 140px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #080d16;
+}
+.opencode-mobile-panel .codex-version-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #50627b;
+  border-top-color: #22d3ee;
+  border-radius: 50%;
+  animation: mobile-opencode-version-spin 1s linear infinite;
+}
+
+@keyframes mobile-opencode-version-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .opencode-mobile-panel .codex-version-spinner { animation: none; } }
 .opencode-mobile-panel pre { max-width: 100%; overflow-x: auto; }

@@ -2414,10 +2414,10 @@ describe("CodexAppServerSession", () => {
     ] } });
     await screen.findByText("检查项目");
     const timeline = document.querySelector(".codex-app-server-messages")!;
-    const entries = Array.from(timeline.querySelectorAll(":scope > article, :scope > section"));
+    const entries = Array.from(timeline.querySelectorAll(":scope > article, :scope > section, :scope > details"));
     expect(entries.map(entry => entry.textContent)).toEqual([
       expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("检查项目"),
-      expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("协作调用 · spawn_agent"),
+      expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("子 Agent · 启动成员"),
       expect.stringContaining("C:/project/screenshot.png"), expect.stringContaining("开始代码审查"),
       expect.stringContaining("发现一个问题"),
       expect.stringContaining("未识别的事件类型：futureEvent")

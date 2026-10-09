@@ -53,7 +53,7 @@ export function CodexAccountPanel({ account, actions, preferDeviceCode = false, 
   const label = signedIn ? current.account?.email || current.account?.planType || (zh ? "已登录" : "Signed in")
     : current?.status === "signedOut" ? (zh ? "未登录" : "Sign in") : (zh ? "Codex 账号" : "Codex account");
   return <div className="codex-account">
-    <button type="button" className="codex-account-trigger" aria-expanded={open} onClick={() => setOpen(value => !value)}>{label}</button>
+    <button type="button" className="codex-account-trigger" title={label} aria-expanded={open} onClick={() => setOpen(value => !value)}>{label}</button>
     {open && <div className="codex-account-panel" role="region" aria-label={zh ? "Codex 账号管理" : "Codex account management"}>
       <strong>{zh ? "Codex 账号" : "Codex account"}</strong>
       {current?.account && <p>{current.account.email || current.account.type}{current.account.planType ? ` · ${current.account.planType}` : ""}</p>}

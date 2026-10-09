@@ -1,3 +1,4 @@
+import { CodexSubAgentEvent, isSubAgentEvent } from "../shared/CodexSubAgentEvent";
 import { CodexActivityEvent } from "../shared/CodexActivityEvent";
 import { configWarningFingerprint, useConfigWarningVisibility } from "./configWarningVisibility";
 import { CodeBuddyMcpApp } from "./CodeBuddyMcpApp";
@@ -123,14 +124,7 @@ export function CodexEventCard({ item }: { item: SessionItem }) {
       <strong>推理摘要</strong><MarkdownBlock className="codex-app-server-markdown" content={summary} />
     </article>;
   }
-  if (item.type === "collabToolCall" || item.type === "collabAgentToolCall") return <article className="codex-app-server-message codex-event" key={item.id}>
-    <strong>协作调用 · {item.tool || "协作工具"}</strong>
-    <p>{statusLabel(item.status)}{item.agentStatus ? ` · 成员${item.agentStatus}` : ""}</p>
-    {item.senderThreadId && <p>发起线程：{item.senderThreadId}</p>}
-    {item.receiverThreadId && <p>目标线程：{item.receiverThreadId}</p>}
-    {item.newThreadId && <p>新线程：{item.newThreadId}</p>}
-    {item.prompt && <details><summary>查看任务内容</summary><p>{item.prompt}</p></details>}
-  </article>;
+  if (isSubAgentEvent(item)) return <CodexSubAgentEvent item={item} className="codex-app-server-message codex-event" />;
   if (item.type === "imageView") return <article className="codex-app-server-message codex-event" key={item.id}>
     <strong>查看图片</strong><p>{item.path || "未提供图片路径"}</p>
   </article>;
