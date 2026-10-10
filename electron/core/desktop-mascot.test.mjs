@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopMascot, clampPosition } from "./desktop-mascot.cjs";
 
 describe("desktop mascot window", () => {
-  let directory, service, window, ipc, screen, cursor, area, random, graphical, snapshot, app;
+  let directory, service, window, ipc, screen, cursor, area, random, graphical, snapshot, app, clockOffset;
   beforeEach(() => {
     vi.useFakeTimers();
+    clockOffset = 0;
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "ph-mascot-"));
     ipc = new EventEmitter();
     ipc.handle = vi.fn();
@@ -39,7 +40,7 @@ describe("desktop mascot window", () => {
     snapshot = { items: [], provider: "codex", threadId: "thread" };
     graphical = { snapshot: () => snapshot, executePlan: vi.fn(async () => { snapshot.pendingPlan = null; }) };
     app = Object.assign(new EventEmitter(), { isPackaged: true, getPath: () => directory });
-    service = createDesktopMascot({ app, BrowserWindow: Window, ipcMain: ipc, screen, random,
+    service = createDesktopMascot({ app, BrowserWindow: Window, ipcMain: ipc, screen, random, now: () => performance.now() + clockOffset,
       terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
     service.open({ getBounds: () => area });
   });
@@ -144,6 +145,109 @@ describe("desktop mascot window", () => {
     await vi.advanceTimersByTimeAsync(8100);
     expect(hostState().roaming).toBe(true);
   }
+  it.each([-86400000, 86400000])("ignores wall clock changes during roaming: %s", async jump => {
+    await beginRoaming();
+    const before = window.getBounds();
+    vi.setSystemTime(Date.now() + jump);
+    await vi.advanceTimersByTimeAsync(1000);
+    const after = window.getBounds();
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(57);
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThan(63);
+  });
+  it("clamps negative elapsed time and completes after a long suspension", async () => {
+    await beginRoaming();
+    clockOffset = -86400000;
+    await vi.advanceTimersByTimeAsync(33);
+    expect(window.bounds).toMatchObject({ x: -216, y: 560 });
+    clockOffset = 86400000;
+    await vi.advanceTimersByTimeAsync(33);
+    expect(window.bounds).toMatchObject({ x: -1000, y: 0 });
+    expect(hostState().roaming).toBe(false);
+  });
+  it("recovers a failed position update and waits before roaming again", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await beginRoaming();
+    const move = vi.spyOn(window, "setPosition").mockImplementationOnce(() => { throw new TypeError("conversion failure"); });
+    await vi.advanceTimersByTimeAsync(33);
+    expect(hostState().roaming).toBe(false);
+    expect(window.isDestroyed()).toBeFalsy();
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(move).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(hostState().roaming).toBe(true);
+    expect(log.mock.calls[0][1]).toMatchObject({ operation: "movement", position: { x: expect.any(Number), y: expect.any(Number) }, progress: expect.any(Number) });
+    log.mockRestore();
+  });
+  it("stops retries when recovery fails and still accepts notifications", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await beginRoaming();
+    const move = vi.spyOn(window, "setPosition").mockImplementation(() => { throw new Error("move failed"); });
+    const resize = vi.spyOn(window, "setBounds").mockImplementationOnce(() => { throw new Error("recovery failed"); });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(resize).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false);
+    pendingPlan();
+    expect(hostState().notifications.notification.action.kind).toBe("plan");
+    log.mockRestore();
+  });
+  it("rejects invalid drag coordinates without moving or persisting them", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    command({ type: "drag-start" });
+    cursor = { x: NaN, y: Infinity };
+    const move = vi.spyOn(window, "setPosition");
+    await vi.advanceTimersByTimeAsync(33);
+    expect(move).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(path.join(directory, "desktop-mascot.json")))).toMatchObject({ x: expect.any(Number), y: expect.any(Number) });
+    log.mockRestore();
+  });
+  it("recovers errors while starting movement", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    command({ type: "interaction", paused: true, reduced: false });
+    random.mockReturnValueOnce(0).mockReturnValueOnce(NaN);
+    command({ type: "interaction", paused: false, reduced: false });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(log.mock.calls[0][1].operation).toBe("movement-start");
+    expect(hostState().roaming).toBe(false);
+    log.mockRestore();
+  });
+  it("stops repeated polling errors and leaves notification controls clickable", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const poll = vi.spyOn(screen, "getCursorScreenPoint").mockImplementation(() => { throw new Error("cursor unavailable"); });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(poll).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false);
+    pendingPlan();
+    expect(hostState().notifications.notification.action.kind).toBe("plan");
+    log.mockRestore();
+  });
+  it("guards manual step failures", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(window, "setPosition").mockImplementationOnce(() => { throw new Error("step failed"); });
+    expect(() => command({ type: "step", direction: "left" })).not.toThrow();
+    expect(log.mock.calls[0][1].operation).toBe("step");
+    expect(window.isDestroyed()).toBeFalsy();
+    log.mockRestore();
+  });
+  it("ignores saved positions outside Electron's integer range", () => {
+    service.close();
+    fs.writeFileSync(path.join(directory, "desktop-mascot.json"), JSON.stringify({ x: 3e9, y: 3e9 }));
+    // Recreate to reload persisted data, rather than reusing its in-memory copy.
+    const previous = service;
+    service = createDesktopMascot({ app, BrowserWindow: window.constructor, ipcMain: ipc, screen,
+      terminalManager: { getSession: () => null }, graphicalService: graphical });
+    service.open({ getBounds: () => area });
+    expect(window.bounds).toMatchObject({ x: -216, y: 560 });
+    previous.shutdown();
+  });
+  it.each([NaN, Infinity])("rejects non-finite geometry: %s", value => {
+    expect(() => clampPosition({ x: value, y: 0 }, area, { width: 192, height: 232 })).toThrow("geometry");
+  });
+  it("rejects work areas outside Electron's integer range", () => {
+    expect(() => clampPosition({ x: 3e9, y: 0 }, { x: 3e9, y: 0, width: 1000, height: 800 }, { width: 192, height: 232 })).toThrow("integer range");
+  });
   it("restricts direct actions to the mascot main frame and resizes interactive bubbles", async () => {
     snapshot.pendingPlan = { itemId: "plan" }; snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
     service.handleDesktopEvent("codex-app-server:changed", { id: "one" });

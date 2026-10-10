@@ -1,20 +1,60 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { performance } = require("node:perf_hooks");
 const { createMascotNotifications } = require("./mascot-notifications.cjs");
 
 function clampPosition(position, area, size) {
-  return {
+  if (![position.x, position.y, area.x, area.y, area.width, area.height, size.width, size.height].every(Number.isFinite)) throw new TypeError("Invalid desktop mascot geometry");
+  const result = {
     x: Math.round(Math.max(area.x, Math.min(position.x, area.x + Math.max(0, area.width - size.width)))),
     y: Math.round(Math.max(area.y, Math.min(position.y, area.y + Math.max(0, area.height - size.height))))
   };
+  if (!validPosition(result)) throw new RangeError("Desktop mascot coordinates exceed Electron integer range");
+  return result;
 }
 
-function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalManager, graphicalService, conversationManager, stateHub, openExternal, getLocale = () => "zh-CN", random = Math.random }) {
+function validPosition(position) {
+  return [position.x, position.y].every(value => Number.isFinite(value) && value >= -2147483648 && value <= 2147483647);
+}
+
+function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalManager, graphicalService, conversationManager, stateHub, openExternal, getLocale = () => "zh-CN", random = Math.random, now = () => performance.now() }) {
   const file = path.join(app.getPath("userData"), "desktop-mascot.json");
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(file, "utf8")) || {}; } catch {}
   const state = { collapsed: saved.collapsed === true, animated: saved.animated !== false, moving: saved.moving !== false, migrated: saved.migrated === true, locale: getLocale() };
   let win, timer, poll, journey, drag, frameRefresh;
+  let movementFailed = false, pollFailed = false, movementContext;
+  function guarded(operation, callback) {
+    try { callback(); } catch (error) { recover(operation, error); }
+  }
+  function recover(operation, error) {
+    console.error("Desktop mascot operation failed:", { operation, ...movementContext, journey }, error);
+    clearTimeout(timer); timer = undefined; journey = undefined; drag = undefined;
+    roaming = false; movementFailed = true;
+    if (!alive()) return;
+    try {
+      const bounds = win.getBounds();
+      const area = screen.getDisplayMatching(mainWindow?.getBounds?.() || bounds).workArea;
+      const dimensions = size();
+      const next = clampPosition(validPosition(bounds) ? bounds : area, area, dimensions);
+      win.setBounds({ ...next, ...dimensions });
+      win.setIgnoreMouseEvents(false);
+      publish(); persist();
+      // A failed cursor/hit-test API must not be retried every 33 ms.
+      if (operation === "poll") pollFailed = true;
+      else { movementFailed = false; schedule(); }
+    } catch (recoveryError) {
+      console.error("Desktop mascot recovery failed:", recoveryError);
+      pollFailed = true;
+      // Keep notification actions reachable even if restoring the bounds failed.
+      try { win.setIgnoreMouseEvents(false); } catch {}
+    }
+  }
+  function move(position, area) {
+    movementContext = { ...movementContext, position, area };
+    const next = clampPosition(position, area, size());
+    win.setPosition(next.x, next.y);
+  }
   // Electron #46882: another window losing focus can repaint our native caption.
   function refreshNativeFrame() {
     if (process.platform !== "win32" || !alive() || frameRefresh !== undefined) return;
@@ -83,6 +123,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     const bounds = win.getBounds();
     const x = bounds.x + (bounds.width - characterSize().width) / 2;
     const y = bounds.y + bounds.height - characterSize().height;
+    if (!validPosition({ x, y })) return;
     saved = { ...state, x, y };
     try { fs.writeFileSync(file, JSON.stringify(saved)); } catch (error) { console.error("Failed to save desktop mascot:", error); }
   }
@@ -97,21 +138,22 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     journey = undefined;
     setRoaming(false);
   }
-  function eligible() { return alive() && state.moving && !state.collapsed && !showingNotification && !interaction && !reduced && !drag; }
+  function eligible() { return alive() && !movementFailed && state.moving && !state.collapsed && !showingNotification && !interaction && !reduced && !drag; }
   function schedule() {
     stop();
     if (!eligible()) return;
-    timer = setTimeout(() => {
+    timer = setTimeout(() => guarded("movement-start", () => {
       if (!eligible()) return;
       const start = win.getBounds();
       const area = screen.getDisplayMatching(start).workArea;
       const dimensions = size();
+      movementContext = { bounds: start, area };
       const target = clampPosition({ x: area.x + random() * Math.max(0, area.width - dimensions.width), y: area.y + random() * Math.max(0, area.height - dimensions.height) }, area, dimensions);
       if (target.x === start.x && target.y === start.y) { schedule(); return; }
-      journey = { start, target, time: Date.now(), duration: Math.max(1, Math.hypot(target.x - start.x, target.y - start.y) / 60 * 1000) };
+      journey = { start, target, time: now(), duration: Math.max(1, Math.hypot(target.x - start.x, target.y - start.y) / 60 * 1000) };
       if (target.x !== start.x) roamingDirection = target.x < start.x ? "left" : "right";
       setRoaming(true);
-    }, 8000 + random() * 7000);
+    }), 8000 + random() * 7000);
   }
   function correct(preserveAnchor = false) {
     if (!alive()) return;
@@ -126,23 +168,31 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     schedule();
   }
   function tick() {
-    if (!alive()) return;
-    const locale = getLocale();
-    if (state.locale !== locale) { state.locale = locale; publish(); }
-    const cursor = screen.getCursorScreenPoint();
-    if (drag) {
-      const candidate = { x: cursor.x - drag.offset.x, y: cursor.y - drag.offset.y };
-      const next = clampPosition(candidate, screen.getDisplayNearestPoint(cursor).workArea, size());
-      win.setPosition(next.x, next.y);
-    } else if (journey && eligible()) {
-      const progress = Math.min(1, (Date.now() - journey.time) / journey.duration);
-      win.setPosition(Math.round(journey.start.x + (journey.target.x - journey.start.x) * progress), Math.round(journey.start.y + (journey.target.y - journey.start.y) * progress));
-      if (progress === 1) { schedule(); }
-    }
-    const bounds = win.getBounds();
-    const x = cursor.x - bounds.x, y = cursor.y - bounds.y;
-    const hit = regions.some(rect => x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height);
-    win.setIgnoreMouseEvents(!hit && !drag, { forward: true });
+    if (!alive() || pollFailed) return;
+    movementContext = undefined;
+    let operation = "poll";
+    try {
+      const locale = getLocale();
+      if (state.locale !== locale) { state.locale = locale; publish(); }
+      const cursor = screen.getCursorScreenPoint();
+      if (drag) {
+        operation = "drag";
+        const candidate = { x: cursor.x - drag.offset.x, y: cursor.y - drag.offset.y };
+        move(candidate, screen.getDisplayNearestPoint(cursor).workArea);
+      } else if (journey && eligible()) {
+        operation = "movement";
+        const progress = Math.max(0, Math.min(1, (now() - journey.time) / journey.duration));
+        movementContext = { progress, bounds: win.getBounds() };
+        move({ x: journey.start.x + (journey.target.x - journey.start.x) * progress, y: journey.start.y + (journey.target.y - journey.start.y) * progress }, screen.getDisplayMatching(win.getBounds()).workArea);
+        if (progress === 1) { schedule(); }
+      }
+      operation = "poll";
+      const bounds = win.getBounds();
+      movementContext = { ...movementContext, bounds };
+      const x = cursor.x - bounds.x, y = cursor.y - bounds.y;
+      const hit = regions.some(rect => x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height);
+      win.setIgnoreMouseEvents(!hit && !drag, { forward: true });
+    } catch (error) { recover(operation, error); }
   }
   function authorized(event) { return alive() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame; }
   ipcMain.handle("desktop-mascot:state", event => authorized(event) ? { ...state, roaming, roamingDirection, notifications: presentationSnapshot() } : null);
@@ -194,8 +244,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
         stop();
         const delta = { left: [-20, 0], right: [20, 0], up: [0, -20], down: [0, 20] }[command.direction];
         const bounds = win.getBounds();
-        const next = clampPosition({ x: bounds.x + delta[0], y: bounds.y + delta[1] }, screen.getDisplayMatching(bounds).workArea, size());
-        win.setPosition(next.x, next.y); persist(); schedule(); break;
+        guarded("step", () => { move({ x: bounds.x + delta[0], y: bounds.y + delta[1] }, screen.getDisplayMatching(bounds).workArea); persist(); schedule(); }); break;
       }
     }
   });
@@ -207,9 +256,10 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     mainWindow.on?.("blur", mainBlur);
     updateNotifications();
     interaction = false; reduced = false; regions = []; drag = undefined;
+    movementFailed = false; pollFailed = false;
     const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
     const dimensions = size();
-    const initial = Number.isFinite(saved.x) && Number.isFinite(saved.y) ? saved : { x: area.x + area.width - dimensions.width - 24, y: area.y + area.height - dimensions.height - 8 };
+    const initial = validPosition(saved) ? { x: Math.round(saved.x), y: Math.round(saved.y) } : { x: area.x + area.width - dimensions.width - 24, y: area.y + area.height - dimensions.height - 8 };
     const display = screen.getDisplayNearestPoint({ x: initial.x, y: initial.y });
     const position = clampPosition({ x: initial.x - (dimensions.width - characterSize().width) / 2,
       y: initial.y - (dimensions.height - characterSize().height) }, display.workArea, dimensions);

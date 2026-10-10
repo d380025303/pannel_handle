@@ -29,7 +29,7 @@ export function CodexSubAgentEvent({ item, className }: { item: Activity; classN
     {item.senderThreadId && <p>发起线程：{item.senderThreadId}</p>}
     {targets.map(id => <div key={id}><p>目标线程：{id}{item.agentsStates?.[id]?.status || item.agentStatus
       ? ` · ${subAgentStatusLabels[item.agentsStates?.[id]?.status || item.agentStatus || ""] || item.agentsStates?.[id]?.status || item.agentStatus}` : ""}</p>
-      {item.agentsStates?.[id]?.message && <MarkdownBlock content={item.agentsStates[id].message!} />}</div>)}
-    {item.prompt && <details><summary>查看任务内容</summary><MarkdownBlock content={item.prompt} /></details>}
+      {item.agentsStates?.[id]?.message && <MarkdownBlock className="codex-app-server-markdown" content={item.agentsStates[id].message!} />}</div>)}
+    {item.prompt && <details><summary>查看任务内容</summary><MarkdownBlock className="codex-app-server-markdown" content={item.prompt} /></details>}
   </details>;
 }

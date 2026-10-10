@@ -1,62 +1,62 @@
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :first-child { margin-top: 0; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :last-child { margin-bottom: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) > :first-child { margin-top: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) > :last-child { margin-bottom: 0; }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h1,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h2,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h3,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h4,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h5,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h6 {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h1,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h2,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h3,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h4,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h5,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h6 {
   margin: 24px 0 16px;
   font-weight: 600;
   line-height: 1.25;
   color: var(--color-text-strong);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h1,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h2 {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h1,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h2 {
   padding-bottom: 0.3em;
   border-bottom: 1px solid var(--color-border);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h1 { font-size: 2em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h2 { font-size: 1.5em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h3 { font-size: 1.25em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h4 { font-size: 1em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h5 { font-size: 0.875em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) h6 { color: var(--color-text-muted); font-size: 0.85em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h1 { font-size: 2em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h2 { font-size: 1.5em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h3 { font-size: 1.25em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h4 { font-size: 1em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h5 { font-size: 0.875em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) h6 { color: var(--color-text-muted); font-size: 0.85em; }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) p,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) blockquote,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ul,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ol,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) dl,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) table,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) pre,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) details {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) p,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) blockquote,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ul,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ol,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) dl,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) table,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) pre,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) details {
   margin-top: 0;
   margin-bottom: 16px;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ul,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ol {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ul,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ol {
   padding-left: 2em;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ul ul,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ul ol,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ol ol,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) ol ul {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ul ul,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ul ol,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ol ol,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) ol ul {
   margin-top: 0;
   margin-bottom: 0;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) li + li { margin-top: 0.25em; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) li > p { margin-top: 16px; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) li + li { margin-top: 0.25em; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) li > p { margin-top: 16px; }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) strong { color: var(--color-text-strong); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) strong { color: var(--color-text-strong); }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) kbd {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) kbd {
   display: inline-block;
   padding: 2px 5px;
   border: 1px solid var(--color-border-strong);
@@ -68,7 +68,7 @@
   vertical-align: middle;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) code {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) code {
   padding: 0.2em 0.4em;
   border-radius: 6px;
   color: var(--color-text);
@@ -77,7 +77,7 @@
   font-size: 0.85em;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) pre {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) pre {
   padding: 16px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -86,7 +86,7 @@
   overflow-x: auto;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) pre code {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) pre code {
   padding: 0;
   background: none;
   font-size: 12.5px;
@@ -94,49 +94,49 @@
   overflow-wrap: normal;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs {
   display: block;
   color: var(--color-code-variable);
   background: transparent;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-comment,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-quote { color: var(--color-code-comment); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-doctag,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-keyword,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-formula { color: var(--color-code-keyword); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-section,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-name,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-selector-tag,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-deletion,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-subst { color: var(--color-code-tag); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-literal { color: var(--color-code-constant); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-string,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-regexp,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-addition,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-attribute { color: var(--color-code-string); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-number { color: var(--color-code-number); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-attr,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-variable,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-template-variable,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-selector-class,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-selector-attr,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-selector-pseudo { color: var(--color-code-property); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-type,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-built_in,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-title.class_ { color: var(--color-code-type); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-title,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-function .hljs-title { color: var(--color-code-function); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-symbol,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-bullet,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-link,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-meta,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-selector-id { color: var(--color-code-meta); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-operator { color: var(--color-code-operator); }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-emphasis { font-style: italic; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .hljs-strong { font-weight: 700; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-comment,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-quote { color: var(--color-code-comment); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-doctag,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-keyword,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-formula { color: var(--color-code-keyword); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-section,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-name,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-selector-tag,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-deletion,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-subst { color: var(--color-code-tag); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-literal { color: var(--color-code-constant); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-string,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-regexp,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-addition,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-attribute { color: var(--color-code-string); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-number { color: var(--color-code-number); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-attr,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-variable,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-template-variable,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-selector-class,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-selector-attr,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-selector-pseudo { color: var(--color-code-property); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-type,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-built_in,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-title.class_ { color: var(--color-code-type); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-title,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-function .hljs-title { color: var(--color-code-function); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-symbol,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-bullet,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-link,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-meta,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-selector-id { color: var(--color-code-meta); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-operator { color: var(--color-code-operator); }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-emphasis { font-style: italic; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .hljs-strong { font-weight: 700; }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) table {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) table {
   display: block;
   width: max-content;
   max-width: 100%;
@@ -146,52 +146,52 @@
   font-size: 0.92em;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) th,
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) td {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) th,
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) td {
   padding: 7px 12px;
   border: 1px solid var(--color-border);
   text-align: left;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) th {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) th {
   font-weight: 600;
   background: var(--color-bg-control);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) tr {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) tr {
   border-top: 1px solid var(--color-border-strong);
   background: var(--color-bg-panel);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) tr:nth-child(2n) {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) tr:nth-child(2n) {
   background: color-mix(in srgb, var(--color-bg-control) 48%, var(--color-bg-panel));
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) blockquote {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) blockquote {
   padding: 0 1em;
   border-left: 0.25em solid color-mix(in srgb, var(--color-accent) 72%, var(--color-border));
   color: var(--color-text-muted);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) blockquote > :first-child { margin-top: 0; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) blockquote > :last-child { margin-bottom: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) blockquote > :first-child { margin-top: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) blockquote > :last-child { margin-bottom: 0; }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) details summary {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) details summary {
   color: var(--color-text-strong);
   font-weight: 600;
   cursor: pointer;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) a {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) a {
   color: var(--color-accent);
   text-decoration: none;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) a:hover {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) a:hover {
   text-decoration: underline;
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) hr {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) hr {
   height: 2px;
   margin: 24px 0;
   padding: 0;
@@ -199,7 +199,7 @@
   background: var(--color-border);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) img {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) img {
   box-sizing: content-box;
   max-width: 100%;
   height: auto;
@@ -207,10 +207,17 @@
   background: var(--color-bg-panel);
 }
 
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .contains-task-list { padding-left: 0; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) .task-list-item { list-style: none; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) input[type="checkbox"] {
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .contains-task-list { padding-left: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) .task-list-item { list-style: none; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary, .codex-app-server-markdown) input[type="checkbox"] {
   margin: 0 0.45em 0.25em -1.4em;
   vertical-align: middle;
 }
 
+.codex-app-server-markdown th {
+  white-space: nowrap;
+}
+
+.codex-app-server-markdown input[type="checkbox"] {
+  margin-left: 0;
+}
