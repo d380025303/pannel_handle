@@ -27,6 +27,24 @@ async function fixture() {
 }
 
 describe("Codex graphical workspace trust", () => {
+  it("does not expose a reusable workspace while its Hook probe is pending", async () => {
+    const { workspacePath } = await fixture();
+    const script = await fs.readFile(path.join(workspacePath, ".codex", "pannel-handle-hook.ps1"), "utf8");
+    const { createHash } = await import("node:crypto");
+    await fs.writeFile(path.join(workspacePath, ".codex", "pannel-handle-trust.json"),
+      JSON.stringify({ scriptHash: createHash("sha256").update(script).digest("hex") }));
+    let completeProbe;
+    const listHooks = vi.fn(() => new Promise(resolve => { completeProbe = resolve; }));
+    const broadcast = vi.fn();
+    const service = createCodexWorkspaceTrustService({ broadcast, listHooks, projectTrusted: async () => true });
+    const waiting = service.request({ sessionId: "reuse", workspacePath, persistent: true });
+    await vi.waitFor(() => expect(listHooks).toHaveBeenCalledOnce());
+    expect(service.listPending()).toEqual([]);
+    completeProbe([{ source: "project", sourcePath: path.win32.join(workspacePath, ".codex", "hooks.json"), trustStatus: "trusted" }]);
+    await waiting;
+    expect(broadcast).not.toHaveBeenCalledWith("codex-workspace-trust:changed", expect.anything());
+  });
+
   it("retains reviewed trust and checks real Hook status on subsequent starts", async () => {
     const { root, workspacePath } = await fixture();
     process.env.CODEX_HOME = path.join(root, "codex-home");
@@ -138,7 +156,7 @@ describe("Codex graphical workspace trust", () => {
     expect(service.listPending()).toEqual([]);
 
     const canceled = service.request({ sessionId: "run-8", title: "SSH Codex", workspacePath });
-    await vi.waitFor(() => expect(service.listPending()).toHaveLength(1));
+    await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
     service.cancel("run-8");
     await expect(canceled).rejects.toThrow("已取消");
     expect(trustProject).toHaveBeenCalledTimes(1);

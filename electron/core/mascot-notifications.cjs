@@ -10,7 +10,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
   const submitting = new Set();
   const settleTimers = new Set();
   const queue = [];
-  let serial = 0, revision = 0, timer, startedAt = 0, remaining = 15000, ready = false, paused = false, disposed = false;
+  let serial = 0, revision = 0, timer, startedAt = 0, remaining = 60000, ready = false, paused = false, disposed = false;
   const snapshot = () => ({ revision, notification: queue[0]?.ready ? { ...queue[0].notification } : null, pendingCount: queue.length });
   const changed = () => { revision++; onChanged(snapshot()); };
   function stopTimer() {
@@ -25,7 +25,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
   }
   function dismiss(id) {
     if (!id || queue[0]?.notification.id !== id) return;
-    stopTimer(); queue.shift(); ready = false; remaining = 15000; changed();
+    stopTimer(); queue.shift(); ready = false; remaining = 60000; changed();
   }
   function setPresentation(id, isPaused) {
     if (!id || queue[0]?.notification.id !== id || !queue[0].ready) return;
@@ -95,7 +95,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
         summary: cleanSummary(agentStatus.activitySummary) || "暂无摘要", timestamp: agentStatus.timestamp } });
       dirty = true;
     }
-    if (oldHead !== queue[0]) { stopTimer(); ready = false; remaining = 15000; }
+    if (oldHead !== queue[0]) { stopTimer(); ready = false; remaining = 60000; }
     if (dirty) { changed(); schedule(); }
     return value;
   }
@@ -146,7 +146,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     statuses.delete(id); seen.delete(id);
     const wasHead = queue[0]?.notification.sessionId === id;
     for (let index = queue.length - 1; index >= 0; index--) if (queue[index].notification.sessionId === id) queue.splice(index, 1);
-    if (wasHead) { stopTimer(); ready = false; remaining = 15000; }
+    if (wasHead) { stopTimer(); ready = false; remaining = 60000; }
     changed(); schedule();
   }
   function handleDesktopEvent(channel, payload) {

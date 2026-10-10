@@ -34,17 +34,17 @@ describe("mascot task notifications", () => {
     manager.dismiss(head().id);
     expect(head()).toMatchObject({ sessionId: "b", summary: "失败原因 b", status: "failed" });
   });
-  it("counts 15 seconds of visible time, pauses hover/focus and waits for next bubble presentation", async () => {
+  it("counts 60 seconds of visible time, pauses hover/focus and waits for next bubble presentation", async () => {
     status("a", "running"); status("b", "running"); status("a", "completed"); status("b", "completed"); await settle();
     await vi.advanceTimersByTimeAsync(30000); expect(head().sessionId).toBe("a");
     const id = head().id;
     manager.setPresentation(id, false); await vi.advanceTimersByTimeAsync(5000);
     manager.setPresentation(id, true); await vi.advanceTimersByTimeAsync(30000);
     expect(head().id).toBe(id);
-    manager.setPresentation(id, false); await vi.advanceTimersByTimeAsync(9999); expect(head().id).toBe(id);
+    manager.setPresentation(id, false); await vi.advanceTimersByTimeAsync(54999); expect(head().id).toBe(id);
     await vi.advanceTimersByTimeAsync(1); expect(head().sessionId).toBe("b");
     await vi.advanceTimersByTimeAsync(30000); expect(head().sessionId).toBe("b");
-    manager.setPresentation(head().id, false); await vi.advanceTimersByTimeAsync(15000); expect(head()).toBeNull();
+    manager.setPresentation(head().id, false); await vi.advanceTimersByTimeAsync(60000); expect(head()).toBeNull();
   });
   it("preserves full Markdown in completed graphical output", async () => {
     status("a", "running");
@@ -123,7 +123,7 @@ describe("mascot task notifications", () => {
     status("a", "running"); status("a", "completed"); await settle();
     manager.setPresentation(head().id, false); await vi.advanceTimersByTimeAsync(6000); manager.suspend();
     await vi.advanceTimersByTimeAsync(20000); expect(head()).toBeTruthy();
-    manager.setPresentation(head().id, false); await vi.advanceTimersByTimeAsync(9000); expect(head()).toBeNull();
+    manager.setPresentation(head().id, false); await vi.advanceTimersByTimeAsync(54000); expect(head()).toBeNull();
     status("a", "running"); status("a", "failed"); manager.shutdown();
     expect(vi.getTimerCount()).toBe(0); status("b", "running"); status("b", "completed");
     expect(manager.snapshot().pendingCount).toBe(0);

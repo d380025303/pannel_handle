@@ -158,7 +158,9 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     workspacePath: request.workspacePath, persistent: Boolean(request.persistent), phase: request.phase, ready: request.ready, terminalOpen: Boolean(request.terminal), configPreview: request.configPreview,
     scriptPreview: request.scriptPreview, output: request.output, error: request.error });
 
-  function listPending() { return [...pending.values()].map(publicRequest); }
+  // A persistent request may resolve without review after probing Codex. Do not
+  // expose it to a renderer mounting during that probe as a new trust prompt.
+  function listPending() { return [...pending.values()].filter(entry => entry.reviewRequired).map(publicRequest); }
   function get(id) {
     const request = pending.get(String(id));
     if (!request) throw new Error("Codex 工作区信任请求已失效。");
@@ -181,7 +183,6 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
           entry.configPreview = configPreview.slice(0, MAX_PREVIEW);
           entry.scriptPreview = scriptPreview.slice(0, MAX_PREVIEW);
           entry.scriptHash = scriptDigest(scriptPreview);
-          entry.ready = true;
           if (persistent && await projectTrusted(workspacePath)) {
             entry.phase = "hooks";
             let approvedHash;
@@ -198,7 +199,11 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
               }
             } catch (error) { entry.error = error.message || String(error); }
           }
-          if (pending.get(sessionId) === entry) publish(entry);
+          if (pending.get(sessionId) === entry) {
+            entry.ready = true;
+            entry.reviewRequired = true;
+            publish(entry);
+          }
         } catch (error) {
           if (pending.get(sessionId) !== entry) return;
           pending.delete(sessionId);

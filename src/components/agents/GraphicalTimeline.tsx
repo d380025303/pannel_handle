@@ -1,3 +1,4 @@
+import { GraphicalMessageCopy, graphicalMessageText } from "./GraphicalMessageCopy";
 import { CodexSubAgentEvent, isSubAgentEvent } from "../shared/CodexSubAgentEvent";
 import { CodexActivityEvent } from "../shared/CodexActivityEvent";
 import { configWarningFingerprint, useConfigWarningVisibility } from "./configWarningVisibility";
@@ -143,7 +144,7 @@ export const teamStatusLabels: Record<string, string> = {
   cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
 };
 
-export function TeamMemberTimeline({ member, onLinkClick, onCopyLink, codeBuddy = true, minimalMode = false }: { member: TeamMember; onCopyLink?: (text: string) => Promise<boolean>; onLinkClick?: (href: string) => void; codeBuddy?: boolean; minimalMode?: boolean }) {
+export function TeamMemberTimeline({ member, onLinkClick, onCopyLink, codeBuddy = true, minimalMode = false, messageCopy = false }: { messageCopy?: boolean; member: TeamMember; onCopyLink?: (text: string) => Promise<boolean>; onLinkClick?: (href: string) => void; codeBuddy?: boolean; minimalMode?: boolean }) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   return <div className="codex-app-server-team-timeline" aria-label={`${member.name} 的消息时间线`}>
     {!member.items.length && <p className="codex-app-server-team-empty">暂无成员消息。</p>}
@@ -154,7 +155,9 @@ export function TeamMemberTimeline({ member, onLinkClick, onCopyLink, codeBuddy 
           onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
       }
       const item = entry.item;
-      if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${timelineItemClass(item.type)}`} key={item.id}>
+      if (item.type === "userMessage" || item.type === "agentMessage" || messageCopy && item.type === "plan") return <article className={`codex-app-server-message ${messageCopy ? "graphical-message-copyable " : ""}${timelineItemClass(item.type)}`} key={item.id}>
+        {messageCopy && <GraphicalMessageCopy text={graphicalMessageText(item)} />}
+        {item.type === "plan" && <strong>计划</strong>}
         {item.type === "userMessage" ? <p>{item.text}</p>
           : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} onCopyLink={onCopyLink} linkActions />}
       </article>;

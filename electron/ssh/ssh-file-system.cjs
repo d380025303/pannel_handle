@@ -4,28 +4,87 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
   if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
   const clients = new Map();
   const downloads = new Map();
+  const connecting = new Map();
+  let stopped = false;
+
+  const noConnection = error => /No SFTP connection available/i.test(error?.message || "");
+  const connectionError = error => noConnection(error)
+    || ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTCONN"].includes(error?.code)
+    || /Unexpected (?:end|close) event/i.test(error?.message || "");
+  const readMethods = new Set(["stat", "get", "list", "cwd", "exists"]);
+  const singleRequestWrites = new Set(["put", "fastPut", "rename", "chmod", "delete"]);
+
+  async function closeClient(client) {
+    try { await client.end(); } catch { /* best effort */ }
+  }
+
+  function invalidate(sessionId, entry) {
+    entry.invalid = true;
+    if (clients.get(sessionId) === entry) clients.delete(sessionId);
+    if (!entry.closing) entry.closing = Promise.resolve().then(() => closeClient(entry.client));
+  }
 
   async function getClient(sessionId) {
-    if (clients.has(sessionId)) return clients.get(sessionId);
-    const client = await sshSessionRuntime.createSftpClient(sessionId);
-    clients.set(sessionId, client);
-    return client;
+    if (stopped) throw new Error("SSH file system is shut down.");
+    const cached = clients.get(sessionId);
+    if (cached) {
+      if (!("sftp" in cached.client) || cached.client.sftp) return cached;
+      invalidate(sessionId, cached);
+    }
+    if (connecting.has(sessionId)) return connecting.get(sessionId).promise;
+    const pending = { canceled: false };
+    pending.promise = (async () => {
+      const client = await sshSessionRuntime.createSftpClient(sessionId);
+      if (pending.canceled || stopped) {
+        await closeClient(client);
+        throw new Error("SSH file connection was canceled.");
+      }
+      const entry = { client, invalid: false };
+      // Observe the underlying transport without changing ssh2-sftp-client's event flags.
+      const transport = client.client || client;
+      if (typeof transport.on === "function") {
+        const onInvalid = () => invalidate(sessionId, entry);
+        for (const event of ["error", "end", "close"]) transport.on(event, onInvalid);
+      }
+      clients.set(sessionId, entry);
+      return entry;
+    })().finally(() => {
+      if (connecting.get(sessionId) === pending) connecting.delete(sessionId);
+    });
+    connecting.set(sessionId, pending);
+    return pending.promise;
   }
 
   async function call(sessionId, method, ...args) {
-    const client = await getClient(sessionId);
-    return client[method](...args);
+    let entry = await getClient(sessionId);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await entry.client[method](...args);
+      } catch (error) {
+        if (!connectionError(error)) throw error;
+        invalidate(sessionId, entry);
+        // Never replay mutations after a request may have reached the server.
+        if (attempt || (!readMethods.has(method) && !(singleRequestWrites.has(method) && noConnection(error)))
+          || entry.canceled || stopped) throw error;
+        entry = await getClient(sessionId);
+      }
+    }
   }
 
   async function exists(sessionId, remotePath) {
-    const client = await getClient(sessionId);
-    if (typeof client.exists === "function") return Boolean(await client.exists(remotePath));
-    try { await client.stat(remotePath); return true; } catch { return false; }
+    const { client } = await getClient(sessionId);
+    if (typeof client.exists === "function") return Boolean(await call(sessionId, "exists", remotePath));
+    try { await call(sessionId, "stat", remotePath); return true; } catch (error) {
+      if (error.code === 2 || error.code === "ENOENT") return false;
+      throw error;
+    }
   }
 
   async function remove(sessionId, remotePath) {
-    const client = await getClient(sessionId);
-    try { await client.rmdir(remotePath, true); } catch { await client.delete(remotePath); }
+    const stat = await call(sessionId, "stat", remotePath);
+    const directory = typeof stat.isDirectory === "function" ? stat.isDirectory() : stat.isDirectory;
+    if (directory) await call(sessionId, "rmdir", remotePath, true);
+    else await call(sessionId, "delete", remotePath);
   }
 
   async function downloadFile(transferId, sessionId, remotePath, localPath, options = {}) {
@@ -67,16 +126,22 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
   }
 
   async function disconnect(sessionId) {
-    const client = clients.get(sessionId);
+    const pending = connecting.get(sessionId);
+    if (pending) pending.canceled = true;
+    connecting.delete(sessionId);
+    const entry = clients.get(sessionId);
     clients.delete(sessionId);
-    if (client) {
-      try { await client.end(); } catch { /* best effort */ }
+    if (entry) {
+      entry.canceled = true;
+      invalidate(sessionId, entry);
+      await entry.closing;
     }
   }
 
   async function shutdown() {
+    stopped = true;
     await Promise.all(Array.from(downloads.keys()).map(cancelDownload));
-    await Promise.all(Array.from(clients.keys()).map(disconnect));
+    await Promise.all(Array.from(new Set([...clients.keys(), ...connecting.keys()])).map(disconnect));
   }
 
   return {

@@ -947,6 +947,24 @@ describe("remote-file-service", () => {
     expect(sftp.put).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])("checks the saved version after recovering an idle SSH connection (changed=%s)", async changed => {
+    const first = createSftpMock();
+    const next = createSftpMock({ get: vi.fn(async () => Buffer.from(changed ? "remote edit" : "text")) });
+    const factory = vi.fn().mockReturnValueOnce(first).mockReturnValue(next);
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh", sshConfig: { host: "example.com", extraArgs: [] } }),
+      sessionStore: createSessionStore(),
+      sftpFactory: factory
+    });
+    const preview = await service.readText("run-1", "/tmp/a.txt");
+    first.stat.mockRejectedValue(new Error("stat: stat: No SFTP connection available"));
+    const result = await service.writeText("run-1", "/tmp/a.txt", "updated", preview.version);
+    expect(result.status).toBe(changed ? "conflict" : "saved");
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(next.put).toHaveBeenCalledTimes(changed ? 0 : 1);
+    await service.shutdown();
+  });
+
   it("rejects edited text over the preview limit", async () => {
     const session = {
       id: "run-1",

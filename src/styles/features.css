@@ -7978,6 +7978,68 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-empty h2 { margin: 20px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .codex-app-server-message, .codex-app-server-event, .codex-app-server-approval { box-sizing: border-box; max-width: min(88%, 900px); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px 16px; background: var(--color-bg-panel); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
 .codex-app-server-message { align-self: flex-start; width: fit-content; }
+/* Reserve the top-right corner so copying never covers message text. */
+.graphical-message-copyable {
+  position: relative;
+  padding-right: 52px;
+}
+.graphical-message-copy-control {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  pointer-events: none;
+}
+.graphical-message-copyable:hover > .graphical-message-copy-control,
+.graphical-message-copyable:focus-within > .graphical-message-copy-control,
+.graphical-message-copy-control[data-status="failed"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.graphical-message-copy-control > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-panel);
+  cursor: pointer;
+}
+.graphical-message-copy-control > button:hover {
+  color: var(--color-text);
+  background: var(--color-bg-selection);
+}
+.graphical-message-copy-control > button:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+.graphical-message-copy-control > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.graphical-message-copy-control svg {
+  width: 16px;
+  height: 16px;
+}
+.graphical-message-copy-feedback {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  width: max-content;
+  max-width: 180px;
+  border-radius: 6px;
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  font-size: 11px;
+}
+.graphical-message-copy-feedback:not(:empty) {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+}
 .codex-app-server-message > strong { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
 
 .codex-app-server-message.user-message {

@@ -1,10 +1,91 @@
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 
 const require = createRequire(import.meta.url);
 const { createSshFileSystem } = require("./ssh-file-system.cjs");
 
 describe("ssh-file-system", () => {
+  function client(overrides = {}) {
+    return { client: new EventEmitter(), list: vi.fn(async () => []), end: vi.fn(), ...overrides };
+  }
+
+  it("shares concurrent connection attempts and reconnects after idle close", async () => {
+    const first = client();
+    const next = client();
+    const runtime = { createSftpClient: vi.fn().mockResolvedValueOnce(first).mockResolvedValue(next) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await Promise.all([fs.list("s", "/a"), fs.list("s", "/b")]);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(1);
+    first.client.emit("close");
+    await fs.list("s", "/c");
+    first.client.emit("end");
+    await fs.list("s", "/d");
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(2);
+    expect(next.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a disconnected read once and does not replay interrupted writes", async () => {
+    const error = Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+    const first = client({ stat: vi.fn().mockRejectedValue(error) });
+    const next = client({ stat: vi.fn().mockResolvedValue({ size: 4 }), put: vi.fn().mockRejectedValue(error) });
+    const runtime = { createSftpClient: vi.fn().mockResolvedValueOnce(first).mockResolvedValue(next) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await expect(fs.stat("s", "/a")).resolves.toEqual({ size: 4 });
+    await expect(fs.put("s", Buffer.from("text"), "/a")).rejects.toBe(error);
+    expect(next.put).toHaveBeenCalledTimes(1);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries mutations only when no SFTP request could be sent", async () => {
+    const first = client({ put: vi.fn().mockRejectedValue(new Error("put: No SFTP connection available")) });
+    const next = client({ put: vi.fn().mockResolvedValue(undefined) });
+    const runtime = { createSftpClient: vi.fn().mockResolvedValueOnce(first).mockResolvedValue(next) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await fs.put("s", Buffer.from("text"), "/a");
+    expect(next.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops after one retry and propagates ordinary file errors", async () => {
+    const error = new Error("stat: No SFTP connection available");
+    const runtime = { createSftpClient: vi.fn(async () => client({ stat: vi.fn().mockRejectedValue(error) })) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await expect(fs.stat("s", "/a")).rejects.toBe(error);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(2);
+    const denied = Object.assign(new Error("Permission denied"), { code: 3 });
+    runtime.createSftpClient.mockResolvedValue(client({ stat: vi.fn().mockRejectedValue(denied) }));
+    await expect(fs.exists("s", "/a")).rejects.toBe(denied);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not fall back to deleting a file when directory removal loses connection", async () => {
+    const error = Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+    const sftp = client({ stat: vi.fn(async () => ({ isDirectory: true })), rmdir: vi.fn().mockRejectedValue(error), delete: vi.fn() });
+    const fs = createSshFileSystem({ sshSessionRuntime: { createSftpClient: vi.fn(async () => sftp) } });
+    await expect(fs.remove("s", "/dir")).rejects.toBe(error);
+    expect(sftp.delete).not.toHaveBeenCalled();
+  });
+
+  it.each(["disconnect", "shutdown"])("cancels pending connections on %s", async action => {
+    let resolve;
+    const sftp = client();
+    const runtime = { createSftpClient: vi.fn(() => new Promise(done => { resolve = done; })) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    const result = expect(fs.list("s", "/a")).rejects.toThrow("canceled");
+    await fs[action]("s");
+    resolve(sftp);
+    await result;
+    expect(sftp.end).toHaveBeenCalledTimes(1);
+    expect(sftp.list).not.toHaveBeenCalled();
+  });
+
+  it("allows another connection after a connection attempt fails", async () => {
+    const runtime = { createSftpClient: vi.fn().mockRejectedValueOnce(new Error("connect failed")).mockResolvedValue(client()) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await expect(fs.list("s", "/a")).rejects.toThrow("connect failed");
+    await fs.list("s", "/a");
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(2);
+  });
   it("caches SFTP clients by session and closes them on disconnect", async () => {
     const client = { list: vi.fn(async () => []), end: vi.fn() };
     const runtime = { createSftpClient: vi.fn(async () => client) };

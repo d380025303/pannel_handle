@@ -56,7 +56,7 @@ export function CodexSubAgentPanel({ sessionId, threadId, state, minimalMode = f
         </div>
         {selected.error && <p role="alert" className="codex-sub-agent-notice">{selected.error} <button type="button" disabled={state.loading} onClick={() => void act(() => window.codexAppServerApi.refreshSubAgents(sessionId, threadId))}>重试</button></p>}
         {selected.loading && !selected.items.length && <p role="status" className="codex-sub-agent-notice">正在读取子 Agent 消息…</p>}
-        <TeamMemberTimeline key={`${threadId}:${selected.threadId}`} member={selected} codeBuddy={false} minimalMode={minimalMode} onLinkClick={onLinkClick} />
+        <TeamMemberTimeline key={`${threadId}:${selected.threadId}`} member={selected} messageCopy codeBuddy={false} minimalMode={minimalMode} onLinkClick={onLinkClick} />
       </>}
     </>}
   </aside>;

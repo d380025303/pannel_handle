@@ -1,3 +1,4 @@
+import { GraphicalMessageCopy, graphicalMessageText } from "./GraphicalMessageCopy";
 import { GraphicalMenuSettingsDialog } from "../settings/GraphicalMenuSettingsDialog";
 import { GraphicalActionMenu } from "../shared/GraphicalActionMenu";
 import { useGraphicalMenuConfig } from "../../utils/useGraphicalMenuConfig";
@@ -1447,7 +1448,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         if (item.type === "turnError") return <article className="codex-app-server-message turn-error" key={item.id} role="alert">
           <strong>CodeBuddy 运行错误</strong><p>{item.text}</p>
         </article>;
-        if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${timelineItemClass(item.type)}`} key={item.id}>
+        if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message graphical-message-copyable ${timelineItemClass(item.type)}`} key={item.id}>
+          <GraphicalMessageCopy text={graphicalMessageText(item)} />
           {item.type === "plan" && <strong>计划</strong>}
           {item.type === "userMessage" ? <>{item.parts?.length ? item.parts.map((part, index) => part.type === "text"
             ? <p key={`text-${index}`}>{part.text}</p>
@@ -1764,7 +1766,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {selectedMember.toolCallCount != null ? ` · 工具 ${selectedMember.toolCallCount}` : ""}
             </small>}
           </div>
-          <TeamMemberTimeline key={`${snapshot.threadId}:${snapshot.team.name}:${selectedMember.name}`} member={selectedMember} minimalMode={minimalMode} onLinkClick={onLinkClick} />
+          <TeamMemberTimeline key={`${snapshot.threadId}:${snapshot.team.name}:${selectedMember.name}`} member={selectedMember} messageCopy minimalMode={minimalMode} onLinkClick={onLinkClick} />
           <form className="codex-app-server-team-composer" onSubmit={event => { event.preventDefault(); void sendMemberMessage(); }}>
             <label htmlFor="codebuddy-team-message">发给 {selectedMember.name}</label>
             <textarea id="codebuddy-team-message" value={memberDraft} onChange={event => setMemberDraft(event.target.value)}

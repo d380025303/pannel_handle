@@ -372,3 +372,36 @@
 .desktop-mascot-summary-container .desktop-mascot-summary {
   min-width: 0;
 }
+
+.desktop-mascot.has-message {
+  height: 272px;
+}
+.desktop-mascot.has-message.is-collapsed {
+  width: 120px;
+  height: 92px;
+}
+.desktop-mascot.has-message .desktop-mascot-controls {
+  bottom: 44px;
+}
+.desktop-mascot-message-button {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 32px;
+  padding: 0 12px;
+  white-space: nowrap;
+  pointer-events: auto;
+  border: 1px solid var(--mascot-control-border);
+  border-radius: 16px;
+  background: var(--mascot-surface);
+  color: var(--mascot-control-text);
+  box-shadow: var(--mascot-control-shadow);
+}
+.desktop-mascot-message-button:hover {
+  background: var(--mascot-control-hover);
+}
+.desktop-mascot.has-message.is-collapsed .desktop-mascot-character {
+  width: 52px;
+  margin: 0 auto;
+}

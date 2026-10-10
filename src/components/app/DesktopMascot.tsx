@@ -28,7 +28,7 @@ const animations = {
 type Animation = keyof typeof animations;
 const randomActions: Animation[] = ["wave", "working", "celebrate"];
 
-function useMascotAnimation(allowed: boolean, roaming: boolean) {
+function useMascotAnimation(allowed: boolean, roaming: boolean, attention: boolean) {
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.(motionQuery).matches ?? false);
   const [visible, setVisible] = useState(() => !document.hidden);
   const [failed, setFailed] = useState(false);
@@ -59,23 +59,23 @@ function useMascotAnimation(allowed: boolean, roaming: boolean) {
     };
   }, []);
   useEffect(() => {
-    setPlayback(current => ({ animation: "idle", serial: current.serial + 1, loaded: false }));
-  }, [enabled, roaming]);
+    setPlayback(current => ({ animation: attention ? "wave" : "idle", serial: current.serial + 1, loaded: false }));
+  }, [enabled, roaming, attention]);
   useEffect(() => {
     if (!enabled || roaming || !playback.loaded) return;
     const idle = playback.animation === "idle";
     const delay = idle ? 8000 + Math.random() * 7000 : animations[playback.animation].duration;
     const timer = window.setTimeout(() => {
       let next: Animation = "idle";
-      if (idle) {
-        const candidates = randomActions.filter(action => action !== previousAction.current);
+      if (idle || attention) {
+        const candidates = randomActions.filter(action => action !== playback.animation && action !== previousAction.current);
         next = candidates[Math.floor(Math.random() * candidates.length)];
         previousAction.current = next;
       }
       setPlayback(current => ({ animation: next, serial: current.serial + 1, loaded: false }));
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [enabled, roaming, playback]);
+  }, [enabled, roaming, attention, playback]);
 
   useEffect(() => {
     setBlinkFrame(stillImage);
@@ -146,6 +146,9 @@ export function DesktopMascot({ locale }: {
   const [bubbleHovered, setBubbleHovered] = useState(false);
   const [bubbleFocused, setBubbleFocused] = useState(false);
   const notification = notifications.notification;
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const [viewedId, setViewedId] = useState<string | null>(null);
+  const bubbleOpen = Boolean(notification && openedId === notification.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const summaryExpanded = Boolean(notification && !notification.action && expandedId === notification.id);
   const [moving, setMoving] = useState(true);
@@ -160,7 +163,7 @@ export function DesktopMascot({ locale }: {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const animation = useMascotAnimation(preferences.animated && !preferences.collapsed, roaming);
+  const animation = useMascotAnimation(preferences.animated && !preferences.collapsed, roaming, Boolean(notification && viewedId !== notification.id));
   const drag = useRef<{ id: number; x: number; y: number; startX: number; startY: number; active: boolean; timer: number; target: HTMLButtonElement } | undefined>(undefined);
   const suppressClick = useRef(false);
   const keyboardInteraction = useRef(true);
@@ -193,9 +196,19 @@ export function DesktopMascot({ locale }: {
     return () => { disposed = true; unsubscribe(); unsubscribeNotifications(); };
   }, [desktop]);
   useEffect(() => {
-    if (desktop && notification) desktop.setNotificationPresentation(notification.id, bubbleHovered || bubbleFocused || summaryExpanded);
+    if (desktop && notification) desktop.setNotificationPresentation(notification.id, bubbleOpen || bubbleHovered || bubbleFocused || summaryExpanded);
     if (!notification) { setBubbleHovered(false); setBubbleFocused(false); }
-  }, [desktop, notification?.id, bubbleHovered, bubbleFocused, summaryExpanded]);
+  }, [desktop, notification?.id, bubbleHovered, bubbleFocused, summaryExpanded, bubbleOpen]);
+  useEffect(() => {
+    setOpenedId(null); setViewedId(null); setExpandedId(null);
+    setBubbleHovered(false); setBubbleFocused(false);
+  }, [notification?.id]);
+  useEffect(() => {
+    if (!bubbleOpen) { setBubbleHovered(false); setBubbleFocused(false); }
+  }, [bubbleOpen]);
+  useEffect(() => {
+    if (desktop && notification) desktop.setNotificationExpanded(notification.id, bubbleOpen);
+  }, [desktop, notification?.id, bubbleOpen]);
   useEffect(() => {
     if (!notification || notification.action || expandedId !== notification.id) setExpandedId(null);
   }, [notification?.id, notification?.action, expandedId]);
@@ -204,13 +217,13 @@ export function DesktopMascot({ locale }: {
     desktop.setSummaryExpanded(notification.id, summaryExpanded);
   }, [desktop, notification?.id, summaryExpanded]);
   useEffect(() => {
-    if (!summaryExpanded) return;
+    if (!bubbleOpen) return;
     const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); setExpandedId(null); }
+      if (event.key === "Escape") { event.preventDefault(); setExpandedId(null); if (!summaryExpanded) setOpenedId(null); }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [summaryExpanded]);
+  }, [bubbleOpen, summaryExpanded]);
   useEffect(() => {
     if (!desktop || !desktopReady) return;
     const media = window.matchMedia?.(motionQuery);
@@ -251,7 +264,7 @@ export function DesktopMascot({ locale }: {
           }
         } catch { /* Keep controls available if image pixels cannot be read. */ }
       }
-      container.current?.querySelectorAll(preferences.collapsed ? "button" : ".desktop-mascot-controls:not([hidden]) button").forEach(button => {
+      container.current?.querySelectorAll(preferences.collapsed ? "button" : ".desktop-mascot-controls:not([hidden]) button, .desktop-mascot-message-button").forEach(button => {
         const rect = button.getBoundingClientRect();
         regions.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
       });
@@ -268,7 +281,7 @@ export function DesktopMascot({ locale }: {
     window.addEventListener("resize", report);
     const timer = window.setInterval(report, 250);
     return () => { window.clearInterval(timer); image?.removeEventListener("load", report); window.removeEventListener("resize", report); };
-  }, [desktop, preferences.collapsed, hovered, focused, animation.key, notification?.id, summaryExpanded]);
+  }, [desktop, preferences.collapsed, hovered, focused, animation.key, notification?.id, summaryExpanded, bubbleOpen]);
   useEffect(() => {
     if (desktop) return;
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* Preferences are optional. */ }
@@ -327,12 +340,12 @@ export function DesktopMascot({ locale }: {
 
   const style: CSSProperties = desktop ? { left: 0, top: 0 } : { left: position.x, top: position.y };
   return (
-    <aside ref={container} className={`desktop-mascot${desktop ? " is-desktop-window" : ""}${notification ? ` has-notification${notification.action ? " has-request" : ""}` : ""}${summaryExpanded ? " is-summary-expanded" : ""}${preferences.collapsed ? " is-collapsed" : ""}${dragging ? " is-dragging" : ""}`} style={style} aria-label={text("看板娘小帕", "Panna companion")}
+    <aside ref={container} className={`desktop-mascot${desktop ? " is-desktop-window" : ""}${bubbleOpen ? ` has-notification${notification?.action ? " has-request" : ""}` : ""}${summaryExpanded ? " is-summary-expanded" : ""}${notification ? " has-message" : ""}${preferences.collapsed ? " is-collapsed" : ""}${dragging ? " is-dragging" : ""}`} style={style} aria-label={text("看板娘小帕", "Panna companion")}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onPointerDownCapture={() => { keyboardInteraction.current = false; setFocused(false); }}
       onKeyDownCapture={() => { keyboardInteraction.current = true; setFocused(true); }}
       onFocus={event => { if (keyboardInteraction.current || event.target.matches(":focus-visible")) setFocused(true); }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-      {notification && <section className={`desktop-mascot-bubble is-${notification.status}`} role="status" aria-live="polite" tabIndex={0}
+      {notification && bubbleOpen && <section className={`desktop-mascot-bubble is-${notification.status}`} role="status" aria-live="polite" tabIndex={0}
         onMouseEnter={() => setBubbleHovered(true)} onMouseLeave={() => setBubbleHovered(false)}
         onFocus={() => setBubbleFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setBubbleFocused(false); }}>
         <div className="desktop-mascot-bubble-header">
@@ -348,6 +361,9 @@ export function DesktopMascot({ locale }: {
             setExpandedId(notification.id);
           }}><MarkdownBlock className="desktop-mascot-summary" externalLinks content={notification.summary === "暂无摘要" ? text("暂无摘要", "No summary available") : notification.summary} /></div>}
       </section>}
+      {notification && <button type="button" className="desktop-mascot-message-button" aria-expanded={bubbleOpen} onClick={() => {
+        setOpenedId(bubbleOpen ? null : notification.id); setViewedId(notification.id); setExpandedId(null);
+      }}>{bubbleOpen ? text("收起消息", "Hide message") : text("查看消息", "View message")} ({notifications.pendingCount})</button>}
       {!preferences.collapsed && <div className="desktop-mascot-controls" hidden={!hovered && !focused}>
         {desktop && <button type="button" title={moving ? text("暂停随机移动", "Pause roaming") : text("恢复随机移动", "Resume roaming")} aria-label={moving ? text("暂停随机移动", "Pause roaming") : text("恢复随机移动", "Resume roaming")} onClick={() => desktop.setPreferences({ moving: !moving })}>{moving ? <Pause size={14} /> : <Play size={14} />}</button>}
         <button type="button" title={text("收起看板娘", "Minimize companion")} aria-label={text("收起看板娘", "Minimize companion")} onClick={() => setPreferences(current => ({ ...current, collapsed: true }))}><Minus size={14} /></button>

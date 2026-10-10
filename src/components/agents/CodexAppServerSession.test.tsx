@@ -20,6 +20,20 @@ function CodexAppServerSession({ sessionId, ref, minimalMode = false }: { sessio
 }
 
 describe("CodexAppServerSession", () => {
+  it.each(["codex", "codebuddy", "opencode"])("copies %s message bodies and plans", async provider => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ provider, threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: true, error: null, approvals: [], items: [
+      { id: "u", type: "userMessage", text: "question" },
+      { id: "a", type: "agentMessage", text: "**answer**" },
+      { id: "p", type: "plan", text: "# plan body" }
+    ] } as any);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "复制消息" })).toHaveLength(3));
+    for (const [index, text] of ["question", "**answer**", "# plan body"].entries()) {
+      const cards = document.querySelectorAll(".graphical-message-copyable");
+      fireEvent.click(within(cards[index] as HTMLElement).getByRole("button", { name: "复制消息" }));
+      await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(text));
+    }
+  });
   afterEach(cleanup);
   let changed: (payload: any) => void;
   const submit = vi.fn().mockResolvedValue(undefined);
