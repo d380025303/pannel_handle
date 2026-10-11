@@ -77,12 +77,12 @@ const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan",
 export function codexReasoningSummary(item: GraphicalItem) {
   return item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n").trim() || "";
 }
-export function groupTimeline(items: GraphicalItem[], provider?: AgentProvider): TimelineEntry[] {
+export function groupTimeline(items: GraphicalItem[], provider?: AgentProvider, minimalMode = false): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const item of items) {
     if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)
       && !(provider === "codex" && ["sleep", "imageGeneration"].includes(item.type))) continue;
-    if (provider === "codex" && item.type === "reasoning" && !codexReasoningSummary(item)) continue;
+    if (item.type === "reasoning" && (minimalMode || provider === "codex" && !codexReasoningSummary(item))) continue;
     const previous = entries.at(-1);
     if (toolTypes.has(item.type)) {
       if (previous?.kind === "tools" && (!previous.items[0].turnId || !item.turnId || previous.items[0].turnId === item.turnId))

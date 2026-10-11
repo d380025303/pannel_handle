@@ -267,3 +267,34 @@ it("keeps the no-templates message distinct from no search matches", () => {
   expect(screen.getByText("请先在电脑端创建会话模板")).toBeTruthy();
   expect(screen.queryByText("没有匹配的模板")).toBeNull();
 });
+
+
+it("persists the mobile minimal mode independently across refreshes", () => {
+  const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
+  const toggle = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  expect(toggle.checked).toBe(true);
+  expect(localStorage.getItem("pannel-handle-mobile-graphical-minimal-mode")).toBe("true");
+  page.unmount();
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
+  const restored = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
+  expect(restored.checked).toBe(true);
+  fireEvent.click(restored);
+  expect(localStorage.getItem("pannel-handle-mobile-graphical-minimal-mode")).toBe("false");
+  expect(remote.send).not.toHaveBeenCalled();
+});
+
+it("keeps minimal mode usable when browser storage is unavailable", () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
+  const toggle = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  expect(toggle.checked).toBe(true);
+  expect(screen.getByText("无法保存极简模式设置，本次切换仍然有效。")).toBeTruthy();
+});

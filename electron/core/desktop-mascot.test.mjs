@@ -63,6 +63,37 @@ describe("desktop mascot window", () => {
     snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
     service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
   }
+  it("only updates mouse passthrough on transitions and resets it on reopen", async () => {
+    command({ type: "preferences", moving: false });
+    await vi.advanceTimersByTimeAsync(330);
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(1);
+    const bounds = window.getBounds();
+    command({ type: "regions", regions: [{ x: 0, y: 0, width: 192, height: 232 }] });
+    cursor = { x: bounds.x + 20, y: bounds.y + 20 };
+    await vi.advanceTimersByTimeAsync(330);
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(2);
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
+    cursor = { x: area.x, y: area.y };
+    await vi.advanceTimersByTimeAsync(330);
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(3);
+    const closed = window;
+    service.close();
+    await vi.advanceTimersByTimeAsync(330);
+    expect(closed.setIgnoreMouseEvents).toHaveBeenCalledTimes(3);
+    service.open({ getBounds: () => area });
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledTimes(1);
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+  });
+  it("skips native moves when clamping leaves the position unchanged", () => {
+    command({ type: "preferences", moving: false });
+    window.setBounds({ x: area.x, y: area.y });
+    const move = vi.spyOn(window, "setPosition");
+    command({ type: "step", direction: "left" });
+    command({ type: "step", direction: "up" });
+    expect(move).not.toHaveBeenCalled();
+    command({ type: "step", direction: "right" });
+    expect(move).toHaveBeenCalledWith(area.x + 20, area.y);
+  });
   it("suppresses foreground requests in initial state and pushes, then restores valid requests", () => {
     const host = reopenHost();
     pendingPlan();

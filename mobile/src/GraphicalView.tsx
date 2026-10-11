@@ -76,7 +76,7 @@ export function GraphicalView(props: GraphicalViewProps) {
     {snapshot.permissionError && <div className="graphical-error" role="alert">{snapshot.permissionError}<button type="button" onClick={() => controller.setActiveSheet("configuration")}>配置与权限</button></div>}
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
-    <GraphicalTimeline key={`${session.id}:${snapshot.threadId}`} snapshot={snapshot} controller={controller} />
+    <GraphicalTimeline key={`${session.id}:${snapshot.threadId}`} snapshot={snapshot} controller={controller} minimalMode={props.minimalMode} />
     <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand}
       disabled={command => !inputPolicy.canInput || (command.mode !== "write" && (!inputPolicy.canSubmit || isSending))} />
     {snapshot.provider === "codex" && snapshot.goal && <button className="graphical-goal-chip" title={snapshot.goal.objective} onClick={() => setActiveSheet("goal")}>目标：{snapshot.goal.objective} · {snapshot.goal.status}</button>}

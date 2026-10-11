@@ -7,6 +7,54 @@ import type { DesktopMascotState } from "../../vite-env";
 
 describe("DesktopMascot desktop window controls", () => {
   afterEach(() => { cleanup(); delete window.desktopMascotApi; vi.useRealTimers(); vi.restoreAllMocks(); });
+  it("bounds animated pixel reads, caches static masks and cleans up polling", async () => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    let listener: (state: DesktopMascotState) => void = () => {};
+    const state: DesktopMascotState = { collapsed: false, animated: false, moving: false, roaming: false, roamingDirection: "left", migrated: true, locale: "en-US", notifications: { revision: 0, notification: null, pendingCount: 0 } };
+    const api = {
+      getState: vi.fn().mockResolvedValue(state), onState: vi.fn(callback => { listener = callback; return vi.fn(); }),
+      setPreferences: vi.fn(), migrate: vi.fn(), setInteraction: vi.fn(), setRegions: vi.fn(),
+      startDrag: vi.fn(), endDrag: vi.fn(), step: vi.fn(), onNotifications: vi.fn(() => vi.fn()),
+      dismissNotification: vi.fn(), setNotificationExpanded: vi.fn(), setSummaryExpanded: vi.fn(), setNotificationPresentation: vi.fn(), processNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    window.desktopMascotApi = api;
+    const pixels = new Uint8ClampedArray(192 * 192 * 4);
+    for (let y = 0; y < 192; y++) for (let x = 0; x < 30; x++) pixels[(y * 192 + x) * 4 + 3] = 255;
+    const context = { clearRect: vi.fn(), drawImage: vi.fn(), getImageData: vi.fn(() => ({ data: pixels })) };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(512);
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(512);
+    vi.spyOn(HTMLImageElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, width: 192, height: 192 } as DOMRect);
+    render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
+    await act(async () => {});
+    expect(context.getImageData).toHaveBeenCalledTimes(1);
+    const sends = api.setRegions.mock.calls.length;
+    act(() => vi.advanceTimersByTime(1000));
+    fireEvent(window, new Event("resize"));
+    expect(context.getImageData).toHaveBeenCalledTimes(1);
+    expect(api.setRegions).toHaveBeenCalledTimes(sends);
+    act(() => listener({ ...state, animated: true, roaming: true }));
+    const reads = context.getImageData.mock.calls.length;
+    const walkingSends = api.setRegions.mock.calls.length;
+    act(() => vi.advanceTimersByTime(750));
+    expect(context.getImageData).toHaveBeenCalledTimes(reads + 3);
+    expect(context.getImageData).toHaveBeenLastCalledWith(0, 0, 192, 192);
+    expect(api.setRegions).toHaveBeenCalledTimes(walkingSends);
+    expect(api.setRegions.mock.lastCall?.[0][0].x).toBe(0);
+    act(() => listener({ ...state, animated: true, roaming: true, roamingDirection: "right" }));
+    expect(api.setRegions.mock.lastCall?.[0][0].x).toBe(162);
+    act(() => listener(state));
+    const stoppedReads = context.getImageData.mock.calls.length;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(context.getImageData).toHaveBeenCalledTimes(stoppedReads);
+    act(() => listener({ ...state, animated: true, roaming: true }));
+    cleanup();
+    const unmountedReads = context.getImageData.mock.calls.length;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(context.getImageData).toHaveBeenCalledTimes(unmountedReads);
+  });
   it("prioritizes walking until roaming ends and restarts the idle delay", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);

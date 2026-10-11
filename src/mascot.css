@@ -53,3 +53,7 @@ body { --color-text: #e8edf5; --color-border-strong: #465569; --color-bg-panel: 
   width: 120px;
   height: 92px;
 }
+
+.desktop-mascot.is-desktop-window .desktop-mascot-character img {
+  filter: none;
+}

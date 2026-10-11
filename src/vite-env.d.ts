@@ -1748,6 +1748,7 @@ export type IdeaBridgeApi = {
 
 declare global {
   interface Window {
+    projectInspectorApi?: import("./components/inspector/types").ProjectInspectorApi;
     desktopMascotApi?: DesktopMascotApi;
     codexPluginApi: CodexPluginApi;
     codeBuddyPluginApi: CodeBuddyPluginApi;

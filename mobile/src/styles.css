@@ -140,6 +140,21 @@ button.danger { color: #fda4af; }
 .session-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 9px 9px; }
 .session-actions button { padding: 5px 9px; border: 1px solid #334155; border-radius: 7px; background: #1e293b; font-size: 11px; }
 .session-drawer footer { padding: 11px 14px calc(11px + env(safe-area-inset-bottom)); color: #71869f; border-top: 1px solid #263244; font-size: 11px; }
+.mobile-preferences-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: #d8e2f0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mobile-preferences-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #22d3ee;
+}
 .drawer-empty { padding: 24px 8px; color: #7890aa; text-align: center; }
 
 .sheet-backdrop { display: flex; align-items: flex-end; }

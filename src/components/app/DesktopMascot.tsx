@@ -157,6 +157,9 @@ export function DesktopMascot({ locale }: {
   const [desktopReady, setDesktopReady] = useState(false);
   const [desktopLocale, setDesktopLocale] = useState(locale);
   const container = useRef<HTMLElement>(null);
+  const hitCanvas = useRef<HTMLCanvasElement | null>(null);
+  const staticMasks = useRef(new Map<string, { x: number; y: number; width: number; height: number }[]>());
+  const lastRegions = useRef<string | null>(null);
   const zh = (desktop ? desktopLocale : locale) === "zh-CN";
   const [preferences, setPreferences] = useState(loadPreferences);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -239,29 +242,44 @@ export function DesktopMascot({ locale }: {
   useEffect(() => {
     if (!desktop || !container.current) return;
     // Alpha hit regions keep transparent margins clickable through to the desktop.
+    lastRegions.current = null;
     const report = () => {
       const regions: { x: number; y: number; width: number; height: number }[] = [];
       const image = container.current?.querySelector("img");
-      if (image?.complete && image.naturalWidth) {
+      if (image?.complete && image.naturalWidth && image.naturalHeight) {
         try {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
-          const context = canvas.getContext("2d");
-          if (context) {
-            context.drawImage(image, 0, 0);
-            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-            const rect = image.getBoundingClientRect();
-            const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
-            const offsetX = rect.x + (rect.width - canvas.width * scale) / 2;
-            const offsetY = rect.y + (rect.height - canvas.height * scale) / 2;
-            for (let y = 0; y < canvas.height; y += 8) {
-              let left = canvas.width, right = -1;
-              for (let row = y; row < Math.min(y + 8, canvas.height); row++) for (let x = 0; x < canvas.width; x++) {
-                if (pixels[(row * canvas.width + x) * 4 + 3] > 20) { left = Math.min(left, x); right = Math.max(right, x); }
+          const rect = image.getBoundingClientRect();
+          const scale = Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight);
+          const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+          const offsetX = rect.x + (rect.width - width) / 2;
+          const offsetY = rect.y + (rect.height - height) / 2;
+          const animated = image.src.endsWith(".gif");
+          let mask = animated ? undefined : staticMasks.current.get(image.src);
+          if (!mask) {
+            const canvas = hitCanvas.current ?? (hitCanvas.current = document.createElement("canvas"));
+            const sampleScale = Math.min(1, 192 / image.naturalWidth, 192 / image.naturalHeight);
+            const sampleWidth = Math.max(1, Math.round(image.naturalWidth * sampleScale));
+            const sampleHeight = Math.max(1, Math.round(image.naturalHeight * sampleScale));
+            if (canvas.width !== sampleWidth) canvas.width = sampleWidth;
+            if (canvas.height !== sampleHeight) canvas.height = sampleHeight;
+            const context = canvas.getContext("2d", { willReadFrequently: true });
+            if (context) {
+              context.clearRect(0, 0, sampleWidth, sampleHeight);
+              context.drawImage(image, 0, 0, sampleWidth, sampleHeight);
+              const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+              mask = [];
+              for (let y = 0; y < sampleHeight; y += 3) {
+                const rows = Math.min(3, sampleHeight - y);
+                let left = sampleWidth, right = -1;
+                for (let row = y; row < y + rows; row++) for (let x = 0; x < sampleWidth; x++) {
+                  if (pixels[(row * sampleWidth + x) * 4 + 3] > 20) { left = Math.min(left, x); right = Math.max(right, x); }
+                }
+                if (right >= left) mask.push({ x: left / sampleWidth, y: y / sampleHeight, width: (right - left + 1) / sampleWidth, height: rows / sampleHeight });
               }
-              if (right >= left) regions.push({ x: offsetX + left * scale, y: offsetY + y * scale, width: (right - left + 1) * scale, height: 8 * scale });
+              if (!animated) staticMasks.current.set(image.src, mask);
             }
           }
+          mask?.forEach(region => regions.push({ x: offsetX + (image.classList.contains("is-walking-right") ? 1 - region.x - region.width : region.x) * width, y: offsetY + region.y * height, width: region.width * width, height: region.height * height }));
         } catch { /* Keep controls available if image pixels cannot be read. */ }
       }
       container.current?.querySelectorAll(preferences.collapsed ? "button" : ".desktop-mascot-controls:not([hidden]) button, .desktop-mascot-message-button").forEach(button => {
@@ -273,15 +291,27 @@ export function DesktopMascot({ locale }: {
         const rect = bubble.getBoundingClientRect();
         regions.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
       }
-      desktop.setRegions(regions);
+      const signature = JSON.stringify(regions);
+      if (lastRegions.current !== signature) {
+        lastRegions.current = signature;
+        desktop.setRegions(regions);
+      }
     };
     report();
     const image = container.current.querySelector("img");
     image?.addEventListener("load", report);
     window.addEventListener("resize", report);
-    const timer = window.setInterval(report, 250);
-    return () => { window.clearInterval(timer); image?.removeEventListener("load", report); window.removeEventListener("resize", report); };
-  }, [desktop, preferences.collapsed, hovered, focused, animation.key, notification?.id, summaryExpanded, bubbleOpen]);
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(report);
+    observer?.observe(container.current);
+    if (image) observer?.observe(image);
+    const timer = animation.enabled && !preferences.collapsed && animation.image.endsWith(".gif") ? window.setInterval(report, 250) : undefined;
+    return () => { window.clearInterval(timer); observer?.disconnect(); image?.removeEventListener("load", report); window.removeEventListener("resize", report); };
+  }, [desktop, desktopReady, preferences.collapsed, hovered, focused, animation.key, animation.image, animation.enabled, roamingDirection, notification?.id, summaryExpanded, bubbleOpen]);
+  useEffect(() => () => {
+    hitCanvas.current = null;
+    staticMasks.current.clear();
+    lastRegions.current = null;
+  }, []);
   useEffect(() => {
     if (desktop) return;
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* Preferences are optional. */ }

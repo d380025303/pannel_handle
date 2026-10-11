@@ -24,6 +24,12 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   const state = { collapsed: saved.collapsed === true, animated: saved.animated !== false, moving: saved.moving !== false, migrated: saved.migrated === true, locale: getLocale() };
   let win, timer, poll, journey, drag, frameRefresh;
   let movementFailed = false, pollFailed = false, movementContext;
+  let ignoringMouse;
+  function setIgnoringMouse(value) {
+    if (ignoringMouse === value) return;
+    win.setIgnoreMouseEvents(value, { forward: true });
+    ignoringMouse = value;
+  }
   function guarded(operation, callback) {
     try { callback(); } catch (error) { recover(operation, error); }
   }
@@ -38,7 +44,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       const dimensions = size();
       const next = clampPosition(validPosition(bounds) ? bounds : area, area, dimensions);
       win.setBounds({ ...next, ...dimensions });
-      win.setIgnoreMouseEvents(false);
+      win.setIgnoreMouseEvents(false); ignoringMouse = false;
       publish(); persist();
       // A failed cursor/hit-test API must not be retried every 33 ms.
       if (operation === "poll") pollFailed = true;
@@ -47,13 +53,14 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       console.error("Desktop mascot recovery failed:", recoveryError);
       pollFailed = true;
       // Keep notification actions reachable even if restoring the bounds failed.
-      try { win.setIgnoreMouseEvents(false); } catch {}
+      try { win.setIgnoreMouseEvents(false); ignoringMouse = false; } catch {}
     }
   }
   function move(position, area) {
     movementContext = { ...movementContext, position, area };
     const next = clampPosition(position, area, size());
-    win.setPosition(next.x, next.y);
+    const bounds = win.getBounds();
+    if (bounds.x !== next.x || bounds.y !== next.y) win.setPosition(next.x, next.y);
   }
   // Electron #46882: another window losing focus can repaint our native caption.
   function refreshNativeFrame() {
@@ -198,7 +205,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       movementContext = { ...movementContext, bounds };
       const x = cursor.x - bounds.x, y = cursor.y - bounds.y;
       const hit = regions.some(rect => x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height);
-      win.setIgnoreMouseEvents(!hit && !drag, { forward: true });
+      setIgnoringMouse(!hit && !drag);
     } catch (error) { recover(operation, error); }
   }
   function authorized(event) { return alive() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame; }
@@ -283,7 +290,8 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       // Defer until Windows finishes WM_NCACTIVATE; avoid reentrant frame updates.
       win.hookWindowMessage(0x0086, refreshNativeFrame);
     }
-    win.setIgnoreMouseEvents(true, { forward: true });
+    ignoringMouse = undefined;
+    setIgnoringMouse(true);
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", event => event.preventDefault());
     win.once("ready-to-show", () => { if (alive()) win.showInactive(); });

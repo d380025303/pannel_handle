@@ -7,9 +7,11 @@ import { SessionActionDialog, useSessionActionDialog } from "./SessionActionDial
 import { useSessionDrafts } from "./useSessionDrafts";
 import { useSessionNavigation } from "./useSessionNavigation";
 import { useRemoteConnection } from "./useRemoteConnection";
+import { useMobilePreferences } from "./useMobilePreferences";
 
 export default function App() {
   const remote = useRemoteConnection();
+  const preferences = useMobilePreferences();
   const navigation = useSessionNavigation(remote.sessions, remote.status, remote.lastLaunchedId);
   const drafts = useSessionDrafts(remote.sessions, remote.status, remote.onGraphicalMessage);
   const dialog = useSessionActionDialog(remote.send);
@@ -51,6 +53,7 @@ export default function App() {
       : view === "home" ? <SessionHome sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
         onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} />
       : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession} graphicalMenuConfig={remote.graphicalMenuConfig}
+        minimalMode={preferences.minimalMode}
         connectionEpoch={remote.status === "connected" ? remote.connectionEpoch : 0} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
         draft={drafts.graphicalDrafts[activeSession.id]?.text ?? ""}
         setDraft={update => drafts.updateGraphicalDraft(activeSession.id, update)}
@@ -66,6 +69,7 @@ export default function App() {
           <button className="primary large" type="button" onClick={chooseTemplate}>选择模板</button></section>}
 
     {drawerOpen && <SessionDrawer sessions={remote.sessions} templates={remote.templates} activeId={activeId}
+      minimalMode={preferences.minimalMode} onMinimalModeChange={preferences.updateMinimalMode} preferencesWarning={preferences.storageWarning}
       tab={drawerTab} onTabChange={setDrawerTab} send={remote.send} onOpen={openSession}
       onAction={dialog.open} onClose={() => setDrawerOpen(false)} />}
     <SessionActionDialog dialog={dialog} />

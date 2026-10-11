@@ -73,11 +73,14 @@ function fixture(viewSession = session, graphicalMenuConfig: import("../../src/u
   const listeners = new Set<(message: GraphicalMessage) => void>();
   const subscribe = (callback: (message: GraphicalMessage) => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
   let changeEpoch: (value: number) => void = () => {};
+  let changeMinimalMode: (value: boolean) => void = () => {};
   function TestView() {
     const [draft, setDraft] = useState("");
     const [epoch, setEpoch] = useState(1);
+    const [minimalMode, setMinimalMode] = useState(false);
+    changeMinimalMode = setMinimalMode;
     changeEpoch = setEpoch;
-    return <GraphicalView session={viewSession} connectionEpoch={epoch} send={send} graphicalMenuConfig={graphicalMenuConfig}
+    return <GraphicalView minimalMode={minimalMode} session={viewSession} connectionEpoch={epoch} send={send} graphicalMenuConfig={graphicalMenuConfig}
       onGraphicalMessage={subscribe}
       draft={draft} setDraft={setDraft} submissionPending={false} onSubmitRequest={() => {}} />;
   }
@@ -85,7 +88,8 @@ function fixture(viewSession = session, graphicalMenuConfig: import("../../src/u
   const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
   const reconnect = () => act(() => changeEpoch(2));
   const disconnect = () => act(() => changeEpoch(0));
-  return { send, emit, reconnect, disconnect };
+  const setMinimalMode = (value: boolean) => act(() => changeMinimalMode(value));
+  return { send, emit, reconnect, disconnect, setMinimalMode };
 }
 
 it("hides empty Codex reasoning before grouping tools and shows streamed summaries in order", () => {
@@ -1506,4 +1510,50 @@ it("uses host menu settings, returns to primary, and preserves nested new-thread
   fireEvent.click(within(sheet).getByRole("button", { name: "新对话" }));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.new-thread", sessionId: session.id, threadId: snapshot.threadId }));
   expect(screen.queryByRole("dialog", { name: "更多操作" })).toBeNull();
+});
+
+
+it.each(["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"] as const)("hides %s reasoning immediately and restores streamed content without resubscribing", provider => {
+  const f = fixture({ ...session, agentProvider: provider });
+  const items: GraphicalSnapshot["items"] = [
+    { id: "tool-a", type: "commandExecution", turnId: "turn-1" },
+    { id: "reason", type: "reasoning", text: "分析问题", summary: ["分析问题"] },
+    { id: "tool-b", type: "commandExecution", turnId: "turn-1" },
+    { id: "answer", type: "agentMessage", text: "保留回答" }
+  ];
+  const update = (text: string) => f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, provider, items: items.map(item => item.id === "reason" ? { ...item, text, summary: [text] } : item) } });
+  update("分析问题");
+  expect(screen.getByText("思考过程")).toBeTruthy();
+  const subscriptions = f.send.mock.calls.filter(([message]) => message.type === "graphical.subscribe").length;
+  f.setMinimalMode(true);
+  expect(screen.queryByText("思考过程")).toBeNull();
+  expect(screen.getByText("保留回答")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /工具调用 · 2 项/ })).toHaveLength(1);
+  update("新增思考内容");
+  expect(screen.queryByText("新增思考内容")).toBeNull();
+  f.setMinimalMode(false);
+  expect(screen.getByText("新增思考内容")).toBeTruthy();
+  expect(f.send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(subscriptions);
+});
+
+
+it.each(["codex", "codebuddy"] as const)("applies minimal mode to %s member timelines", provider => {
+  const f = fixture({ ...session, agentProvider: provider });
+  const items = [{ id: "reason", type: "reasoning", summary: ["成员思考"], text: "成员思考" },
+    { id: "reply", type: "agentMessage", text: "成员回答" }];
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: {
+    ...snapshot, provider,
+    ...(provider === "codex" ? { subAgents: { expanded: true, selectedThreadId: "child", loading: false, error: null, warning: null,
+      members: [{ threadId: "child", parentThreadId: "root", name: "scout", role: "", task: "inspect", status: "completed", createdAt: 0, loading: false, error: null, items }] } }
+      : { team: { name: "builders", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "worker", status: "idle", items }] } })
+  } });
+  if (provider === "codex") expect(screen.getByText("成员思考")).toBeTruthy();
+  else expect(screen.queryByText("成员思考")).toBeNull();
+  f.setMinimalMode(true);
+  expect(screen.queryByText("成员思考")).toBeNull();
+  expect(screen.getByText("成员回答")).toBeTruthy();
+  f.setMinimalMode(false);
+  if (provider === "codex") expect(screen.getByText("成员思考")).toBeTruthy();
+  else expect(screen.queryByText("成员思考")).toBeNull();
 });
