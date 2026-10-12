@@ -77,8 +77,11 @@ function inspect(appOutDir, repair) {
     }
     let directory = path.posix.dirname(from);
     while (true) {
-      const candidate = `${directory}/node_modules/${name}/package.json`.replace(/^\/\//, "/");
-      if (files.has(candidate)) return checkVersion(JSON.parse(asar.extractFile(archive, candidate.slice(1).replaceAll("/", "\\")).toString()));
+      // Node skips adding node_modules to a directory already named node_modules.
+      if (path.posix.basename(directory) !== "node_modules") {
+        const candidate = `${directory}/node_modules/${name}/package.json`.replace(/^\/\//, "/");
+        if (files.has(candidate)) return checkVersion(JSON.parse(asar.extractFile(archive, candidate.slice(1).replaceAll("/", "\\")).toString()));
+      }
       if (directory === "/") break;
       directory = path.posix.dirname(directory);
     }

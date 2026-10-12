@@ -57,6 +57,26 @@ for (const location of ["archive", "fallback"]) {
   }
 }
 
+for (const location of ["node_modules/node_modules/child", "node_modules/parent/node_modules/child", "node_modules/child"]) {
+  test(`archive parent dependency lookup checks ${location}`, async () => {
+    const result = await verify({
+      "package.json": { dependencies: { parent: "1.0.0" } },
+      "node_modules/parent/package.json": { version: "1.0.0", dependencies: { child: "1.0.0" } },
+      [`${location}/package.json`]: { version: "1.0.0" },
+    });
+    expect(result.error).toBeUndefined();
+    if (location === "node_modules/node_modules/child") {
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Missing packaged dependencies (1)");
+      expect(result.stderr).toContain("/node_modules/parent/package.json: child");
+      expect(result.stdout).not.toContain("graph is complete");
+    } else {
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("graph is complete");
+    }
+  });
+}
+
 test("an incompatible nested archive dependency cannot be hidden by compatible outer packages", async () => {
   const result = await verify({
     "package.json": { dependencies: { parent: "1.0.0" } },
