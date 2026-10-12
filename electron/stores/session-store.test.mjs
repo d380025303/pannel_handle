@@ -45,6 +45,47 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps memory and SQLite unchanged after a read-only update, then persists a successful retry", () => {
+    const sessionsFile = createTempSessionsFile();
+    let database;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    }).open();
+    const onChanged = vi.fn();
+    const openSessions = () => createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe", onChanged });
+    try {
+      const store = openSessions();
+      store.loadLibrary();
+      store.addToLibrary({ id: "1", title: "Before", type: "windows" });
+      const before = store.getLibrary();
+      const persisted = dataStore.read(sessionsFile);
+      onChanged.mockClear();
+      database.exec("PRAGMA query_only=ON");
+      expect(() => store.updateLibrary("1", { title: "After" })).toThrow(/readonly|read-only/i);
+      expect(store.getLibrary()).toEqual(before);
+      expect(dataStore.read(sessionsFile)).toEqual(persisted);
+      expect(openSessions().loadLibrary()).toEqual(persisted);
+      expect(onChanged).not.toHaveBeenCalled();
+
+      database.exec("PRAGMA query_only=OFF");
+      store.updateLibrary("1", { title: "After" });
+      expect(store.getTemplate("1").title).toBe("After");
+      expect(dataStore.read(sessionsFile)[0].title).toBe("After");
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      dataStore.close();
+      dataStore.open();
+      const reopened = openSessions();
+      reopened.loadLibrary();
+      expect(reopened.getLibrary()).toEqual(store.getLibrary());
+    } finally {
+      dataStore.close();
+    }
+  });
+
   it("keeps memory and SQLite unchanged after a read-only import, then persists a successful retry", () => {
     const sessionsFile = createTempSessionsFile();
     let database;

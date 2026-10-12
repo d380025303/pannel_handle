@@ -331,7 +331,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       const nextUpdates = Object.fromEntries(
         Object.entries(updates).filter(([, value]) => typeof value !== "undefined")
       );
-      librarySessions[idx] = normalizeTemplate({
+      const updated = [...librarySessions];
+      updated[idx] = normalizeTemplate({
         ...librarySessions[idx],
         ...nextUpdates,
         ...(nextUpdates.agentProvider === "gemini" && typeof nextUpdates.graphicalSessionEnabled === "boolean"
@@ -342,7 +343,10 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
           ? normalizeSshConfig(nextUpdates.sshConfig, librarySessions[idx].sshConfig)
           : librarySessions[idx].sshConfig
       });
-      saveLibrary();
+      writeJson(dataStore, sessionsFile, updated);
+      librarySessions = updated;
+      try { onChanged(); }
+      catch (err) { console.error("Failed to notify library change:", err); }
     }
   }
 
