@@ -57,8 +57,8 @@ function parseConversationRef(value) {
   return { provider: match[1], id: match[2] };
 }
 
-function pageMessages(messages, cursor, limit) {
-  const newestFirst = [...messages].sort((left, right) => right.timestamp - left.timestamp);
+function pageMessages(messages, cursor, limit, sorted = false) {
+  const newestFirst = sorted ? messages : [...messages].sort((left, right) => right.timestamp - left.timestamp);
   const offset = parseCursor(cursor);
   const page = newestFirst.slice(offset, offset + limit);
   return {

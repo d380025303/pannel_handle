@@ -4,7 +4,7 @@ const { getGeminiChatFiles, materializeGeminiMessages, listLocalGemini, getLocal
 const { getCodeBuddyProjectFiles, codeBuddyMetadata, listLocalCodeBuddy, getLocalCodeBuddyMessages } = require("./local-codebuddy-history.cjs");
 const { listLocalCodex, getLocalCodexMessages } = require("./local-codex-history.cjs");
 const { listLocalOpenCode, getLocalOpenCodeMessages } = require("./local-opencode-history.cjs");
-const { clampLimit, normalizeCwd, timestampMs, filterAndPage, parseConversationRef, pageMessages } = require("./history-values.cjs");
+const { clampLimit, normalizeCwd, timestampMs, filterAndPage, parseConversationRef, parseCursor, pageMessages } = require("./history-values.cjs");
 const { HISTORY_PROVIDERS, DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIMIT } = require("./history-limits.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -13,6 +13,8 @@ const { spawn: defaultSpawn } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const LIST_CACHE_TTL_MS = 30_000;
 const MAX_LIST_CACHE_ENTRIES = 2;
+const MESSAGE_CACHE_TTL_MS = 30_000;
+const MAX_MESSAGE_CACHE_ENTRIES = 2;
 
 function createAgentConversationHistoryService({
   terminalManager, conversationArchive,
@@ -25,6 +27,7 @@ function createAgentConversationHistoryService({
 }) {
   const codeBuddyMetadataCache = new Map();
   const listCache = new Map();
+  const messageCache = new Map();
   function getSession(panelSessionId) {
     const session = terminalManager.getSession(String(panelSessionId || ""));
     if (!session) throw new Error("Session is not running.");
@@ -119,6 +122,17 @@ function createAgentConversationHistoryService({
     if (session.type === "wsl" || session.type === "ssh") {
       return runRemote(session, "messages", request);
     }
+    const offset = parseCursor(request.cursor);
+    const cacheKey = JSON.stringify([session.id, session.type, session.cwd, request.conversationRef]);
+    const now = Date.now();
+    for (const [key, entry] of messageCache) {
+      if (now - entry.createdAt >= MESSAGE_CACHE_TTL_MS) messageCache.delete(key);
+    }
+    // A first page always starts a fresh snapshot, including the next archive poll.
+    const cached = offset > 0 ? messageCache.get(cacheKey) : null;
+    if (cached) return { conversationRef: request.conversationRef,
+      ...pageMessages(cached.messages, request.cursor, request.limit, true) };
+    messageCache.delete(cacheKey);
     const messages = reference.provider === "codex"
       ? getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database })
       : reference.provider === "opencode"
@@ -128,9 +142,12 @@ function createAgentConversationHistoryService({
         : reference.provider === "grok"
           ? getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
           : getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi });
+    messages.sort((left, right) => right.timestamp - left.timestamp);
+    messageCache.set(cacheKey, { messages, createdAt: now });
+    if (messageCache.size > MAX_MESSAGE_CACHE_ENTRIES) messageCache.delete(messageCache.keys().next().value);
     return {
       conversationRef: input.conversationRef,
-      ...pageMessages(messages, request.cursor, request.limit)
+      ...pageMessages(messages, request.cursor, request.limit, true)
     };
   }
 
