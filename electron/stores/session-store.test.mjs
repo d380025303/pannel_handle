@@ -760,6 +760,42 @@ describe("session-store", () => {
     expect(session.sshConfig.remoteCommand).toBeUndefined();
   });
 
+  it.each(["", undefined])("clears an SSH identity file set to %s and keeps it cleared after reload", (identityFile) => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({
+      id: "9", title: "SSH", type: "ssh",
+      sshConfig: { host: "example.com", username: "tester", identityFile: "C:\\keys\\id_ed25519" }
+    });
+
+    store.updateLibrary("9", { sshConfig: { identityFile } });
+
+    expect(store.getTemplate("9").sshConfig.identityFile).toBeUndefined();
+    expect(store.getLibrary()[0].sshConfig.identityFile).toBeUndefined();
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].sshConfig).not.toHaveProperty("identityFile");
+    const reloaded = createStore(sessionsFile);
+    reloaded.loadLibrary();
+    expect(reloaded.getTemplate("9").sshConfig.identityFile).toBeUndefined();
+  });
+
+  it("preserves an SSH identity file when updating other SSH fields", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    const identityFile = "C:\\keys\\id_ed25519";
+    store.addToLibrary({
+      id: "9", title: "SSH", type: "ssh",
+      sshConfig: { host: "example.com", username: "tester", identityFile }
+    });
+
+    store.updateLibrary("9", { sshConfig: { host: "updated.example.com" } });
+
+    expect(store.getTemplate("9").sshConfig).toMatchObject({ host: "updated.example.com", identityFile });
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].sshConfig.identityFile).toBe(identityFile);
+    const reloaded = createStore(sessionsFile);
+    reloaded.loadLibrary();
+    expect(reloaded.getTemplate("9").sshConfig.identityFile).toBe(identityFile);
+  });
+
   it("keeps existing encrypted SSH secret when editing other SSH fields", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{

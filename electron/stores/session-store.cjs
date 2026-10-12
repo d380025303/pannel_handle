@@ -76,7 +76,9 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const username = String(config.username || existingConfig.username || "").trim();
     const parsedPort = Number(config.port || existingConfig.port || 22);
     const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22;
-    const identityFile = String(config.identityFile || existingConfig.identityFile || "").trim() || undefined;
+    const identityFile = String((Object.hasOwn(config, "identityFile")
+      ? config.identityFile
+      : existingConfig.identityFile) || "").trim() || undefined;
     const extraArgs = Array.isArray(config.extraArgs)
       ? config.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
       : Array.isArray(existingConfig.extraArgs)
