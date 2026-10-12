@@ -1,6 +1,7 @@
 const { EventEmitter } = require("node:events");
 const http = require("node:http");
 const net = require("node:net");
+const { StringDecoder } = require("node:string_decoder");
 
 function createSshAgentTransport({ sshSessionRuntime }) {
   if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
@@ -200,22 +201,28 @@ function createSshAgentTransport({ sshSessionRuntime }) {
             if (error) { reject(error); return; }
             let stdout = "";
             let stderr = "";
+            const stdoutDecoder = new StringDecoder("utf8");
+            const stderrDecoder = new StringDecoder("utf8");
             let settled = false;
             const finish = (error, value) => {
               if (settled) return;
               settled = true;
               if (error) reject(error); else resolve(value);
             };
-            stream.on("data", chunk => {
-              stdout += chunk.toString("utf-8");
+            const appendStdout = chunk => {
+              if (settled) return;
+              stdout += chunk;
               if (options.maxOutputBytes && Buffer.byteLength(stdout, "utf-8") > options.maxOutputBytes) {
-                stream.close?.();
                 finish(new Error(options.outputLimitMessage || "Remote command output exceeds the size limit."));
+                stream.close?.();
               }
-            });
-            stream.stderr?.on("data", chunk => { stderr += chunk.toString("utf-8"); });
+            };
+            stream.on("data", chunk => appendStdout(Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk)));
+            stream.stderr?.on("data", chunk => { stderr += Buffer.isBuffer(chunk) ? stderrDecoder.write(chunk) : String(chunk); });
             stream.once("error", finish);
             stream.once("close", code => {
+              appendStdout(stdoutDecoder.end());
+              stderr += stderrDecoder.end();
               if (code === 0) finish(undefined, stdout);
               else finish(new Error(stderr.trim() || `${options.commandName || "Remote command"} exited with code ${code}.`));
             });

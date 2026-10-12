@@ -18,6 +18,84 @@ function createStream() {
 }
 
 describe("ssh-agent-transport", () => {
+  function createCommandRuntime(emitOutput) {
+    const client = new EventEmitter();
+    client.end = vi.fn();
+    const streams = [];
+    client.exec = vi.fn((_command, done) => {
+      const stream = createStream();
+      stream.close = vi.fn(() => stream.emit("close", 0));
+      streams.push(stream);
+      done(null, stream);
+      queueMicrotask(() => emitOutput(stream));
+    });
+    const runtime = { connectClient: vi.fn(async () => client) };
+    return { client, streams, runtime };
+  }
+
+  const unicodeOutput = "中文🚀";
+  const unicodeBytes = Buffer.from(unicodeOutput);
+  const chunkings = [
+    ...Array.from({ length: unicodeBytes.length - 1 }, (_, index) => [unicodeBytes.subarray(0, index + 1), unicodeBytes.subarray(index + 1)]),
+    Array.from(unicodeBytes, byte => Buffer.from([byte]))
+  ];
+
+  it.each(chunkings.map((chunks, index) => ({ chunks, index })))("decodes stdout and stderr across UTF-8 split $index", async ({ chunks }) => {
+    let exitCode = 0;
+    const { runtime, client } = createCommandRuntime(stream => {
+      for (const chunk of chunks) {
+        stream.emit("data", chunk);
+        stream.stderr.emit("data", chunk);
+      }
+      stream.emit("close", exitCode);
+    });
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1");
+    await expect(commandClient.exec("one")).resolves.toBe(unicodeOutput);
+    await expect(commandClient.exec("two")).resolves.toBe(unicodeOutput);
+    expect(runtime.connectClient).toHaveBeenCalledTimes(1);
+    expect(client.end).not.toHaveBeenCalled();
+    exitCode = 1;
+    await expect(commandClient.exec("fail")).rejects.toThrow(unicodeOutput);
+    expect(client.end).toHaveBeenCalledOnce();
+    commandClient.close();
+  });
+
+  it.each([0, 1])("flushes incomplete UTF-8 tails on exit %i", async exitCode => {
+    const { runtime } = createCommandRuntime(stream => {
+      stream.emit("data", Buffer.from([0xe4]));
+      stream.stderr.emit("data", Buffer.from([0xf0, 0x9f]));
+      stream.emit("close", exitCode);
+    });
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1");
+    if (exitCode === 0) await expect(commandClient.exec("tail")).resolves.toBe("\ufffd");
+    else await expect(commandClient.exec("tail")).rejects.toThrow("\ufffd");
+    commandClient.close();
+  });
+
+  it.each([
+    { chunks: Array.from(unicodeBytes, byte => Buffer.from([byte])), limit: unicodeBytes.length, succeeds: true },
+    { chunks: Array.from(unicodeBytes, byte => Buffer.from([byte])), limit: unicodeBytes.length - 1, succeeds: false },
+    { chunks: [Buffer.from([0xe4])], limit: 2, succeeds: false }
+  ])("enforces the output byte limit including decoder tails: $limit / $succeeds", async ({ chunks, limit, succeeds }) => {
+    const { runtime, streams, client } = createCommandRuntime(stream => {
+      for (const chunk of chunks) stream.emit("data", chunk);
+      stream.emit("close", 0);
+    });
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1", {
+      maxOutputBytes: limit, outputLimitMessage: "Output too large."
+    });
+    if (succeeds) {
+      await expect(commandClient.exec("limit")).resolves.toBe(unicodeOutput);
+      expect(streams[0].close).not.toHaveBeenCalled();
+      expect(client.end).not.toHaveBeenCalled();
+    } else {
+      await expect(commandClient.exec("limit")).rejects.toThrow("Output too large.");
+      expect(streams[0].close).toHaveBeenCalledOnce();
+      expect(client.end).toHaveBeenCalledOnce();
+    }
+    commandClient.close();
+  });
+
   function createHttpRuntime(response) {
     const channels = [];
     const client = {
