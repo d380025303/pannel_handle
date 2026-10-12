@@ -69,7 +69,9 @@ describe("remote-file-service", () => {
   it.each([
     ["~", "\\\\wsl.localhost\\Ubuntu\\home", "/home/alice"],
     ["/var", "\\\\wsl.localhost\\Ubuntu\\var", "/var/alice"],
-    ["/mnt/c", "C:\\", "/mnt/c/alice"]
+    ["/mnt/c", "C:\\", "/mnt/c/alice"],
+    ["/mnt/d", "D:\\", "/mnt/d/alice"],
+    ["/mnt/c/project", "C:\\project", "/mnt/c/project/alice"]
   ])("lists WSL children under %s with matching metadata paths", async (basePath, hostPath, childPath) => {
     const childHostPath = path.win32.join(hostPath, "alice");
     const fsApi = {
@@ -96,6 +98,18 @@ describe("remote-file-service", () => {
     ]);
     expect(fsApi.promises.readdir).toHaveBeenCalledWith(hostPath, { withFileTypes: true });
     expect(fsApi.promises.stat).toHaveBeenCalledExactlyOnceWith(childHostPath);
+  });
+
+  it("rejects WSL drive mount traversal before accessing the file system", async () => {
+    const fsApi = { promises: { readdir: vi.fn(), stat: vi.fn() } };
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", cwd: "~" }),
+      fsApi
+    });
+
+    await expect(service.list("run-1", "/mnt/c/../d")).rejects.toThrow("Use a canonical absolute Linux path.");
+    expect(fsApi.promises.readdir).not.toHaveBeenCalled();
+    expect(fsApi.promises.stat).not.toHaveBeenCalled();
   });
 
   it("preserves UTF-8 BOM and CRLF when saving text", async () => {

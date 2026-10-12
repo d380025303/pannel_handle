@@ -31,6 +31,17 @@ function toWslHostPath(wslDistro, linuxPath) {
   }
   const mntMatch = normalized.match(/^\/mnt\/([a-zA-Z])(\/.*)?$/);
   if (mntMatch) {
+    let depth = 0;
+    for (const segment of (mntMatch[2] || "").split("/")) {
+      if (segment === "..") {
+        if (depth === 0) {
+          throw new Error("WSL path must not traverse above the drive mount root. Use a canonical absolute Linux path.");
+        }
+        depth -= 1;
+      } else if (segment && segment !== ".") {
+        depth += 1;
+      }
+    }
     const drive = mntMatch[1].toUpperCase();
     const rest = mntMatch[2] ? mntMatch[2].replace(/\//g, "\\") : "\\";
     return `${drive}:${rest}`;
