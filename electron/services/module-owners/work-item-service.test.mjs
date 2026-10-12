@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const { createModuleOwnerService } = require("./module-owner-service.cjs");
 const { createSessionApiService } = require("../session-api/session-api-service.cjs");
 const { createBusinessDataStore } = require("../../stores/business-data-store.cjs");
+const { createWorkItemService } = require("./work-item-service.cjs");
 const fixtures = [];
 async function fixture() {
   const userData = mkdtempSync(path.join(tmpdir(), "pannel-work-items-"));
@@ -345,4 +346,43 @@ it("manually completes unavailable work items and broadcasts without launching",
   expect(f.work.listAttempts({ id: item.id })).toEqual(attempts);
   expect(f.broadcast).toHaveBeenCalledWith("work-items:changed");
   expect(() => f.work.markCompleted({ id: item.id, version: item.version })).toThrow("已变更");
+});
+
+describe("work item owner availability reads", () => {
+  it("reads each template once per list and refreshes deleted-owner markers on the next query", () => {
+    const owners = vi.fn(id => id === "one" ? [{ id: "shared" }] : []);
+    const result = { templates: [], owners: [
+      { templateId: "one", id: "shared", name: "现有" },
+      { templateId: "one", id: "deleted", name: "删除" },
+      { templateId: "two", id: "shared", name: "另一模板" }
+    ], records: Array.from({ length: 20 }, (_, index) => ({ templateId: index < 10 ? "one" : "two", ownerId: "shared" })) };
+    const service = createWorkItemService({ dataStore: { listWorkItems: () => result }, template: () => ({}), supported: () => true, owners });
+    const listed = service.list();
+    expect(owners.mock.calls).toEqual([["one"], ["two"]]);
+    expect(listed.owners.map(owner => owner.name)).toEqual(["现有", "删除（已删除）", "另一模板（已删除）"]);
+    expect(listed.records.map(item => item.unavailable)).toEqual([...Array(10).fill(""), ...Array(10).fill("来源负责人已删除。")]);
+    owners.mockClear(); owners.mockImplementation(() => []);
+    expect(service.list().records.every(item => item.unavailable === "来源负责人已删除。")).toBe(true);
+    expect(owners.mock.calls).toEqual([["one"], ["two"]]);
+  });
+  it("uses the injected lightweight store read without cloning history as history grows", () => {
+    const userData = mkdtempSync(path.join(tmpdir(), "pannel-work-items-history-"));
+    let service;
+    try {
+      const records = Array.from({ length: 100 }, (_, index) => ({ id: `owner-${index}`, recentActivity: "" }));
+      const state = { schemaVersion: 1, templates: { template: { records, tasks: [], history: [] } } };
+      const result = { templates: [], owners: records.map(owner => ({ ...owner, templateId: "template", name: owner.id })),
+        records: records.slice(0, 20).map(owner => ({ templateId: "template", ownerId: owner.id })) };
+      service = createModuleOwnerService({ userData, graphicalService: {}, terminalManager: {}, dataStore: { read: () => state, listWorkItems: () => result },
+        sessionStore: { getTemplate: () => ({ type: "windows", agentProvider: "codex", cwd: "C:\\repo" }) } });
+      const clone = vi.spyOn(globalThis, "structuredClone");
+      for (const size of [1000, 5000]) {
+        state.templates.template.history = Array.from({ length: size }, () => ({ text: "x".repeat(20000) }));
+        clone.mockClear();
+        const listed = service.workItems.list();
+        expect(listed.records.every(item => item.unavailable === "")).toBe(true);
+        expect(clone.mock.calls).toEqual([[state.templates.template.tasks]]);
+      }
+    } finally { service?.shutdown(); rmSync(userData, { recursive: true, force: true }); }
+  });
 });

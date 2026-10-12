@@ -282,7 +282,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   function ownerBusy(id, ownerId) {
     return [...jobs.values()].some(value => value.templateId === id && value.ownerId === ownerId && ["creating", "running", "uncertain"].includes(refresh(value)?.status));
   }
-  const workItems = require("./work-item-service.cjs").createWorkItemService({ dataStore, template, supported, owners: id => store.get(id).records,
+  const workItems = require("./work-item-service.cjs").createWorkItemService({ dataStore, template, supported, owners: id => store.getSchedulerState(id).records,
     busy: ownerBusy, prepare: prepareTask, launch: generate, terminalManager, graphicalService, getSessionApi, broadcast,
     storageErrors: () => [...pendingResults.values()].map(value => `${value.item.taskName}：${value.job.resultError}`).concat([...jobs.values()].filter(job => job.progressError).map(job => `${job.taskName}：${job.progressError}`)),
     retire: attemptId => {
