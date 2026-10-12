@@ -200,6 +200,7 @@ function createSshAgentTransport({ sshSessionRuntime }) {
           connected.exec(command, (error, stream) => {
             if (error) { reject(error); return; }
             let stdout = "";
+            let stdoutBytes = 0;
             let stderr = "";
             const stdoutDecoder = new StringDecoder("utf8");
             const stderrDecoder = new StringDecoder("utf8");
@@ -212,7 +213,8 @@ function createSshAgentTransport({ sshSessionRuntime }) {
             const appendStdout = chunk => {
               if (settled) return;
               stdout += chunk;
-              if (options.maxOutputBytes && Buffer.byteLength(stdout, "utf-8") > options.maxOutputBytes) {
+              if (options.maxOutputBytes) stdoutBytes += Buffer.byteLength(chunk, "utf-8");
+              if (options.maxOutputBytes && stdoutBytes > options.maxOutputBytes) {
                 finish(new Error(options.outputLimitMessage || "Remote command output exceeds the size limit."));
                 stream.close?.();
               }

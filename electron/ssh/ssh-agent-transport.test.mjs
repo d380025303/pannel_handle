@@ -75,8 +75,11 @@ describe("ssh-agent-transport", () => {
   it.each([
     { chunks: Array.from(unicodeBytes, byte => Buffer.from([byte])), limit: unicodeBytes.length, succeeds: true },
     { chunks: Array.from(unicodeBytes, byte => Buffer.from([byte])), limit: unicodeBytes.length - 1, succeeds: false },
-    { chunks: [Buffer.from([0xe4])], limit: 2, succeeds: false }
-  ])("enforces the output byte limit including decoder tails: $limit / $succeeds", async ({ chunks, limit, succeeds }) => {
+    { chunks: [Buffer.from([0xe4])], limit: 3, succeeds: true, output: "\ufffd" },
+    { chunks: [Buffer.from([0xe4])], limit: 2, succeeds: false },
+    { chunks: [Buffer.from("a"), Buffer.from([0xf0, 0x9f])], limit: 4, succeeds: true, output: "a\ufffd" },
+    { chunks: [Buffer.from("a"), Buffer.from([0xf0, 0x9f])], limit: 3, succeeds: false }
+  ])("enforces the output byte limit including decoder tails: $limit / $succeeds", async ({ chunks, limit, succeeds, output = unicodeOutput }) => {
     const { runtime, streams, client } = createCommandRuntime(stream => {
       for (const chunk of chunks) stream.emit("data", chunk);
       stream.emit("close", 0);
@@ -85,7 +88,9 @@ describe("ssh-agent-transport", () => {
       maxOutputBytes: limit, outputLimitMessage: "Output too large."
     });
     if (succeeds) {
-      await expect(commandClient.exec("limit")).resolves.toBe(unicodeOutput);
+      await expect(commandClient.exec("limit")).resolves.toBe(output);
+      await expect(commandClient.exec("limit again")).resolves.toBe(output);
+      expect(runtime.connectClient).toHaveBeenCalledOnce();
       expect(streams[0].close).not.toHaveBeenCalled();
       expect(client.end).not.toHaveBeenCalled();
     } else {
@@ -94,6 +99,28 @@ describe("ssh-agent-transport", () => {
       expect(client.end).toHaveBeenCalledOnce();
     }
     commandClient.close();
+  });
+
+  it("counts only decoded chunks when checking large output limits", async () => {
+    const chunk = Buffer.alloc(32 * 1024, "x");
+    const chunkCount = 256;
+    const { runtime } = createCommandRuntime(stream => {
+      for (let index = 0; index < chunkCount; index++) stream.emit("data", chunk);
+      stream.emit("close", 0);
+    });
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1", {
+      maxOutputBytes: chunk.length * chunkCount
+    });
+    const byteLength = vi.spyOn(Buffer, "byteLength");
+    try {
+      const output = await commandClient.exec("large output");
+      expect(output.length).toBe(chunk.length * chunkCount);
+      const checkedLengths = byteLength.mock.calls.map(([value]) => value.length);
+      expect(checkedLengths).toEqual([...Array(chunkCount).fill(chunk.length), 0]);
+    } finally {
+      byteLength.mockRestore();
+      commandClient.close();
+    }
   });
 
   function createHttpRuntime(response) {
