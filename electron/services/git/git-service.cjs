@@ -231,13 +231,20 @@ function createCommandError(actionName, code, stdout, stderr, canceled = false) 
   return error;
 }
 
-function appendLimited(current, data, limit) {
-  const next = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-  const currentBytes = Buffer.byteLength(current, "utf-8");
-  if (currentBytes >= limit) return { value: current, truncated: true };
-  const remaining = limit - currentBytes;
-  if (Buffer.byteLength(next, "utf-8") <= remaining) return { value: current + next, truncated: false };
-  return { value: current + Buffer.from(next, "utf-8").subarray(0, remaining).toString("utf-8"), truncated: true };
+function appendLimited(output, data, limit) {
+  const remaining = limit - output.bytes;
+  if (remaining <= 0) return true;
+  const chunk = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "utf-8");
+  const saved = chunk.subarray(0, remaining);
+  if (saved.length) {
+    output.chunks.push(saved);
+    output.bytes += saved.length;
+  }
+  return chunk.length > remaining;
+}
+
+function decodeOutput(output) {
+  return Buffer.concat(output.chunks, output.bytes).toString("utf-8");
 }
 
 function runProcess(spawn, command, args, options = {}) {
@@ -247,8 +254,8 @@ function runProcess(spawn, command, args, options = {}) {
       windowsHide: true,
       env: options.env
     });
-    let stdout = "";
-    let stderr = "";
+    const stdoutOutput = { chunks: [], bytes: 0 };
+    const stderrOutput = { chunks: [], bytes: 0 };
     let truncated = false;
     let settled = false;
     let canceled = false;
@@ -265,18 +272,16 @@ function runProcess(spawn, command, args, options = {}) {
       if (settled) return;
       settled = true;
       try { child.kill(); } catch { /* best effort */ }
-      reject(createCommandError(options.actionName || "Git command", "TIMEOUT", stdout, `${options.actionName || "Git command"} timed out.`));
+      reject(createCommandError(options.actionName || "Git command", "TIMEOUT", decodeOutput(stdoutOutput), `${options.actionName || "Git command"} timed out.`));
     }, options.timeoutMs || STATUS_TIMEOUT_MS);
 
     child.stdout?.on("data", (data) => {
-      const appended = appendLimited(stdout, data, outputLimit);
-      stdout = appended.value;
-      truncated = truncated || appended.truncated;
+      const wasTruncated = appendLimited(stdoutOutput, data, outputLimit);
+      truncated = truncated || wasTruncated;
     });
     child.stderr?.on("data", (data) => {
-      const appended = appendLimited(stderr, data, outputLimit);
-      stderr = appended.value;
-      truncated = truncated || appended.truncated;
+      const wasTruncated = appendLimited(stderrOutput, data, outputLimit);
+      truncated = truncated || wasTruncated;
     });
     child.on("error", (err) => {
       if (settled) return;
@@ -288,6 +293,8 @@ function runProcess(spawn, command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      const stdout = decodeOutput(stdoutOutput);
+      const stderr = decodeOutput(stderrOutput);
       if (canceled) {
         reject(createCommandError(options.actionName || "Git command", code, stdout, stderr, true));
         return;
