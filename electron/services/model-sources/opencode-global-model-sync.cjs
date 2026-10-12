@@ -78,11 +78,13 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
     for (const [id, source] of Object.entries(sourceModels)) {
       const oldEntry = previous[id] || {};
       const oldIds = Array.isArray(oldEntry) ? oldEntry : Array.isArray(oldEntry.models) ? oldEntry.models : [];
+      // Older manifests tracked custom provider ownership only through their model IDs.
+      const providerOwned = oldEntry.providerOwned === true || (oldEntry.providerOwned === undefined && id !== "openrouter" && oldIds.length > 0);
       const authOwned = oldEntry.authOwned === true;
       const wanted = source.key ? source.models : [];
       const wantedIds = wanted.map(model => model.id);
       const provider = config.providers?.[id];
-      if (wanted.length && provider && !oldIds.length && id !== "openrouter")
+      if (wanted.length && provider && !providerOwned && id !== "openrouter")
         throw new Error(`OpenCode 已有 ${id} 用户配置，无法自动覆盖。`);
       for (const oldId of oldIds) if (!wantedIds.includes(oldId)) configChanges.push([["providers", id, "models", oldId], undefined]);
       if (wanted.length) {
@@ -102,7 +104,7 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
         }
       }
       if (authOwned && auth[id]?.type === "api" && auth[id].key === source.key) authChanges.push([[id], undefined]);
-      next[id] = { models: wantedIds, authOwned: false };
+      next[id] = { models: wantedIds, providerOwned: providerOwned || (!provider && wanted.length > 0), authOwned: false };
     }
     configText = editJsonc(configText, configChanges);
     authText = editJsonc(authText, authChanges);

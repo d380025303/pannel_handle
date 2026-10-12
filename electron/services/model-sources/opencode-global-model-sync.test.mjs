@@ -10,7 +10,7 @@ const { createOpenCodeGlobalModelSync } = require("./opencode-global-model-sync.
 const directories = [];
 afterEach(() => { while (directories.length) rmSync(directories.pop(), { recursive: true, force: true }); });
 
-function fixture() {
+function fixture(source = "openrouter") {
   const root = mkdtempSync(path.join(tmpdir(), "pannel-opencode-sync-"));
   directories.push(root);
   const home = path.join(root, "home");
@@ -26,11 +26,69 @@ function fixture() {
   const state = { models: [{ id: "vendor/coder", name: "Coder" }], verified: { "vendor/coder": { status: "passed" } }, key: "secret" };
   const store = { getCachedModels: () => state.models, getAgentModelVerifications: () => state.verified, getApiKey: () => state.key };
   const empty = { getCachedModels: () => [], getAgentModelVerifications: () => ({}), getApiKey: () => "" };
-  const sync = createOpenCodeGlobalModelSync({ home, userDataDir, stores: { openrouter: store, nararouter: empty, minimax: empty } });
-  return { root, state, sync, config, auth };
+  const createSync = () => createOpenCodeGlobalModelSync({ home, userDataDir,
+    stores: { openrouter: empty, nararouter: empty, minimax: empty, [source]: store } });
+  const sync = createSync();
+  return { root, state, sync, createSync, config, auth };
 }
 
 describe("OpenCode global model sync", () => {
+  it.each(["nararouter", "minimax"])("restores %s models after all verifications fail, preserving user models and credentials", source => {
+    const f = fixture(source);
+    writeFileSync(f.config, "{}\n");
+    const auth = JSON.stringify({ [source]: { type: "api", key: "user-key" } });
+    writeFileSync(f.auth, auth);
+    f.sync.syncWindows();
+    const config = parse(readFileSync(f.config, "utf8"));
+    config.providers[source].models["user/model"] = { name: "User model", limit: { context: 32768 } };
+    writeFileSync(f.config, JSON.stringify(config));
+    f.state.verified["vendor/coder"].status = "failed";
+    f.createSync().syncWindows();
+    const cleared = parse(readFileSync(f.config, "utf8")).providers[source];
+    expect(cleared.models).toEqual({ "user/model": config.providers[source].models["user/model"] });
+    const manifest = JSON.parse(readFileSync(path.join(f.root, "app", "opencode-managed-models.json"), "utf8"));
+    expect(manifest.windows[source]).toMatchObject({ models: [], providerOwned: true });
+    f.state.verified["vendor/coder"].status = "passed";
+    f.createSync().syncWindows();
+    expect(parse(readFileSync(f.config, "utf8")).providers[source].models).toEqual(config.providers[source].models);
+    expect(readFileSync(f.auth, "utf8")).toBe(auth);
+
+    // Provider ownership must not allow overwriting a model added by the user.
+    f.state.models.push({ id: "user/model", name: "Replacement" });
+    f.state.verified["user/model"] = { status: "passed" };
+    const before = readFileSync(f.config, "utf8");
+    expect(() => f.createSync().syncWindows()).toThrow("用户模型");
+    expect(readFileSync(f.config, "utf8")).toBe(before);
+    expect(readFileSync(f.auth, "utf8")).toBe(auth);
+  });
+
+  it.each(["nararouter", "minimax"])("protects an existing user %s provider", source => {
+    const f = fixture(source);
+    const config = JSON.stringify({ providers: { [source]: { settings: { baseURL: "https://user.example" }, models: {} } } });
+    writeFileSync(f.config, config);
+    const auth = readFileSync(f.auth, "utf8");
+    f.state.verified["vendor/coder"].status = "failed";
+    f.sync.syncWindows();
+    f.state.verified["vendor/coder"].status = "passed";
+    expect(() => f.sync.syncWindows()).toThrow(`已有 ${source} 用户配置`);
+    expect(readFileSync(f.config, "utf8")).toBe(config);
+    expect(readFileSync(f.auth, "utf8")).toBe(auth);
+  });
+
+  it.each(["nararouter", "minimax"])("migrates legacy %s ownership before clearing models", source => {
+    for (const entry of [["vendor/coder"], { models: ["vendor/coder"], authOwned: false }]) {
+      const f = fixture(source);
+      f.sync.syncWindows();
+      const manifest = path.join(f.root, "app", "opencode-managed-models.json");
+      writeFileSync(manifest, JSON.stringify({ windows: { [source]: entry } }));
+      f.state.verified["vendor/coder"].status = "failed";
+      f.createSync().syncWindows();
+      f.state.verified["vendor/coder"].status = "passed";
+      f.createSync().syncWindows();
+      expect(parse(readFileSync(f.config, "utf8")).providers[source].models["vendor/coder"].name).toBe("Coder");
+    }
+  });
+
   it("updates managed context limits while preserving model settings and comments", () => {
     const f = fixture();
     f.state.models[0].contextLength = 1000000;
