@@ -64,6 +64,7 @@ function createWindowManager({ onMainWindowClosed } = {}) {
       rendererUnavailable = true;
       closeListenerReady = false;
       closeRequestSent = false;
+      sendPendingCloseRequest();
     });
     mainWindow.webContents.on("did-fail-load", (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return; // ERR_ABORTED is navigation cancellation.

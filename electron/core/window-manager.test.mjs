@@ -155,6 +155,32 @@ describe("window close listener handshake", () => {
     expect(onMainWindowClosed).toHaveBeenCalledOnce();
   });
 
+  it.each(["native", "API"])("completes a pending %s close immediately when the renderer crashes", method => {
+    ready();
+    if (method === "native") window.close();
+    else manager.requestClose();
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith("window:close-requested", undefined);
+    expect(manager.getMainWindow()).toBe(window);
+    expect(onMainWindowClosed).not.toHaveBeenCalled();
+
+    window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
+    expect(manager.getMainWindow()).toBeNull();
+    expect(onMainWindowClosed).toHaveBeenCalledOnce();
+
+    manager.resolveClose(true);
+    window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
+    expect(onMainWindowClosed).toHaveBeenCalledOnce();
+    expect(window.webContents.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the window open when the renderer crashes without a pending close", () => {
+    ready();
+    window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
+    expect(manager.getMainWindow()).toBe(window);
+    expect(onMainWindowClosed).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalled();
+  });
+
   it("allows API close after renderer loss before the handshake", () => {
     window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
     manager.requestClose();
