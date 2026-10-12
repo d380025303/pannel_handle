@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import http from "node:http";
+import net from "node:net";
 const require = createRequire(import.meta.url);
 const { createSessionApiService } = require("./session-api-service.cjs");
 const fixtures = [];
@@ -17,8 +18,61 @@ function fixture(queries = {}) {
 async function call(service, endpoint, options = {}) {
   return fetch(service.status().url + endpoint, { ...options, headers: { Authorization: `Bearer ${service.revealToken()}`, ...options.headers } });
 }
+async function incompleteRequest(service) {
+  const socket = net.createConnection({ host: "127.0.0.1", port: Number(new URL(service.status().url).port) });
+  socket.on("error", () => {});
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once("error", reject);
+      socket.once("data", data => {
+        if (!data.toString().startsWith("HTTP/1.1 100 Continue")) return reject(new Error("Expected request headers to be accepted"));
+        socket.write("{", resolve);
+      });
+      socket.once("connect", () => socket.write([
+        "POST /api/v1/session-instances HTTP/1.1", "Host: localhost",
+        `Authorization: Bearer ${service.revealToken()}`, "Content-Type: application/json",
+        "Content-Length: 100", "Expect: 100-continue", "", "",
+      ].join("\r\n")));
+    });
+    return socket;
+  } catch (err) { socket.destroy(); throw err; }
+}
+async function withinStopDeadline(operation) {
+  let timeout;
+  try {
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error("Service transition exceeded 2500 ms")), 2500);
+    })]);
+  } finally { clearTimeout(timeout); }
+}
 afterEach(async () => { for (const f of fixtures.splice(0)) { await f.service.stop(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("session HTTP API", () => {
+  it.each(["stop", "disable", "port"])("bounds %s with an incomplete authenticated request and releases queued configuration", async action => {
+    const f = fixture(); await f.service.configure({ enabled: true });
+    const oldPort = Number(new URL(f.service.status().url).port);
+    const target = fixture(); await target.service.configure({ enabled: true });
+    const newPort = Number(new URL(target.service.status().url).port);
+    await target.service.stop();
+    const socket = await incompleteRequest(f.service);
+    const closed = new Promise(resolve => socket.once("close", resolve));
+    try {
+      const operation = action === "stop" ? f.service.stop()
+        : f.service.configure(action === "disable" ? { enabled: false } : { port: newPort });
+      const queued = action === "stop" ? null : f.service.configure({ enabled: true });
+      const result = await withinStopDeadline(operation);
+      if (action === "disable") expect(result).toMatchObject({ enabled: false, running: false });
+      await withinStopDeadline(closed);
+      if (action === "port") {
+        expect(f.service.status()).toMatchObject({ running: true, port: newPort });
+        expect(newPort).not.toBe(oldPort);
+        expect((await f.service.invoke({ operation: "list" })).status).toBe(200);
+      } else if (action === "stop") expect(f.service.status().running).toBe(false);
+      if (queued) await withinStopDeadline(queued);
+      else await withinStopDeadline(f.service.configure({ enabled: true }));
+      expect((await f.service.invoke({ operation: "list" })).status).toBe(200);
+      expect(f.instances.create).not.toHaveBeenCalled();
+    } finally { socket.destroy(); }
+  });
   it("correlates identical zero-tool bodies to their own private lifecycle hooks", async () => {
     const f = fixture(); await f.service.configure({ enabled: true });
     const received = [];

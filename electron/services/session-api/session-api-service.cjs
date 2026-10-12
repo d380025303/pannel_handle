@@ -5,6 +5,7 @@ const { randomBytes, timingSafeEqual } = require("node:crypto");
 const { listPrivateInterfaces } = require("../mobile-remote/mobile-network.cjs");
 const { sessionInstanceSchema } = require("../mcp/session-instance-schema.cjs");
 const MAX_BODY_BYTES = 256 * 1024;
+const STOP_TIMEOUT_MS = 1000;
 
 function createSessionApiService({ userData, instances, moduleOwners, listInstances, getInstanceStatus, broadcast = () => {}, defaultPort = 43125 }) {
   const file = path.join(userData, "session-api.json");
@@ -114,7 +115,11 @@ function createSessionApiService({ userData, instances, moduleOwners, listInstan
     server = null;
     error = "";
     if (previous) {
-      await new Promise(resolve => { previous.close(resolve); previous.closeIdleConnections(); });
+      await new Promise(resolve => {
+        const timeout = setTimeout(() => previous.closeAllConnections(), STOP_TIMEOUT_MS);
+        previous.close(() => { clearTimeout(timeout); resolve(); });
+        previous.closeIdleConnections();
+      });
     }
     changed();
   }
