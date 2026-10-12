@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 
 const require = createRequire(import.meta.url);
 const { createMcpConfigService, replaceCodexServer } = require("./mcp-config-service.cjs");
+const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 const { parse: parseToml } = require("smol-toml");
 
 const roots = [];
@@ -245,6 +246,54 @@ describe("mcp-config-service", () => {
     expect(saved.document.servers[0]).toMatchObject({ name: "demo", command: "new" });
     expect(readFileSync(filePath, "utf-8")).toContain('command = "new"');
     expect(getWorkspaceCwd).toHaveBeenCalledWith(session.id);
+  });
+
+  it.each(["codebuddy", "opencode"])("lists, saves and removes SSH local %s project MCP in its routed workspace", (provider) => {
+    const { root, homeDir } = setup();
+    const sessions = new Map();
+    const workspaces = new Map();
+    const agents = Object.fromEntries(["codex", "codebuddy", "opencode"].map((agentProvider) => {
+      const id = `ssh-local-${agentProvider}`;
+      const cwd = path.join(root, agentProvider);
+      mkdirSync(cwd, { recursive: true });
+      workspaces.set(agentProvider, cwd);
+      sessions.set(id, { id, type: "ssh", agentLocation: "local", agentProvider,
+        runtimeMode: "app-server", cwd: "/srv/remote-project" });
+      return [agentProvider, { getWorkspaceCwd: vi.fn((sessionId) => {
+        if (sessionId !== id) throw new Error(`${agentProvider} session does not exist`);
+        return cwd;
+      }) }];
+    }));
+    const terminalManager = { getSession: (id) => sessions.get(id) };
+    const graphicalService = createGraphicalSessionRouter(agents.codex, agents.codebuddy, terminalManager, agents.opencode);
+    const service = createMcpConfigService({ homeDir, terminalManager, graphicalService });
+    const target = { provider, scope: "project", sessionId: `ssh-local-${provider}` };
+    const projectDirectory = workspaces.get(provider);
+    const fileName = provider === "codebuddy" ? ".mcp.json" : "opencode.json";
+    const filePath = path.join(projectDirectory, fileName);
+    const first = service.list(target);
+    expect(first.path).toBe(filePath);
+    expect(first.projectDirectory).toBe(projectDirectory);
+    expect(first.servers).toEqual([]);
+
+    const saved = service.save({ ...target, expectedVersion: first.version, draft: stdioDraft("demo") });
+    expect(saved.status).toBe("saved");
+    expect(saved.document.path).toBe(filePath);
+    expect(service.list(target).servers[0]).toMatchObject({ name: "demo", command: "npx" });
+    const config = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(provider === "codebuddy" ? config.mcpServers.demo.command : config.mcp.servers.demo.command[0]).toBe("npx");
+
+    const removed = service.remove({ ...target, name: "demo", expectedVersion: saved.document.version });
+    expect(removed.status).toBe("removed");
+    expect(removed.document.path).toBe(filePath);
+    expect(service.list(target).servers).toEqual([]);
+    const after = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(provider === "codebuddy" ? after.mcpServers?.demo : after.mcp?.servers?.demo).toBeUndefined();
+    expect(agents[provider].getWorkspaceCwd).toHaveBeenCalledWith(target.sessionId);
+    for (const other of ["codex", "codebuddy", "opencode"].filter((agent) => agent !== provider)) {
+      expect(agents[other].getWorkspaceCwd).not.toHaveBeenCalled();
+      expect(existsSync(path.join(workspaces.get(other), fileName))).toBe(false);
+    }
   });
 
   it("reads and updates SSH Codex MCP configuration in the active session environment", async () => {
