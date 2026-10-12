@@ -79,3 +79,36 @@ test("fallback transitive dependencies are checked outside the archive", async (
   expect(result.status).toBe(1);
   expect(result.stderr).toContain("/node_modules/__fallback__/parent/package.json: zod requires ^4.4.3, actual 3.25.0");
 });
+
+for (const version of ["3.25.0", "4.4.3", null]) {
+  test(`fallback parent resolves ${version ? `nested zod@${version}` : "top-level zod"} first`, async () => {
+    const result = await verify({
+      "package.json": { dependencies: { parent: "1.0.0" } },
+    }, {
+      "parent/package.json": { version: "1.0.0", dependencies: { zod: "^4.4.3" } },
+      "zod/package.json": { version: "4.4.3" },
+      ...(version ? { "parent/node_modules/zod/package.json": { version } } : {}),
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(version === "3.25.0" ? 1 : 0);
+    if (version === "3.25.0") {
+      expect(result.stderr).toContain("/node_modules/__fallback__/parent/package.json: zod requires ^4.4.3, actual 3.25.0");
+      expect(result.stdout).not.toContain("graph is complete");
+    } else {
+      expect(result.stdout).toContain("graph is complete");
+    }
+  });
+}
+
+test("resolved nested fallback packages recursively check dependencies in ancestor packages", async () => {
+  const result = await verify({
+    "package.json": { dependencies: { "@fixture/parent": "1.0.0" } },
+  }, {
+    "@fixture/parent/package.json": { version: "1.0.0", dependencies: { child: "1.0.0" } },
+    "@fixture/parent/node_modules/child/package.json": { version: "1.0.0", dependencies: { zod: "^4.4.3" } },
+    "@fixture/parent/node_modules/zod/package.json": { version: "3.25.0" },
+    "zod/package.json": { version: "4.4.3" },
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain("/node_modules/__fallback__/@fixture/parent/node_modules/child/package.json: zod requires ^4.4.3, actual 3.25.0");
+});

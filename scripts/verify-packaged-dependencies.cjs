@@ -56,13 +56,24 @@ function inspect(appOutDir, repair) {
       // An incompatible resolved package must fail, even if a compatible fallback exists.
       return true;
     }
-    function fallbackPackage() {
-      const manifest = path.join(fallbackRoot, name, "package.json");
-      return fs.existsSync(manifest) && checkVersion(JSON.parse(fs.readFileSync(manifest, "utf8")));
+    function fallbackPackage(directory = resources) {
+      while (true) {
+        // Node skips adding node_modules to a directory already named node_modules.
+        if (path.basename(directory) !== "node_modules") {
+          const manifest = path.join(directory, "node_modules", name, "package.json");
+          if (fs.existsSync(manifest)) {
+            const relative = path.relative(fallbackRoot, manifest).split(path.sep).join("/");
+            queue.push(`/node_modules/__fallback__/${relative}`);
+            return checkVersion(JSON.parse(fs.readFileSync(manifest, "utf8")));
+          }
+        }
+        if (directory === resources) return false;
+        directory = path.dirname(directory);
+      }
     }
     // Modules outside app.asar cannot resolve dependencies inside the archive.
     if (from.startsWith("/node_modules/__fallback__/")) {
-      return fallbackPackage();
+      return fallbackPackage(path.dirname(path.join(fallbackRoot, from.slice("/node_modules/__fallback__/".length))));
     }
     let directory = path.posix.dirname(from);
     while (true) {
