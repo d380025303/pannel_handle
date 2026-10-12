@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld("agentConversationApi", {
   listHistory: input => ipcRenderer.invoke("agent-conversation:list-history", input),
   getHistoryMessages: input => ipcRenderer.invoke("agent-conversation:get-history-messages", input),
   openExternal: url => ipcRenderer.invoke("external-link:open", url).then(() => ({ ok: true })),
+  onAppend: callback => {
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on("agent-conversation:append", listener);
+    return () => ipcRenderer.removeListener("agent-conversation:append", listener);
+  },
   onSnapshot: callback => {
     const listener = (_event, snapshot) => callback(snapshot);
     ipcRenderer.on("agent-conversation:snapshot", listener);

@@ -744,12 +744,19 @@ export type AgentConversationHistoryMessagesResult = {
   nextCursor: string | null;
 };
 
+export type AgentConversationAppend = {
+  sessionId: string;
+  startIndex: number;
+  messages: AgentConversationMessage[];
+};
+
 export type AgentConversationApi = {
   setActiveSession: (sessionId?: string) => void;
   getSnapshot: () => Promise<AgentConversationSnapshot>;
   listHistory: (input: AgentConversationHistoryListInput) => Promise<AgentConversationHistoryListResult>;
   getHistoryMessages: (input: AgentConversationHistoryMessagesInput) => Promise<AgentConversationHistoryMessagesResult>;
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  onAppend: (callback: (update: AgentConversationAppend) => void) => () => void;
   onSnapshot: (callback: (snapshot: AgentConversationSnapshot) => void) => () => void;
 };
 

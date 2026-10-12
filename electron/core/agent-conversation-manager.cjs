@@ -1,5 +1,6 @@
 function createAgentConversationManager({ broadcast, conversationArchive }) {
   const turns = new Map();
+  const messageIds = new Map();
   let activeSessionId = null;
 
   function getSnapshot() {
@@ -35,11 +36,14 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
     if (provider !== "codex" && provider !== "codebuddy" && provider !== "grok") return;
     const existingTurn = turns.get(sessionId);
     const messages = existingTurn?.messages || [];
+    const ids = messageIds.get(sessionId) || new Set();
+    messageIds.set(sessionId, ids);
     const currentTurnStartIndex = messages.length;
     const prompt = String(userMessage || "").trim();
     if (prompt) {
       const id = String(userMessageId || `user:${timestamp}:${prompt}`);
-      if (!messages.some(message => message.id === id)) {
+      if (!ids.has(id)) {
+        ids.add(id);
         messages.push({ id, provider, kind: "user", text: prompt, timestamp });
       }
     }
@@ -58,13 +62,19 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
   function appendMessages(sessionId, messages) {
     const turn = turns.get(sessionId);
     if (!turn || !turn.supported || !Array.isArray(messages)) return;
-    const ids = new Set(turn.messages.map(message => message.id));
+    const ids = messageIds.get(sessionId);
+    const startIndex = turn.messages.length;
+    const appended = [];
     for (const message of messages) {
       if (!message?.id || !message.text || ids.has(message.id)) continue;
       ids.add(message.id);
-      turn.messages.push({ ...message });
+      const copy = { ...message };
+      turn.messages.push(copy);
+      appended.push({ ...copy });
     }
-    if (activeSessionId === sessionId) sendSnapshot();
+    if (activeSessionId === sessionId && appended.length) {
+      broadcast("agent-conversation:append", { sessionId, startIndex, messages: appended });
+    }
   }
 
   function completeTurn(sessionId, finalMessage) {
@@ -74,13 +84,13 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
     const currentMessages = turn.messages.slice(turn.currentTurnStartIndex);
     const hasCurrentFinal = currentMessages.some(message => message.provider === "codex" && message.kind === "final");
     if (turn.provider === "codex" && finalText && !hasCurrentFinal) {
-      turn.messages.push({
+      appendMessages(sessionId, [{
         id: String(finalMessage.id || `stop:${finalText}`),
         provider: "codex",
         kind: "final",
         text: finalText,
         timestamp: Number.isFinite(finalMessage.timestamp) ? finalMessage.timestamp : Date.now()
-      });
+      }]);
     }
     turn.status = "completed";
     if (activeSessionId === sessionId) sendSnapshot();
@@ -88,11 +98,13 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
 
   function clearSession(sessionId) {
     turns.delete(sessionId);
+    messageIds.delete(sessionId);
     if (activeSessionId === sessionId) sendSnapshot();
   }
 
   function shutdown() {
     turns.clear();
+    messageIds.clear();
     activeSessionId = null;
   }
 

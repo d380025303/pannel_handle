@@ -30,6 +30,16 @@ function loadPreload() {
 }
 
 describe("preload API wiring", () => {
+  it("subscribes to conversation appends and removes the listener", () => {
+    const { exposed, listeners } = loadPreload();
+    const callback = vi.fn();
+    const unsubscribe = exposed.get("agentConversationApi").onAppend(callback);
+    const update = { sessionId: "panel-1", startIndex: 0, messages: [{ id: "one" }] };
+    listeners.get("agent-conversation:append")({}, update);
+    expect(callback).toHaveBeenCalledWith(update);
+    unsubscribe();
+    expect(listeners.has("agent-conversation:append")).toBe(false);
+  });
   it("exposes the APIs needed during application startup", async () => {
     const { exposed, invoke, send, listeners } = loadPreload();
     await exposed.get("launchTemplateApi").list();

@@ -11,6 +11,31 @@ function createHarness() {
 }
 
 describe("Agent conversation manager", () => {
+  it("sends exactly 4,000 records for 4,000 appends and no updates for duplicates", () => {
+    const { manager, broadcast } = createHarness();
+    manager.setActiveSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", provider: "codex", supported: true });
+    broadcast.mockClear();
+    const messages = Array.from({ length: 4000 }, (_, i) => ({ id: `m:${i}`, provider: "codex", kind: "commentary", text: `message ${i}`, timestamp: i }));
+    for (const message of messages) manager.appendMessages("panel-1", [message]);
+    expect(broadcast).toHaveBeenCalledTimes(4000);
+    expect(broadcast.mock.calls.reduce((total, [, payload]) => total + payload.messages.length, 0)).toBe(4000);
+    expect(broadcast.mock.calls.flatMap(([, payload]) => payload.messages)).toEqual(messages);
+    expect(manager.getSnapshot().turn.messages).toEqual(messages);
+    broadcast.mockClear();
+    manager.appendMessages("panel-1", [...messages, null, { id: "empty", text: "" }]);
+    manager.appendMessages("panel-1", []);
+    expect(broadcast).not.toHaveBeenCalled();
+    manager.startTurn({ sessionId: "panel-1", provider: "codex", supported: true });
+    broadcast.mockClear();
+    manager.appendMessages("panel-1", messages);
+    expect(broadcast).not.toHaveBeenCalled();
+    manager.clearSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", provider: "codex", supported: true });
+    manager.appendMessages("panel-1", [messages[0]]);
+    expect(manager.getSnapshot().turn.messages).toEqual([messages[0]]);
+  });
+
   it("retains a parsed summary between turns without duplicating it", () => {
     const { manager } = createHarness();
     manager.setActiveSession("panel-1");
@@ -54,8 +79,8 @@ describe("Agent conversation manager", () => {
       expect.objectContaining({ id: "one", text: "正在检查" })
     ]);
     expect(broadcast).toHaveBeenLastCalledWith(
-      "agent-conversation:snapshot",
-      expect.objectContaining({ turn: expect.objectContaining({ messages: [expect.objectContaining({ id: "one" })] }) })
+      "agent-conversation:append",
+      { sessionId: "panel-1", startIndex: 0, messages: [expect.objectContaining({ id: "one" })] }
     );
   });
 

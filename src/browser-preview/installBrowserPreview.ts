@@ -489,6 +489,7 @@ export function installBrowserPreview() {
       listHistory: async ({ source }) => ({ items: [{ ref: source === "archive" ? "archive:00000000-0000-0000-0000-000000000001" : "preview-conversation", provider: "codex", title: "浏览器预览验证", preview: "检查布局和交互状态", cwd: "C:\\workspace\\pannel-handle", createdAt: now - 86_400_000, updatedAt: now, archived: false }], nextCursor: null, errors: [] }),
       getHistoryMessages: async ({ conversationRef }) => ({ conversationRef, messages: [{ id: "preview-history-message", provider: "codex", kind: "final", text: "预览数据加载完成。", timestamp: now }], nextCursor: null }),
       openExternal: async () => ({ ok: true }),
+      onAppend: () => () => undefined,
       onSnapshot: () => () => undefined
     } satisfies Window["agentConversationApi"],
     openCodeAuthApi: { start: async () => ({ generation: 1, history: "浏览器预览认证终端，不会连接真实账号。\r\n", seq: 1 }), cancel: async () => undefined, write: () => undefined, resize: () => undefined, onData: () => () => undefined, onState: () => () => undefined } satisfies Window["openCodeAuthApi"],
