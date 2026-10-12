@@ -1,7 +1,59 @@
-import { describe, expect, it } from "vitest";
-import { createTerminalStateHub } from "./terminal-state-hub.cjs";
+import { describe, expect, it, vi } from "vitest";
+import { createTerminalStateHub, MAX_WRITE_BATCH_CHARS } from "./terminal-state-hub.cjs";
 
 describe("terminal state hub", () => {
+  it.each([1000, 3000])("batches %i small writes while preserving every delta", async (count) => {
+    const hub = createTerminalStateHub();
+    try {
+      const state = hub.start("run-1");
+      const write = vi.spyOn(state.terminal, "write");
+      const data = "log entry 1234567890\r\n";
+      for (let index = 0; index < count; index += 1) hub.write("run-1", data);
+      const snapshot = await hub.getSnapshot("run-1");
+      expect(snapshot.seq).toBe(count);
+      expect(snapshot.ansi.match(/log entry 1234567890/g)).toHaveLength(count);
+      expect(hub.getDeltas("run-1", 0)).toEqual(
+        Array.from({ length: count }, (_, index) => ({ seq: index + 1, data }))
+      );
+      expect(write).toHaveBeenCalledTimes(Math.ceil(data.length * count / MAX_WRITE_BATCH_CHARS));
+      expect(write.mock.calls.every(([text]) => text.length <= MAX_WRITE_BATCH_CHARS)).toBe(true);
+    } finally {
+      hub.shutdown();
+    }
+  });
+
+  it("bounds large writes without splitting surrogate pairs", async () => {
+    const hub = createTerminalStateHub();
+    try {
+      const state = hub.start("run-1");
+      const write = vi.spyOn(state.terminal, "write");
+      const data = "x".repeat(MAX_WRITE_BATCH_CHARS - 1) + "😀END";
+      hub.write("run-1", data);
+      const snapshot = await hub.getSnapshot("run-1");
+      expect(snapshot.ansi).toContain("😀END");
+      expect(write.mock.calls.map(([text]) => text).join("")).toBe(data);
+      expect(write.mock.calls.every(([text]) => text.length <= MAX_WRITE_BATCH_CHARS)).toBe(true);
+      expect(snapshot.seq).toBe(1);
+    } finally {
+      hub.shutdown();
+    }
+  });
+
+  it("seals snapshot dimensions before subsequent output and resize", async () => {
+    const hub = createTerminalStateHub();
+    try {
+      hub.start("run-1", 40, 8);
+      hub.write("run-1", "FIRST");
+      const first = hub.getSnapshot("run-1");
+      hub.resize("run-1", 20, 5);
+      hub.write("run-1", "SECOND");
+      expect(await first).toMatchObject({ ansi: "FIRST", seq: 1, cols: 40, rows: 8 });
+      expect(await hub.getSnapshot("run-1")).toMatchObject({ ansi: "FIRSTSECOND", seq: 2, cols: 20, rows: 5 });
+    } finally {
+      hub.shutdown();
+    }
+  });
+
   it("preserves configured scrollback in the initial snapshot", async () => {
     const hub = createTerminalStateHub({ scrollback: 20 });
     const restored = createTerminalStateHub({ scrollback: 20 });

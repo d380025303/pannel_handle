@@ -5,6 +5,7 @@ const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const DEFAULT_SCROLLBACK = 5000;
 const MAX_DELTA_BYTES = 2 * 1024 * 1024;
+const MAX_WRITE_BATCH_CHARS = 64 * 1024;
 
 function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes = MAX_DELTA_BYTES } = {}) {
   const states = new Map();
@@ -25,7 +26,8 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
       seq: 0,
       deltas: [],
       deltaBytes: 0,
-      pending: Promise.resolve()
+      pending: Promise.resolve(),
+      writeBatch: null
     };
     states.set(id, state);
     return state;
@@ -53,12 +55,38 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
       const removed = state.deltas.shift();
       state.deltaBytes -= Buffer.byteLength(removed.data, "utf8");
     }
-    state.pending = state.pending.then(() => new Promise((resolve) => state.terminal.write(text, resolve)));
+    // Queue one callback per bounded batch, letting adjacent output share xterm's
+    // asynchronous parser turn. Seal a batch as soon as it starts executing.
+    let offset = 0;
+    while (offset < text.length) {
+      if (!state.writeBatch) {
+        const batch = { chunks: [], length: 0 };
+        state.writeBatch = batch;
+        state.pending = state.pending.then(() => {
+          if (state.writeBatch === batch) state.writeBatch = null;
+          return new Promise((resolve) => state.terminal.write(batch.chunks.join(""), resolve));
+        });
+      }
+      const batch = state.writeBatch;
+      let end = Math.min(text.length, offset + MAX_WRITE_BATCH_CHARS - batch.length);
+      if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) {
+        end -= 1;
+      }
+      if (end === offset) {
+        state.writeBatch = null;
+        continue;
+      }
+      batch.chunks.push(text.slice(offset, end));
+      batch.length += end - offset;
+      offset = end;
+      if (batch.length === MAX_WRITE_BATCH_CHARS) state.writeBatch = null;
+    }
     return state.seq;
   }
 
   function resize(id, cols, rows) {
     const state = ensure(id, cols, rows);
+    state.writeBatch = null;
     const nextCols = Math.max(2, Math.floor(cols));
     const nextRows = Math.max(1, Math.floor(rows));
     state.pending = state.pending.then(() => {
@@ -71,16 +99,20 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
   async function getSnapshot(id, owner = "desktop") {
     const state = states.get(id);
     if (!state) return null;
-    const { pending, seq } = state;
-    await pending;
-    return {
+    const { seq } = state;
+    state.writeBatch = null;
+    // Capture the screen inside the queue so later output or resizes cannot
+    // overtake serialization or become part of this sequence boundary.
+    const snapshot = state.pending.then(() => ({
       sessionId: id,
       ansi: state.serializer.serialize({ scrollback }),
       seq,
       cols: state.terminal.cols,
       rows: state.terminal.rows,
       owner
-    };
+    }));
+    state.pending = snapshot.then(() => {});
+    return snapshot;
   }
 
   function getDeltas(id, afterSeq) {
@@ -99,6 +131,7 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
   async function getText(id, maxLines = 80) {
     const state = states.get(id);
     if (!state) return "";
+    state.writeBatch = null;
     await state.pending;
     const buffer = state.terminal.buffer.active;
     let end = buffer.length - 1;
@@ -131,5 +164,6 @@ module.exports = {
   DEFAULT_ROWS,
   DEFAULT_SCROLLBACK,
   MAX_DELTA_BYTES,
+  MAX_WRITE_BATCH_CHARS,
   createTerminalStateHub
 };
