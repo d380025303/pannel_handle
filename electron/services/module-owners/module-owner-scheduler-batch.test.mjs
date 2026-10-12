@@ -15,7 +15,7 @@ function fixture(historyCount = 1000, options = {}) {
   const tasks = records.map((record, i) => ({ id: `task-${i}`, ownerId: record.id, enabled: true, executedCount: 0, nextRunAt: 1000000, schedule: { kind: "interval", minutes: 1, count: 2 } }));
   const history = Array.from({ length: historyCount }, (_, i) => ({ id: `history-${i}`, kind: "owner", ownerId: records[0].id, before: records[0], after: records[0] }));
   dataStore.write(file, { schemaVersion: 1, templates: { one: { revision: 1, records, tasks, history, settings: {} } } });
-  const write = vi.spyOn(dataStore, "write");
+  const write = vi.spyOn(dataStore, "writeModuleOwnerTaskMetadata");
   const broadcast = vi.fn();
   const store = createModuleOwnerStore({ userData, dataStore, broadcast });
   const launch = vi.fn(() => new Promise(() => {}));

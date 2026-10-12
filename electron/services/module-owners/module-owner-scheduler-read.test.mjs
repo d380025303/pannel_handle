@@ -31,7 +31,7 @@ it("idle ticks never access owner payloads or history and never write", async ()
   const scheduler = createModuleOwnerScheduler({ store: f.store, template: () => ({}), supported: () => true, job: () => null });
   await scheduler.tick(); await scheduler.tick();
   expect(fullRead).not.toHaveBeenCalled();
-  expect(read).toHaveBeenCalledTimes(6);
+  expect(read).toHaveBeenCalledTimes(2);
   expect(f.write).not.toHaveBeenCalled();
 });
 it("scheduler reads propagate corrupt-store errors", () => {

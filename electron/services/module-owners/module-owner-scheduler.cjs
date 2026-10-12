@@ -16,7 +16,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     template(id);
     return (store.getSchedulerState(id).tasks || []).map(task => ({ ...task, lastRun: visibleRun(task) }));
   }
-  function write(id, tasks) { store.tasks(id, tasks); return list(id); }
+  function write(id, tasks) { store.tasks(id, tasks, { returnSnapshot: false }); return list(id); }
   function save(id, input) {
     const parsed = taskSchema.parse(input);
     if (!store.getSchedulerState(id).records.some(record => record.id === parsed.ownerId)) throw new Error("负责人不存在。");
@@ -83,7 +83,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
         const run = job(task.id);
         if (run && run.startedAt !== previous?.startedAt) {
           const tasks = store.getSchedulerState(id).tasks || [];
-          store.tasks(id, tasks.map(value => value.id === task.id ? { ...value, lastRun: run, countedRunAt: run.startedAt } : value));
+          store.tasks(id, tasks.map(value => value.id === task.id ? { ...value, lastRun: run, countedRunAt: run.startedAt } : value), { returnSnapshot: false });
         }
       } finally { pending.delete(key); manualPending.delete(task.id); }
     }
@@ -97,7 +97,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
       if (!task.enabled && task.nextRunAt === null) return task;
       changed = true; return { ...task, enabled: false, nextRunAt: null, lastRun: { status: "stopped", error: "负责人已删除。", startedAt: now() } };
     });
-    if (changed && persist) store.tasks(id, tasks);
+    if (changed && persist) store.tasks(id, tasks, { returnSnapshot: false });
     return { tasks, changed };
   }
   async function tick() {
@@ -145,13 +145,13 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           reserved.add(key);
           dispatches.push({ task, key });
         }
-        if (changed) store.tasks(id, synced);
+        if (changed) store.tasks(id, synced, { returnSnapshot: false });
         for (const { task, key } of dispatches) {
           if (stopped) break;
           const update = patch => {
             if (stopped) return;
             const current = store.getSchedulerState(id).tasks || [];
-            if (current.some(t => t.id === task.id)) store.tasks(id, current.map(t => t.id === task.id ? { ...t, ...patch } : t));
+            if (current.some(t => t.id === task.id)) store.tasks(id, current.map(t => t.id === task.id ? { ...t, ...patch } : t), { returnSnapshot: false });
           };
           pending.add(key);
           // Dispatch independently so one slow HTTP launch cannot delay other owners.
@@ -176,7 +176,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     for (const id of store.templateIds()) {
       const tasks = store.getSchedulerState(id).tasks || [];
       if (tasks.length) store.tasks(id, tasks.map(task => ({ ...task, nextRunAt: task.enabled ? nextRun(task.schedule, now()) : null,
-        lastRun: active(task.lastRun) ? { ...task.lastRun, status: "stopped", error: "应用重启，上一轮状态不再跟踪。" } : task.lastRun })));
+        lastRun: active(task.lastRun) ? { ...task.lastRun, status: "stopped", error: "应用重启，上一轮状态不再跟踪。" } : task.lastRun })), { returnSnapshot: false });
     }
     timer = setInterval(() => { void tick().catch(error => console.error("Module owner scheduler failed:", error.message)); }, 1000);
     timer.unref?.();

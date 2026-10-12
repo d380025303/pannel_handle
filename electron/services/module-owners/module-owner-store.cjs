@@ -123,16 +123,19 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     value.settings = settings;
     return persist(templateId, value);
   }
-  function tasks(templateId, values) {
+  function tasks(templateId, values, { returnSnapshot = true } = {}) {
     if (loadError) throw loadError;
     const current = Object.hasOwn(state.templates, templateId) ? state.templates[templateId] : empty();
     const value = { ...current, tasks: structuredClone(values) };
-    if (!dataStore?.writeModuleOwnerTaskMetadata) return persist(templateId, value);
+    if (!dataStore?.writeModuleOwnerTaskMetadata) {
+      commit({ ...state, templates: { ...state.templates, [templateId]: value } }, [templateId]);
+      return returnSnapshot ? get(templateId) : undefined;
+    }
     const { records, history, ...metadata } = value;
     dataStore.writeModuleOwnerTaskMetadata(templateId, metadata);
     state = { ...state, templates: { ...state.templates, [templateId]: value } };
     broadcast("module-owners:changed", { templateId });
-    return get(templateId);
+    return returnSnapshot ? get(templateId) : undefined;
   }
   function promptTemplates() {
     if (loadError) throw loadError;
