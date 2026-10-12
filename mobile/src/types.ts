@@ -44,6 +44,7 @@ export type TerminalSnapshot = {
 };
 
 export type ReadyPayload = {
+  mobileGraphicalSessionMinimalMode?: boolean;
   graphicalMenuSecondaryActions?: import("../../src/utils/graphicalMenu").GraphicalMenuConfig;
   deviceId: string;
   deviceName: string;
@@ -113,6 +114,7 @@ export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qo
   limits: GraphicalUsageLimit[] };
 
 export type ServerMessage =
+  | { v: 8; type: "mobile-preferences.changed"; mobileGraphicalSessionMinimalMode: boolean }
   | { v: 8; type: "graphical-menu.changed"; config: import("../../src/utils/graphicalMenu").GraphicalMenuConfig }
   | { v: 8; type: "graphical.opencode.auth-data"; id: string; generation: number; seq: number; data: string }
   | ({ v: 8; type: "graphical.opencode.auth-state"; id: string } & import("../../src/vite-env").OpenCodeAuthState)

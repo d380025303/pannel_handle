@@ -37,6 +37,85 @@ function fakeProcess(received, respond) {
   return child;
 }
 
+describe("Codex injected tools", () => {
+  it("retains runtime callbacks when fast mode restarts the same instance", async () => {
+    const received = []; let child;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ success: true, output: "done" })));
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) }, terminalManager: { broadcastAgentStatus() {} }, broadcast() {},
+      spawnProcess: () => (child = fakeProcess(received, request => request.method === "model/list"
+        ? { data: [{ id: "test-model", isDefault: true, serviceTiers: [{ id: "priority" }] }] }
+        : request.method === "thread/resume" ? { thread: { id: request.params.threadId, model: "test-model", turns: [] } } : undefined)) });
+    try {
+      await service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" },
+        { injectedTools: { tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }],
+          toolCallback: { url: "http://localhost/tools", timeoutMs: 60000 } } });
+      await service.setFastMode("run", true); await service.submit("run", "lookup");
+      child.stdout.write(`${JSON.stringify({ id: 900, method: "item/tool/call", params: { threadId: "thread-1", turnId: "turn-1", callId: "call", tool: "lookup", arguments: {} } })}\n`);
+      await vi.waitFor(() => expect(received.find(message => message.id === 900 && message.result)).toMatchObject({ result: { success: true } }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally { service.shutdown(); fetchMock.mockRestore(); }
+  });
+  it.each(["resume", "newThread"])("revokes callbacks when %s changes the thread", async operation => {
+    const received = []; const cwd = "C:\\project";
+    const child = fakeProcess(received, request => ["thread/read", "thread/resume"].includes(request.method)
+      ? { thread: { id: request.params.threadId, cwd, model: "test-model", turns: [] } } : undefined);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const runtime = { injectedTools: { tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }],
+      toolCallback: { url: "http://localhost/tools", timeoutMs: 60000 } } };
+    try {
+      await service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd }, runtime);
+      if (operation === "resume") await service.resume("run", "history"); else await service.newThread("run");
+      await service.submit("run", "lookup");
+      child.stdout.write(`${JSON.stringify({ id: 900, method: "item/tool/call", params: { threadId: service.snapshot("run").threadId,
+        turnId: "turn-1", callId: "call", tool: "lookup", arguments: {} } })}\n`);
+      await vi.waitFor(() => expect(received.find(message => message.id === 900 && message.result)).toMatchObject({ result: { success: false } }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { service.shutdown(); fetchMock.mockRestore(); }
+  });
+  it("reports unsupported tool registration as a configuration error and closes the process", async () => {
+    const child = fakeProcess([], request => request.method === "thread/start" ? { __error: "unknown dynamicTools" } : undefined);
+    const kill = vi.spyOn(child, "kill");
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await expect(service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" },
+      { injectedTools: { tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }],
+        toolCallback: { url: "http://localhost/tools", timeoutMs: 60000 } } })).rejects.toMatchObject({ statusCode: 422 });
+    expect(kill).toHaveBeenCalled(); service.shutdown();
+  });
+  it("registers definitions and executes callbacks in Plan mode without leaking credentials", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ success: true, output: "order found" })));
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const injection = { tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }],
+      toolCallback: { url: "http://localhost/tools", bearerToken: "private-token", timeoutMs: 60000 } };
+    try {
+      await service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" }, { injectedTools: injection });
+      expect(received.find(message => message.method === "thread/start").params.dynamicTools).toEqual(injection.tools.map(tool => ({ type: "function", ...tool })));
+      await service.setMode("run", "plan"); await service.submit("run", "lookup");
+      const params = { threadId: "thread-1", turnId: "turn-1", callId: "call", tool: "lookup", arguments: {} };
+      fetchMock.mockImplementationOnce(async () => {
+        expect(service.getInjectedToolState("run")).toMatchObject({ authorized: true, threadId: "thread-1", turnId: "turn-1", busy: true });
+        expect(service.isInjectedToolCallCurrent("run", params)).toBe(true);
+        expect(service.isInjectedToolCallCurrent("run", { ...params, callId: "unowned" })).toBe(false);
+        return new Response(JSON.stringify({ success: true, output: "order found" }));
+      });
+      child.stdout.write(`${JSON.stringify({ id: 900, method: "item/tool/call", params })}\n`);
+      await vi.waitFor(() => expect(received.find(message => message.id === 900 && message.result)).toMatchObject({ result: { success: true } }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(service.isInjectedToolCallCurrent("run", params)).toBe(false);
+      expect(JSON.stringify(service.snapshot("run"))).not.toContain("private-token");
+      expect(JSON.stringify(received)).not.toContain("private-token");
+      child.stdout.write(`${JSON.stringify({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-1",
+        item: { id: "tool", type: "dynamicToolCall", tool: "lookup", status: "completed", contentItems: [{ type: "inputText", text: "order found" }], success: true } } })}\n`);
+      expect(service.snapshot("run").items.find(item => item.id === "tool").output).toBe("order found");
+    } finally { service.shutdown(); fetchMock.mockRestore(); }
+  });
+});
+
 describe("Codex skill settings", () => {
   const session = { id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" };
   function fixture(respond, skillPath = "/remote/skills/review/SKILL.md") {
@@ -1061,9 +1140,9 @@ describe("Codex App Server session", () => {
         threadId: "thread-1", turnId: "turn-1", serverName: "calendar", mode: "url", message: "Authorize",
         url: "https://example.com/authorize" } })}\n`);
       await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(1));
-      child.stdout.write(`${JSON.stringify({ id: 92, method: "item/tool/call", params: { threadId: "thread-1", secret: "do-not-log" } })}\n`);
+      child.stdout.write(`${JSON.stringify({ id: 92, method: "unsupported/tool/call", params: { threadId: "thread-1", secret: "do-not-log" } })}\n`);
       await vi.waitFor(() => expect(received.find(item => item.id === 92 && item.error)).toMatchObject({ error: { code: -32601 } }));
-      expect(service.snapshot("run-1").diagnostics.at(-1).payload).toEqual({ method: "item/tool/call" });
+      expect(service.snapshot("run-1").diagnostics.at(-1).payload).toEqual({ method: "unsupported/tool/call" });
       child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1",
         turn: { id: "turn-1", status: "interrupted" } } })}\n`);
       await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(0));
@@ -2179,4 +2258,22 @@ it("preserves activity details through history and mobile projection", () => {
   expect(toMobileGraphicalSnapshot({ provider: "codex", items }).items).toMatchObject([
     { durationMs: 1000, status: "completed" }, { savedPath: "C:/image.png", status: "failed" }
   ]);
+});
+
+it("notifies task observers with the matching final response and closure", async () => {
+  let child; const received = []; const listener = vi.fn();
+  const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) }, terminalManager: { broadcastAgentStatus() {} }, broadcast() {}, spawnProcess: () => (child = fakeProcess(received)) });
+  const unsubscribe = service.onTaskTurnEnded(listener);
+  const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", ...params } })}\n`);
+  try {
+    await service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    await service.submit("run", "task");
+    emit("item/completed", { turnId: "turn-1", item: { id: "comment", type: "agentMessage", phase: "commentary", text: "工作中" } });
+    emit("item/completed", { turnId: "turn-1", item: { id: "answer", type: "agentMessage", phase: "final_answer", text: "最终答复" } });
+    emit("turn/completed", { turn: { id: "turn-1", status: "completed" } });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "run", threadId: "thread-1", turnId: "turn-1", status: "completed", output: "最终答复" })));
+    service.close("run");
+    expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "run", status: "stopped" }));
+    unsubscribe();
+  } finally { service.shutdown(); }
 });

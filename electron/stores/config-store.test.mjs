@@ -60,7 +60,7 @@ describe("config-store", () => {
     const configFile = createTempConfigPath();
     const store = createConfigStore({ configFile });
     store.updateConfig({ titleBarActionOrder: ["create", "create", "overview", "unknown", "terminal"], titleBarHiddenActions: ["stats", "stats", "settings", "overview", "unknown"] });
-    expect(store.getConfig().titleBarActionOrder.slice(0, 3)).toEqual(["create", "terminal", "stats"]);
+    expect(store.getConfig().titleBarActionOrder.slice(0, 5)).toEqual(["api", "moduleOwners", "create", "terminal", "stats"]);
     expect(store.getConfig().titleBarHiddenActions).toEqual(["stats"]);
     const reloaded = createConfigStore({ configFile });
     reloaded.loadConfig();
@@ -76,7 +76,7 @@ describe("config-store", () => {
     }));
     const store = createConfigStore({ configFile });
     store.loadConfig();
-    expect(store.getConfig().titleBarActionOrder.slice(0, 3)).toEqual(["create", "settings", "terminal"]);
+    expect(store.getConfig().titleBarActionOrder.slice(0, 5)).toEqual(["api", "moduleOwners", "create", "settings", "terminal"]);
     expect(store.getConfig().titleBarActionOrder).not.toContain("assistant");
     expect(store.getConfig().titleBarHiddenActions).toEqual(["stats"]);
     store.updateConfig({ titleBarActionOrder: store.getConfig().titleBarActionOrder });
@@ -91,7 +91,7 @@ describe("config-store", () => {
     fs.writeFileSync(configFile, JSON.stringify({ titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"] }));
     const store = createConfigStore({ configFile });
     store.loadConfig();
-    expect(store.getConfig().titleBarActionOrder).toEqual(["create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"]);
+    expect(store.getConfig().titleBarActionOrder).toEqual(["api", "moduleOwners", "create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"]);
     store.updateConfig({ titleBarActionOrder: ["settings", ...store.getConfig().titleBarActionOrder.filter(id => id !== "settings")] });
     const reloaded = createConfigStore({ configFile });
     reloaded.loadConfig();
@@ -127,11 +127,12 @@ describe("config-store", () => {
       autoCollapseFileChains: true,
       debugMode: false,
       graphicalSessionMinimalMode: false,
+      mobileGraphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       desktopMascotEnabled: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "api", "moduleOwners", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "dark-slate",
@@ -328,6 +329,7 @@ describe("config-store", () => {
       autoRestore: false,
       debugMode: true,
       graphicalSessionMinimalMode: false,
+      mobileGraphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       desktopMascotEnabled: true,
       screenshotEnabled: true,
@@ -353,11 +355,12 @@ describe("config-store", () => {
       autoCollapseFileChains: true,
       debugMode: true,
       graphicalSessionMinimalMode: false,
+      mobileGraphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       desktopMascotEnabled: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "api", "moduleOwners", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "light",
@@ -463,4 +466,27 @@ describe("graphical menu preferences", () => {
     expect(() => store.updateConfig({ graphicalMenuSecondaryActions: { codex: ["model"] } }, { throwOnSaveError: true })).toThrow("disk unavailable");
     expect(store.getConfig().graphicalMenuSecondaryActions.codex).toEqual(["plugins"]);
   });
+});
+
+it("defaults mobile minimal mode off for legacy config and persists only booleans", () => {
+  const configFile = createTempConfigPath();
+  fs.writeFileSync(configFile, JSON.stringify({ debugMode: true }));
+  const store = createConfigStore({ configFile });
+  store.loadConfig();
+  expect(store.getConfig().mobileGraphicalSessionMinimalMode).toBe(false);
+  store.updateConfig({ mobileGraphicalSessionMinimalMode: true });
+  store.updateConfig({ mobileGraphicalSessionMinimalMode: "false" });
+  const reloaded = createConfigStore({ configFile });
+  reloaded.loadConfig();
+  expect(reloaded.getConfig().mobileGraphicalSessionMinimalMode).toBe(true);
+  reloaded.updateConfig({ mobileGraphicalSessionMinimalMode: false });
+  store.loadConfig();
+  expect(store.getConfig().mobileGraphicalSessionMinimalMode).toBe(false);
+});
+
+it("rolls back mobile minimal mode when saving fails without changing desktop mode", () => {
+  const store = createConfigStore({ configFile: createTempConfigPath(), dataStore: { write: () => { throw new Error("disk unavailable"); } } });
+  expect(() => store.updateConfig({ mobileGraphicalSessionMinimalMode: true }, { throwOnSaveError: true })).toThrow("disk unavailable");
+  expect(store.getConfig().mobileGraphicalSessionMinimalMode).toBe(false);
+  expect(store.getConfig().graphicalSessionMinimalMode).toBe(false);
 });

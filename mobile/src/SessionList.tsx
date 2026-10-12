@@ -46,11 +46,10 @@ export function SessionHome({ sessions, overviews, activeId, onOpen, onAction, o
   </section>;
 }
 
-export function SessionDrawer({ sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose, minimalMode = false, onMinimalModeChange, preferencesWarning }: {
+export function SessionDrawer({ sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose }: {
   sessions: RuntimeSession[]; templates: SavedTemplate[]; activeId: string | null;
   tab: "running" | "templates"; onTabChange: (tab: "running" | "templates") => void;
   send: (message: ClientMessage) => boolean; onOpen: (id: string) => void; onAction: SessionAction; onClose: () => void;
-  minimalMode?: boolean; onMinimalModeChange?: (enabled: boolean) => void; preferencesWarning?: string;
 }) {
   const [query, setQuery] = useState("");
   const filteredTemplates = useMemo(() => templates.filter(template => matchesTemplateSearch(template, query)), [templates, query]);
@@ -87,8 +86,6 @@ export function SessionDrawer({ sessions, templates, activeId, tab, onTabChange,
         {tab === "templates" && templates.length > 0 && filteredTemplates.length === 0 && <p className="drawer-empty">没有匹配的模板</p>}
       </div>
       <footer>
-        {onMinimalModeChange && <label className="mobile-preferences-toggle"><input type="checkbox" checked={minimalMode} onChange={event => onMinimalModeChange(event.target.checked)} />图形会话极简模式</label>}
-        {preferencesWarning && <p role="alert">{preferencesWarning}</p>}
         当前会话选择仅影响手机，不会切换电脑页面。
       </footer>
     </aside>

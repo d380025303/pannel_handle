@@ -97,3 +97,55 @@ describe("business data SQLite migration", () => {
     reopened.close();
   });
 });
+
+
+describe("module owner incremental SQLite migration", () => {
+  const owners = { schemaVersion: 1, templates: { one: { revision: 2, records: [{ id: "r", version: 2 }], history: [{ id: "h", revision: 1, records: [], source: "ai", sessionId: "s" }], settings: { mode: "plan", prompt: "custom" } }, two: { revision: 0, records: [], history: [], settings: { mode: "default", prompt: "empty" } } } };
+  it("upgrades an existing database and preserves complete snapshots and the backup", () => {
+    const fx = fixture();
+    const original = fx.open(); original.close();
+    const db = new DatabaseSync(fx.databaseFile);
+    db.exec("DELETE FROM app_migrations WHERE version=2; DELETE FROM app_sources WHERE name='module-owners.json'"); db.close();
+    const file = fx.file("module-owners.json");
+    writeFileSync(file, JSON.stringify(owners));
+    let store = fx.open();
+    expect(store.read(file)).toEqual(owners);
+    const changed = structuredClone(owners); changed.templates.one.settings.prompt = "updated";
+    store.write(file, changed);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(owners);
+    store.close();
+    writeFileSync(file, "broken");
+    store = fx.open(); expect(store.read(file)).toEqual(changed); store.close();
+  });
+  it("rolls back a malformed import and retries after correction", () => {
+    const fx = fixture(); const file = fx.file("module-owners.json");
+    writeFileSync(file, JSON.stringify({ schemaVersion: 1, templates: { bad: {} } }));
+    expect(() => fx.open()).toThrow("Cannot migrate module-owners.json");
+    const db = new DatabaseSync(fx.databaseFile);
+    expect(db.prepare("SELECT 1 FROM app_migrations WHERE version=2").get()).toBeUndefined();
+    expect(db.prepare("SELECT count(*) AS count FROM app_module_owner_templates").get().count).toBe(0); db.close();
+    writeFileSync(file, JSON.stringify(owners)); const store = fx.open();
+    expect(store.read(file)).toEqual(owners);
+    expect(() => store.write(file, { schemaVersion: 1, templates: { bad: {} } })).toThrow();
+    expect(store.read(file)).toEqual(owners); store.close();
+  });
+  it("does not overwrite existing SQLite owner data even without the migration marker", () => {
+    const fx = fixture(); let store = fx.open(); const file = fx.file("module-owners.json");
+    store.write(file, owners); store.close();
+    const db = new DatabaseSync(fx.databaseFile); db.exec("DELETE FROM app_migrations WHERE version=2"); db.close();
+    writeFileSync(file, "broken"); store = fx.open(); expect(store.read(file)).toEqual(owners); store.close();
+  });
+});
+
+it("persists paginated task runs separately from owner documents and interrupts unfinished runs", () => {
+  const f = fixture(); let store = f.open();
+  for (let index = 0; index < 23; index++) store.saveTaskRun({ id: String(index), templateId: "t", taskId: "task", calledAt: index, status: index === 22 ? "running" : "completed", input: { prompt: "input" }, output: "reply" });
+  expect(store.listTaskRuns("t", "task").records).toHaveLength(20);
+  expect(store.listTaskRuns("t", "task", 1).records).toHaveLength(3);
+  expect(store.listTaskRuns("t", "task").records[0].input).toBeUndefined();
+  store.close(); store = f.open(); store.interruptTaskRuns();
+  expect(store.getTaskRun("t", "task", "22")).toMatchObject({ status: "stopped", output: "reply" });
+  expect(store.getTaskRun("t", "task", "21").status).toBe("completed");
+  expect(() => store.getTaskRun("other", "task", "22")).toThrow();
+  store.close();
+});

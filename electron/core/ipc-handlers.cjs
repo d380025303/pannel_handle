@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides, openCodeAdditionalDirectories });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService, codeBuddyPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, sessionApiService, moduleOwnerService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService, codeBuddyPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -431,6 +431,19 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("mcp:remove", (_event, request) => mcpConfigService.remove(request));
 
   ipcMain.handle("mcp:copy", (_event, request) => mcpConfigService.copy(request));
+  if (sessionApiService) {
+    ipcMain.handle("session-api:get", () => sessionApiService.status());
+    ipcMain.handle("session-api:configure", (_event, input) => sessionApiService.configure(input));
+    ipcMain.handle("session-api:reveal-token", () => sessionApiService.revealToken());
+    ipcMain.handle("session-api:reset-token", () => sessionApiService.resetToken());
+    ipcMain.handle("session-api:invoke", (_event, input) => sessionApiService.invoke(input));
+  }
+  if (moduleOwnerService) {
+    ipcMain.handle("module-owners:templates", () => moduleOwnerService.listTemplates());
+    for (const method of ["get", "preview", "generate", "mutate", "configure", "restore", "listHistory", "listTaskRuns", "getTaskRun", "listTasks", "saveTask", "deleteTask"]) {
+      ipcMain.handle(`module-owners:${method}`, (_event, id, input) => moduleOwnerService[method](id, input));
+    }
+  }
   ipcMain.handle("mcp-session-status:get", () => sessionStatusServer.status());
   ipcMain.handle("mcp-session-status:enable", (_event, enabled) => sessionStatusServer.setEnabled(enabled));
   ipcMain.handle("mcp-session-status:reveal-token", () => sessionStatusServer.revealToken());

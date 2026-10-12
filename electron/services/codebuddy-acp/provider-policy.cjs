@@ -21,7 +21,7 @@ function createAcpProviderPolicy(provider) {
 
   function findMode(entry, mode) {
     return entry.modes.find(value => mode === "plan" ? /plan/i.test(value.id)
-      : /^(default|normal|code|ask|build)$/i.test(value.id));
+      : /^(default|normal|code|ask|build|acceptEdits)$/i.test(value.id));
   }
 
   return { agentName, codeBuddy, updateCapabilities, reflectNativeMode, findMode };

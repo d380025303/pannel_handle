@@ -565,7 +565,8 @@ function createAgentSessionLauncher({
     if (!useAppServer(target)) return createAndBindCodexBridgeRuntime(() => create(runtime), runtime);
     let session;
     try {
-      session = create({ ...runtime, deferTerminalStart: true, runtimeMode: "app-server" });
+      const { injectedTools: _injectedTools, ...terminalRuntime } = runtime;
+      session = create({ ...terminalRuntime, deferTerminalStart: true, runtimeMode: "app-server" });
       if (target.type === "ssh" && target.agentProvider === "opencode" && target.agentLocation !== "local")
         await ensureSshHook(session.id, terminalManager.getSession(session.id));
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), runtime);
@@ -736,9 +737,11 @@ function createAgentSessionLauncher({
   }
 
   async function launchSession(template, options = {}) {
-    const { recordUsage = false, ...launchOptions } = options;
+    const { recordUsage = false, injectedTools, ...launchOptions } = options;
     const normalizedTemplate = require("../services/model-sources/model-selection.cjs").normalizeRemovedCodexBackend(template);
     const launchTemplate = normalizedTemplate.agentProvider ? resolveLocalShell(normalizedTemplate) : normalizedTemplate;
+    if (injectedTools && (launchTemplate.agentProvider !== "codex" || launchTemplate.type !== "windows" || !useAppServer(launchTemplate)))
+      throw new Error("工具注入仅支持本机 Windows Codex 图形会话。");
     let session;
     if (!launchTemplate.agentProvider) {
       session = terminalManager.launchSession(launchTemplate, launchOptions);
@@ -762,7 +765,7 @@ function createAgentSessionLauncher({
           session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
         }
       } else {
-        const runtime = await prepareLocal(launchTemplate);
+        const runtime = { ...await prepareLocal(launchTemplate), ...(injectedTools ? { injectedTools } : {}) };
         session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, runtime);
       }
     }

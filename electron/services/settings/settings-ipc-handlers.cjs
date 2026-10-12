@@ -10,6 +10,7 @@ const {
 const { readMiniMaxUsage } = require("../token-usage/minimax-usage-client.cjs");
 
 const SETTINGS_IPC_CHANNELS = [
+  "project-tools:list",
   "config:get",
   "config:set",
   "terminal-background:choose-image",
@@ -79,6 +80,7 @@ function registerSettingsIpcHandlers({
   getWindowFromEvent,
   userDataDir
 }) {
+  ipcMain.handle("project-tools:list", () => require("./project-tool-catalog.cjs").listProjectTools());
   ipcMain.handle("config:get", () => configStore.getConfig());
   ipcMain.handle("config:set", (_event, partial) => {
     const updates = {};
@@ -96,6 +98,9 @@ function registerSettingsIpcHandlers({
     }
     if (partial && typeof partial.autoCollapseFileChains === "boolean") {
       updates.autoCollapseFileChains = partial.autoCollapseFileChains;
+    }
+    if (partial && typeof partial.mobileGraphicalSessionMinimalMode === "boolean") {
+      updates.mobileGraphicalSessionMinimalMode = partial.mobileGraphicalSessionMinimalMode;
     }
     if (partial && typeof partial.graphicalSessionMinimalMode === "boolean") {
       updates.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
@@ -156,7 +161,7 @@ function registerSettingsIpcHandlers({
         || Object.hasOwn(updates, "terminalBackgroundPositionY");
       const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
         || Object.hasOwn(updates, "titleBarHiddenActions");
-      if (Object.hasOwn(updates, "desktopMascotEnabled") || changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
+      if (Object.hasOwn(updates, "desktopMascotEnabled") || changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "mobileGraphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
         configStore.updateConfig(updates, { throwOnSaveError: true });
       } else {
         configStore.updateConfig(updates);
@@ -171,6 +176,9 @@ function registerSettingsIpcHandlers({
     }
     if (Object.prototype.hasOwnProperty.call(updates, "autoQoderCheckin")) {
       qoderAutoCheckinService?.setEnabled(config.autoQoderCheckin);
+    }
+    if (Object.hasOwn(updates, "mobileGraphicalSessionMinimalMode")) {
+      getMobileRemoteService?.()?.broadcastMobilePreferences?.();
     }
     if (Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
       desktopBroadcast?.("config:graphical-menu-changed", config.graphicalMenuSecondaryActions);

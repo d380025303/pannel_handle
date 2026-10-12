@@ -28,7 +28,10 @@ describe("desktop mascot window", () => {
       }
       getBounds() { return { ...this.bounds }; }
       setBounds(bounds) { Object.assign(this.bounds, bounds); }
-      setPosition(x, y) { this.setBounds({ x, y }); }
+      setPosition(x, y) {
+        if ([x, y].some(value => !Number.isInteger(value) || Object.is(value, -0) || value < -2147483648 || value > 2147483647)) throw new TypeError("conversion failure");
+        this.setBounds({ x, y });
+      }
       isDestroyed() { return this.destroyed; }
       destroy() { this.destroyed = true; this.emit("closed"); }
       setIgnoreMouseEvents = vi.fn();
@@ -93,6 +96,47 @@ describe("desktop mascot window", () => {
     expect(move).not.toHaveBeenCalled();
     command({ type: "step", direction: "right" });
     expect(move).toHaveBeenCalledWith(area.x + 20, area.y);
+  });
+  it("restores abnormal dimensions even when the clamped position is unchanged", () => {
+    command({ type: "preferences", moving: false });
+    window.setBounds({ x: area.x, y: area.y, width: 1232, height: 2186 });
+    const resize = vi.spyOn(window, "setBounds");
+    const move = vi.spyOn(window, "setPosition");
+    command({ type: "step", direction: "left" });
+    expect(resize).toHaveBeenCalledExactlyOnceWith({ x: area.x, y: area.y, width: 192, height: 232 });
+    expect(move).not.toHaveBeenCalled();
+    command({ type: "step", direction: "left" });
+    expect(resize).toHaveBeenCalledTimes(1);
+    command({ type: "step", direction: "right" });
+    expect(move).toHaveBeenCalledExactlyOnceWith(area.x + 20, area.y);
+  });
+  it("roams across zero coordinates without native conversion failures", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    area = { x: -100, y: -100, width: 500, height: 500 };
+    window.setBounds({ x: -2, y: -2 });
+    // A diagonal journey crosses (-0.5, 0) on both axes before reaching (208, 168).
+    random.mockReturnValue(1);
+    const move = vi.spyOn(window, "setPosition");
+    command({ type: "interaction", paused: true, reduced: false });
+    command({ type: "interaction", paused: false, reduced: false });
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(move.mock.calls.some(([x, y]) => x === 0 || y === 0)).toBe(true);
+    expect(move.mock.calls.every(([x, y]) => !Object.is(x, -0) && !Object.is(y, -0))).toBe(true);
+    expect(log).not.toHaveBeenCalled();
+    expect(hostState().roaming).toBe(true);
+    log.mockRestore();
+  });
+  it("restores abnormal dimensions during roaming", async () => {
+    await beginRoaming();
+    window.setBounds({ width: 1232, height: 2186 });
+    const resize = vi.spyOn(window, "setBounds");
+    const move = vi.spyOn(window, "setPosition");
+    await vi.advanceTimersByTimeAsync(33);
+    expect(resize).toHaveBeenCalledExactlyOnceWith({ x: expect.any(Number), y: expect.any(Number), width: 192, height: 232 });
+    expect(move).not.toHaveBeenCalled();
+    expect(hostState().roaming).toBe(true);
+    await vi.advanceTimersByTimeAsync(33);
+    expect(move).toHaveBeenCalledTimes(1);
   });
   it("suppresses foreground requests in initial state and pushes, then restores valid requests", () => {
     const host = reopenHost();
@@ -534,5 +578,23 @@ describe("desktop mascot window", () => {
   it("clamps negative coordinates and undersized work areas", () => {
     expect(clampPosition({ x: -2000, y: 2000 }, area, { width: 192, height: 232 })).toEqual({ x: -1000, y: 568 });
     expect(clampPosition({ x: 10, y: 10 }, { x: 0, y: 0, width: 50, height: 50 }, { width: 192, height: 232 })).toEqual({ x: 0, y: 0 });
+  });
+  it("normalizes the reported movement coordinates", () => {
+    const result = clampPosition({ x: 2063.453612379935, y: -0.16754034384963856 },
+      { x: 1920, y: -78, width: 1707, height: 1020 }, { width: 192, height: 232 });
+    expect(result).toEqual({ x: 2063, y: 0 });
+    expect(Object.is(result.y, -0)).toBe(false);
+  });
+  it.each([-0, -Number.MIN_VALUE, -0.16754034384963856, -0.5])("normalizes rounded negative zero on both axes: %s", value => {
+    const result = clampPosition({ x: value, y: value }, { x: -100, y: -100, width: 500, height: 500 }, { width: 192, height: 232 });
+    expect(result).toEqual({ x: 0, y: 0 });
+    expect(Object.is(result.x, -0)).toBe(false);
+    expect(Object.is(result.y, -0)).toBe(false);
+  });
+  it.each([-2147483648, 2147483647])("preserves integer range endpoints: %s", value => {
+    expect(clampPosition({ x: value, y: value }, { x: value, y: value, width: 192, height: 232 }, { width: 192, height: 232 })).toEqual({ x: value, y: value });
+  });
+  it.each([NaN, Infinity, -Infinity, -2147483649, 2147483648])("rejects invalid or out-of-range coordinates: %s", value => {
+    expect(() => clampPosition({ x: value, y: value }, { x: value, y: value, width: 192, height: 232 }, { width: 192, height: 232 })).toThrow();
   });
 });

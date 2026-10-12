@@ -140,21 +140,6 @@ button.danger { color: #fda4af; }
 .session-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 9px 9px; }
 .session-actions button { padding: 5px 9px; border: 1px solid #334155; border-radius: 7px; background: #1e293b; font-size: 11px; }
 .session-drawer footer { padding: 11px 14px calc(11px + env(safe-area-inset-bottom)); color: #71869f; border-top: 1px solid #263244; font-size: 11px; }
-.mobile-preferences-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  color: #d8e2f0;
-  font-size: 14px;
-  cursor: pointer;
-}
-.mobile-preferences-toggle input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: #22d3ee;
-}
 .drawer-empty { padding: 24px 8px; color: #7890aa; text-align: center; }
 
 .sheet-backdrop { display: flex; align-items: flex-end; }
@@ -244,6 +229,182 @@ button.danger { color: #fda4af; }
 .graphical-card, .graphical-tool-group { min-width: 0; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #344459; border-radius: 10px; background: #101827; overflow-wrap: anywhere; }
 .graphical-card strong { display: block; margin-bottom: 5px; }
 .graphical-card small { color: #8fa4bc; }
+.codex-app-server-turn-diff {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 8px;
+  overflow: hidden;
+  border: 1px solid #344459;
+  border-radius: 10px;
+  background: #101827;
+}
+.codex-app-server-turn-diff > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 13px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+.codex-app-server-turn-diff > summary::-webkit-details-marker, .codex-app-server-diff-file > summary::-webkit-details-marker {
+  display: none;
+}
+.codex-app-server-turn-diff > summary > svg:first-child {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: #67e8f9;
+}
+.codex-app-server-turn-diff > summary strong {
+  font-weight: 600;
+}
+.codex-app-server-diff-overview {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  color: #8fa4bc;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.codex-app-server-diff-overview .add, .codex-app-server-diff-counts .add {
+  color: #86efac;
+}
+.codex-app-server-diff-overview .delete, .codex-app-server-diff-counts .delete {
+  color: #fda4af;
+}
+.codex-app-server-diff-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: #8fa4bc;
+  transition: transform .18s ease;
+}
+.codex-app-server-turn-diff[open] > summary > .codex-app-server-diff-chevron, .codex-app-server-diff-file[open] > summary > .codex-app-server-diff-chevron {
+  transform: rotate(90deg);
+}
+.codex-app-server-diff-files {
+  display: grid;
+  gap: 10px;
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  border-top: 1px solid #344459;
+}
+.codex-app-server-diff-file {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #344459;
+  border-radius: 8px;
+  background: #080d16;
+}
+.codex-app-server-diff-file:first-child {
+  margin-top: 12px;
+}
+.codex-app-server-diff-file > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 11px;
+  list-style: none;
+  cursor: pointer;
+  background: #172235;
+}
+.codex-app-server-diff-file > summary:hover {
+  background: #223249;
+}
+.codex-app-server-diff-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+}
+.codex-app-server-diff-counts {
+  display: flex;
+  flex: none;
+  gap: 9px;
+  margin-left: auto;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+}
+.codex-app-server-diff-lines {
+  border-top: 1px solid #344459;
+}
+.codex-app-server-diff-line {
+  display: grid;
+  grid-template-columns: 34px 34px 19px minmax(0, 1fr);
+  min-width: 0;
+  color: #d8e2f0;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.codex-app-server-diff-line + .codex-app-server-diff-line {
+  border-top: 1px solid color-mix(in srgb, #344459 42%, transparent);
+}
+.codex-app-server-diff-line.add {
+  background: #123025;
+  color: #86efac;
+}
+.codex-app-server-diff-line.delete {
+  background: #351a27;
+  color: #fda4af;
+}
+.codex-app-server-diff-line.hunk {
+  background: #142c42;
+  color: #93c5fd;
+}
+.codex-app-server-diff-line.meta {
+  color: #8fa4bc;
+}
+.codex-app-server-diff-number {
+  padding: 2px 5px;
+  border-right: 1px solid color-mix(in srgb, #344459 55%, transparent);
+  color: #7890aa;
+  text-align: right;
+  user-select: none;
+}
+.codex-app-server-diff-sign {
+  padding: 2px 3px;
+  text-align: center;
+  user-select: none;
+}
+.codex-app-server-diff-line code {
+  min-width: 0;
+  padding: 2px 8px 2px 1px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.codex-app-server-diff-raw {
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid #344459;
+  background: #080d16;
+  font: 11px/1.55 Consolas, "Cascadia Mono", monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.codex-app-server-turn-diff summary:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .codex-app-server-turn-diff .codex-app-server-diff-chevron {
+    transition: none;
+  }
+}
+
 .graphical-diagnostic { border-color: #9f354a; }
 .graphical-diagnostic summary { cursor: pointer; white-space: pre-wrap; }
 .graphical-diagnostic pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -1,5 +1,18 @@
 /// <reference types="vite/client" />
 
+export type ProjectTool = {
+  name: string;
+  group: "owners" | "sessions" | "remote";
+  description: string;
+  summary: { "zh-CN": string; "en-US": string };
+  readOnly: boolean;
+  inputSchema: Record<string, unknown>;
+  example: Record<string, unknown>;
+  conditions: { "zh-CN": string; "en-US": string };
+  result: { "zh-CN": string; "en-US": string };
+  resultExample: unknown;
+};
+
 export type EnvironmentEntry = { name: string; value: string };
 export type EnvironmentSelection = { environmentProfileId?: string | null; environmentOverrides?: EnvironmentEntry[] };
 export type EnvironmentProfile = { id: string; name: string; entries: EnvironmentEntry[]; references: string[] };
@@ -116,6 +129,7 @@ export type AppConfig = {
   autoCollapseFileChains: boolean;
   debugMode: boolean;
   graphicalSessionMinimalMode: boolean;
+  mobileGraphicalSessionMinimalMode: boolean;
   graphicalMenuSecondaryActions?: import("./utils/graphicalMenu").GraphicalMenuConfig;
   desktopMascotEnabled: boolean;
   screenshotEnabled: boolean;
@@ -1748,7 +1762,7 @@ export type IdeaBridgeApi = {
 
 declare global {
   interface Window {
-    projectInspectorApi?: import("./components/inspector/types").ProjectInspectorApi;
+    projectToolsApi: { list: () => Promise<ProjectTool[]> };
     desktopMascotApi?: DesktopMascotApi;
     codexPluginApi: CodexPluginApi;
     codeBuddyPluginApi: CodeBuddyPluginApi;
@@ -1772,6 +1786,8 @@ declare global {
     skillsApi: SkillsApi;
     mcpApi: McpApi;
     sessionStatusMcpApi: SessionStatusMcpApi;
+    sessionApi: SessionApi;
+    moduleOwnerApi: ModuleOwnerApi;
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
     qoderCheckinApi: QoderCheckinApi;
@@ -1824,4 +1840,51 @@ export interface DesktopMascotApi {
   startDrag(): void;
   endDrag(): void;
   step(direction: "left" | "right" | "up" | "down"): void;
+}
+
+export type SessionApiState = { enabled: boolean; running: boolean; port: number; url: string; lanUrls: string[]; error: string };
+export type ModuleOwnerFields = { name: string; responsibilities: string; directories: string[] };
+export type ModuleOwnerRecord = ModuleOwnerFields & { id: string; version: number; createdAt: number; updatedAt: number };
+export type ModuleOwnerSettings = { mode: "plan" | "default"; prompt: string };
+type ModuleOwnerHistoryMetadata = { id: string; revision: number; operation: string; source: string; sessionId?: string; at: number };
+export type ModuleOwnerHistory = ModuleOwnerHistoryMetadata & (
+  { kind: "owner"; ownerId: string; before: ModuleOwnerRecord | null; after: ModuleOwnerRecord | null } |
+  { kind?: undefined; records: ModuleOwnerRecord[] }
+);
+export type ModuleOwnerState = { revision: number; records: ModuleOwnerRecord[]; history: ModuleOwnerHistory[]; settings: ModuleOwnerSettings;
+  generation: { status: string; sessionId?: string; error: string; startedAt: number } | null };
+export type ModuleOwnerTemplate = { templateId: string; title: string; cwd: string; supported: boolean };
+export type ModuleOwnerMutation = ({ operation: "add" } & ModuleOwnerFields) | ({ operation: "update"; id: string; version: number } & ModuleOwnerFields) | { operation: "delete"; id: string; version: number };
+export type ModuleOwnerTaskRun = { id: string; templateId: string; ownerId: string; taskId: string; taskName: string;
+  calledAt: number; endedAt?: number; status: string; sessionId?: string; threadId?: string; turnId?: string;
+  error: string; input: unknown; output: string };
+export type ModuleOwnerTaskInput = { id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean;
+  tools: ("list_module_owners" | "update_module_owner")[];
+  schedule: { kind: "cron"; cron: string } | { kind: "interval"; minutes: number; count: number } };
+export type ModuleOwnerTask = ModuleOwnerTaskInput & { id: string; executedCount: number; nextRunAt: number | null; lastRun?: { status: string; sessionId?: string; error: string; startedAt: number } };
+export interface ModuleOwnerApi {
+  listTaskRuns(id: string, input: { taskId: string; page?: number }): Promise<{ records: Omit<ModuleOwnerTaskRun, "input" | "output">[]; total: number }>;
+  getTaskRun(id: string, input: { taskId: string; id: string }): Promise<ModuleOwnerTaskRun>;
+  listHistory(id: string, input: { ownerId: string }): Promise<{ revision: number; history: ModuleOwnerHistory[] }>;
+  listTasks(id: string): Promise<ModuleOwnerTask[]>;
+  saveTask(id: string, input: ModuleOwnerTaskInput): Promise<ModuleOwnerTask[]>;
+  deleteTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
+  listTemplates(): Promise<ModuleOwnerTemplate[]>;
+  get(id: string): Promise<ModuleOwnerState>;
+  preview(id: string, input: ModuleOwnerSettings): Promise<unknown>;
+  generate(id: string, input: ModuleOwnerSettings): Promise<{ result: SessionApiResult; state: ModuleOwnerState; request?: unknown }>;
+  mutate(id: string, input: ModuleOwnerMutation): Promise<ModuleOwnerState>;
+  configure(id: string, input: ModuleOwnerSettings): Promise<ModuleOwnerState>;
+  restore(id: string, input: { historyId: string; revision: number }): Promise<ModuleOwnerState>;
+  onChanged(callback: (event: { templateId: string }) => void): () => void;
+}
+export type SessionApiResult = { method: string; url: string; status: number; elapsedMs: number; body: unknown };
+export type SessionApiTemplate = { templateId: string; title: string; agentProvider: string; type: string; graphicalSessionEnabled: boolean; modelSource: string; modelId: string | null };
+export interface SessionApi {
+  get(): Promise<SessionApiState>;
+  configure(input: { enabled?: boolean; port?: number }): Promise<SessionApiState>;
+  revealToken(): Promise<string>;
+  resetToken(): Promise<string>;
+  invoke(input: { operation: "list" | "create" | "listInstances" | "getInstanceStatus"; sessionId?: string; body?: unknown }): Promise<SessionApiResult>;
+  onChanged(callback: (state: SessionApiState) => void): () => void;
 }

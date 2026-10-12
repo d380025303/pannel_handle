@@ -66,6 +66,39 @@ const snapshot: GraphicalSnapshot = {
   items: [{ id: "m1", type: "agentMessage", text: "**完成**" }], approvals: [], questions: []
 };
 
+it("renders desktop turn diff cards and preserves expanded files on remote updates", async () => {
+  const { emit } = fixture();
+  const diff = [
+    "diff --git a/src/example.ts b/src/example.ts", "--- a/src/example.ts", "+++ b/src/example.ts",
+    "@@ -1 +1 @@", "-before", "+after",
+    "diff --git a/assets/logo.png b/assets/logo.png", "Binary files /dev/null and b/assets/logo.png differ"
+  ].join("\n");
+  const update = (text: string, updatedAt: number) => emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, turnDiffs: [{ turnId: "turn-1", diff: text, updatedAt }] } });
+  update(diff, 1);
+  const card = screen.getByText("本轮变更").closest("details")!;
+  expect(card.open).toBe(false);
+  expect(screen.queryByRole("button", { name: "复制差异" })).toBeNull();
+  fireEvent.click(screen.getByText("本轮变更"));
+  expect(card.open).toBe(true);
+  expect(screen.getByText("2 个文件")).toBeTruthy();
+  const file = screen.getByText("src/example.ts").closest("details")!;
+  expect(file.open).toBe(false);
+  fireEvent.click(screen.getByText("src/example.ts"));
+  await waitFor(() => expect(file.open).toBe(true));
+  fireEvent(file, new Event("toggle"));
+  expect(within(file).getByLabelText("新增 1 行，删除 1 行")).toBeTruthy();
+  expect(within(file).getByText("before").closest(".delete")).toBeTruthy();
+  expect(within(file).getByText("after").closest(".add")).toBeTruthy();
+  expect(screen.getByText("Binary files /dev/null and b/assets/logo.png differ")).toBeTruthy();
+  update(diff.replace("+after", "+updated"), 2);
+  expect(screen.getByText("updated").closest("details")?.open).toBe(true);
+  update("unrecognized diff", 3);
+  expect(screen.getByText("unrecognized diff", { selector: "pre" })).toBeTruthy();
+  update("", 4);
+  expect(screen.getByText("本轮暂无文件差异。")).toBeTruthy();
+});
+
 function fixture(viewSession = session, graphicalMenuConfig: import("../../src/utils/graphicalMenu").GraphicalMenuConfig = {}) {
   const send = vi.fn((_message: ClientMessage) => true);
   type GraphicalMessage = Extract<ServerMessage,

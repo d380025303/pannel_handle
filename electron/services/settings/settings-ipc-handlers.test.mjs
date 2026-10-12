@@ -71,6 +71,7 @@ function createHarness(overrides = {}) {
   const naraRouterService = createRouterService("nararouter");
   const miniMaxService = createRouterService("minimax");
   const mobileRemoteService = {
+    broadcastMobilePreferences: vi.fn(),
     broadcastGraphicalMenuConfig: vi.fn(),
     getState: vi.fn(() => "mobile-state"),
     updateConfig: vi.fn(input => input),
@@ -148,6 +149,16 @@ const BALANCE_PAYLOAD = {
 };
 
 describe("settings IPC handlers", () => {
+  it("lists built-in tools without querying or starting runtime services", () => {
+    const fixture = createHarness();
+    const handler = fixture.ipcMain.handlers.get("project-tools:list");
+    expect(SETTINGS_IPC_CHANNELS).toContain("project-tools:list");
+    expect(handler({})).toHaveLength(14);
+    expect(fixture.mobileRemoteService.getState).not.toHaveBeenCalled();
+    expect(fixture.openRouterService.getConfig).not.toHaveBeenCalled();
+    fixture.unregister();
+    expect(fixture.ipcMain.handlers.has("project-tools:list")).toBe(false);
+  });
   it("updates the Qoder scheduler only when its persisted flag changes", async () => {
     const fixture = createHarness();
     const handler = fixture.ipcMain.handlers.get("config:set");
@@ -164,7 +175,7 @@ describe("settings IPC handlers", () => {
       titleBarHiddenActions: ["terminal", "settings", "overview", "unknown", "terminal"]
     });
     expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
-      titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"],
+      titleBarActionOrder: ["api", "moduleOwners", "create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"],
       titleBarHiddenActions: ["terminal"]
     }, { throwOnSaveError: true });
     expect(result.titleBarHiddenActions).toEqual(["terminal"]);
@@ -399,4 +410,18 @@ describe("companion settings IPC", () => {
     expect(() => set({}, { desktopMascotEnabled: true })).toThrow("save failed");
     expect(changed).not.toHaveBeenCalled();
   });
+});
+
+it("saves only boolean mobile preferences and broadcasts after successful persistence", () => {
+  const harness = createHarness();
+  const set = harness.ipcMain.handlers.get("config:set");
+  set({}, { mobileGraphicalSessionMinimalMode: true });
+  expect(harness.configStore.updateConfig).toHaveBeenLastCalledWith(expect.objectContaining({ mobileGraphicalSessionMinimalMode: true }), { throwOnSaveError: true });
+  expect(harness.mobileRemoteService.broadcastMobilePreferences).toHaveBeenCalledOnce();
+  harness.configStore.updateConfig.mockClear();
+  set({}, { mobileGraphicalSessionMinimalMode: "false" });
+  expect(harness.configStore.updateConfig).not.toHaveBeenCalled();
+  harness.configStore.updateConfig.mockImplementation(() => { throw new Error("disk failure"); });
+  expect(() => set({}, { mobileGraphicalSessionMinimalMode: false })).toThrow("disk failure");
+  expect(harness.mobileRemoteService.broadcastMobilePreferences).toHaveBeenCalledOnce();
 });

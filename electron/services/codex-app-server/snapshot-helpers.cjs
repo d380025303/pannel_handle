@@ -2,6 +2,8 @@ const path = require("node:path");
 const SUMMARY_LIMIT = 500;
 
 function displayItem(item) {
+  if (item?.type === "dynamicToolCall") return { ...item,
+    output: (item.contentItems || []).filter(part => part.type === "inputText").map(part => part.text).join("\n") };
   if (item?.type !== "userMessage") return item;
   const attachments = [];
   const parts = [];

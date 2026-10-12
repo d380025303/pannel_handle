@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+contextBridge.exposeInMainWorld("projectToolsApi", {
+  list: () => ipcRenderer.invoke("project-tools:list")
+});
+
 function getDroppedFilePaths(files) {
   return Array.from(files || [])
     .map((file) => {
@@ -630,4 +634,38 @@ async function invokeQoderCheckin(channel, accountId) {
 contextBridge.exposeInMainWorld("qoderCheckinApi", {
   getStatus: accountId => invokeQoderCheckin("qoder-checkin:get-status", accountId),
   claim: accountId => invokeQoderCheckin("qoder-checkin:claim", accountId)
+});
+
+contextBridge.exposeInMainWorld("sessionApi", {
+  get: () => ipcRenderer.invoke("session-api:get"),
+  configure: input => ipcRenderer.invoke("session-api:configure", input),
+  revealToken: () => ipcRenderer.invoke("session-api:reveal-token"),
+  resetToken: () => ipcRenderer.invoke("session-api:reset-token"),
+  invoke: input => ipcRenderer.invoke("session-api:invoke", input),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("session-api:changed", listener);
+    return () => ipcRenderer.removeListener("session-api:changed", listener);
+  }
+});
+
+contextBridge.exposeInMainWorld("moduleOwnerApi", {
+  listTaskRuns: (id, input) => ipcRenderer.invoke("module-owners:listTaskRuns", id, input),
+  getTaskRun: (id, input) => ipcRenderer.invoke("module-owners:getTaskRun", id, input),
+  listHistory: (id, input) => ipcRenderer.invoke("module-owners:listHistory", id, input),
+  listTasks: id => ipcRenderer.invoke("module-owners:listTasks", id),
+  saveTask: (id, input) => ipcRenderer.invoke("module-owners:saveTask", id, input),
+  deleteTask: (id, input) => ipcRenderer.invoke("module-owners:deleteTask", id, input),
+  listTemplates: () => ipcRenderer.invoke("module-owners:templates"),
+  get: id => ipcRenderer.invoke("module-owners:get", id),
+  preview: (id, input) => ipcRenderer.invoke("module-owners:preview", id, input),
+  generate: (id, input) => ipcRenderer.invoke("module-owners:generate", id, input),
+  mutate: (id, input) => ipcRenderer.invoke("module-owners:mutate", id, input),
+  configure: (id, input) => ipcRenderer.invoke("module-owners:configure", id, input),
+  restore: (id, input) => ipcRenderer.invoke("module-owners:restore", id, input),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("module-owners:changed", listener);
+    return () => ipcRenderer.removeListener("module-owners:changed", listener);
+  }
 });

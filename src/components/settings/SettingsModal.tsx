@@ -15,6 +15,7 @@ import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
 import { getTerminalBackgroundUrl } from "../../utils/terminalBackground";
+import { ProjectToolsSettings } from "./ProjectToolsSettings";
 import { TitleBarActionSettings } from "./TitleBarActionSettings";
 
 type SettingsModalProps = {
@@ -23,6 +24,8 @@ type SettingsModalProps = {
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
   autoQoderCheckin?: boolean;
+  mobileGraphicalSessionMinimalMode?: boolean;
+  onMobileGraphicalSessionMinimalModeChange?: (enabled: boolean) => Promise<void>;
   graphicalSessionMinimalMode?: boolean;
   onGraphicalSessionMinimalModeChange?: (enabled: boolean) => Promise<void>;
   debugMode: boolean;
@@ -59,7 +62,7 @@ type SettingsModalProps = {
   onCancel: () => void;
 };
 
-type SettingsCategory = "general" | "mascot" | "environment" | "models" | "quota" | "mobile" | "notifications" | "backup";
+type SettingsCategory = "general" | "mascot" | "environment" | "models" | "quota" | "mobile" | "notifications" | "backup" | "tools";
 
 export function SettingsModal({
   defaultWindowsShell,
@@ -67,6 +70,8 @@ export function SettingsModal({
   autoRestore,
   autoWorkBuddyCheckin,
   autoQoderCheckin = false,
+  mobileGraphicalSessionMinimalMode = false,
+  onMobileGraphicalSessionMinimalModeChange,
   graphicalSessionMinimalMode = false,
   onGraphicalSessionMinimalModeChange,
   debugMode,
@@ -117,6 +122,8 @@ export function SettingsModal({
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [mascotBusy, setMascotBusy] = useState(false);
   const [mascotError, setMascotError] = useState<string | null>(null);
+  const [mobileMinimalModeBusy, setMobileMinimalModeBusy] = useState(false);
+  const [mobileMinimalModeError, setMobileMinimalModeError] = useState<string | null>(null);
   const [minimalModeBusy, setMinimalModeBusy] = useState(false);
   const [minimalModeError, setMinimalModeError] = useState<string | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -228,6 +235,7 @@ export function SettingsModal({
     { id: "mascot" as const, label: t("settings.mascotTitle"), description: t("settings.mascotDescription"), icon: Smile },
     { id: "environment" as const, label: t("settings.environmentTitle"), description: t("settings.environmentNavDescription"), icon: Braces },
     { id: "models" as const, label: t("settings.modelsTitle"), description: t("settings.modelsDescription"), icon: Bot },
+    { id: "tools" as const, label: locale === "en-US" ? "Project tools" : "项目工具", description: locale === "en-US" ? "Built-in tools and usage details" : "查看内置工具及使用详情", icon: Braces },
     { id: "quota" as const, label: t("settings.quotaTitle"), description: t("settings.quotaDescription"), icon: Gauge },
     { id: "mobile" as const, label: t("settings.mobileTitle"), description: t("settings.mobileNavDescription"), icon: Smartphone },
     { id: "notifications" as const, label: t("settings.notificationsTitle"), description: t("settings.notificationsDescription"), icon: Bell },
@@ -493,6 +501,21 @@ export function SettingsModal({
                     </label>
                     {minimalModeError && <p role="alert">{minimalModeError}</p>}
                     <label className="settings-toggle-row">
+                      <span><strong>{t("settings.mobileGraphicalSessionMinimalMode")}</strong></span>
+                      <span className="auto-restore-label">
+                        <input type="checkbox" aria-label={t("settings.mobileGraphicalSessionMinimalMode")} className="auto-restore-checkbox" checked={mobileGraphicalSessionMinimalMode} disabled={mobileMinimalModeBusy} onChange={async event => {
+                          const enabled = event.target.checked;
+                          setMobileMinimalModeBusy(true);
+                          setMobileMinimalModeError(null);
+                          try { await onMobileGraphicalSessionMinimalModeChange?.(enabled); }
+                          catch (error) { setMobileMinimalModeError(error instanceof Error ? error.message : String(error)); }
+                          finally { setMobileMinimalModeBusy(false); }
+                        }} />
+                        <span className="auto-restore-track" />
+                      </span>
+                    </label>
+                    {mobileMinimalModeError && <p role="alert">{mobileMinimalModeError}</p>}
+                    <label className="settings-toggle-row">
                       <span><strong>{t("settings.debugMode")}</strong></span>
                       <span className="auto-restore-label">
                         <input type="checkbox" className="auto-restore-checkbox" checked={debugMode} onChange={onToggleDebugMode} />
@@ -685,6 +708,10 @@ export function SettingsModal({
 
             <section id="settings-panel-mobile" role="tabpanel" aria-labelledby="settings-tab-mobile" hidden={activeCategory !== "mobile"} className="settings-page settings-page-stack">
               <MobileAccessSettings />
+            </section>
+
+            <section id="settings-panel-tools" role="tabpanel" aria-labelledby="settings-tab-tools" hidden={activeCategory !== "tools"} className="settings-page settings-page-stack">
+              {activeCategory === "tools" && <ProjectToolsSettings />}
             </section>
 
             <section id="settings-panel-backup" role="tabpanel" aria-labelledby="settings-tab-backup" hidden={activeCategory !== "backup"} className="settings-page settings-page-stack">

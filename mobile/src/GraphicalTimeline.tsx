@@ -1,6 +1,7 @@
 import { CodexSubAgentEvent, isSubAgentEvent, subAgentStatusLabels } from "../../src/components/shared/CodexSubAgentEvent";
 import { CodexActivityEvent } from "../../src/components/shared/CodexActivityEvent";
 import { CompactionCard } from "../../src/components/shared/CompactionCard";
+import { TurnDiffCard } from "../../src/components/agents/TurnDiffCard";
 import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
 import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
 import { copyMobileText } from "./clipboard";
@@ -76,7 +77,7 @@ export function GraphicalTimeline({ snapshot, controller, minimalMode = false }:
         return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong>{item.text && <MarkdownBlock content={item.text} />}{item.summary?.map((value, index) => <p key={index}>{typeof value === "string" ? value : value.text}</p>)}</article>;
       })}
       {snapshot.provider === "codex" && <>
-        {snapshot.turnDiffs?.map(diff => <details className="graphical-card" key={diff.turnId}><summary>代码差异</summary><button type="button" onClick={() => copy(diff.diff)}>复制差异</button><pre>{diff.diff}</pre></details>)}
+        {snapshot.turnDiffs?.map(diff => <TurnDiffCard key={diff.turnId} diff={diff} />)}
         {snapshot.subAgents && snapshot.subAgents.members.length > 0 && <section className="graphical-card graphical-sub-agents"><div className="graphical-actions"><strong>子 Agent</strong><button disabled={snapshot.subAgents.loading} onClick={() => { void controller.codexRequest("subagents").catch(fail); }}>刷新</button><button onClick={() => { void controller.codexRequest("subagent-view", { expanded: !snapshot.subAgents?.expanded }).catch(fail); }}>{snapshot.subAgents.expanded ? "收起" : "展开"}</button></div>
           {snapshot.subAgents.error && <p role="alert">{snapshot.subAgents.error}</p>}{snapshot.subAgents.warning && <p>{snapshot.subAgents.warning}</p>}
           {snapshot.subAgents.expanded && snapshot.subAgents.members.map(member => <details key={member.threadId}><summary onClick={() => { void controller.codexRequest("subagent-view", { expanded: true, targetThreadId: member.threadId }).catch(fail); }}>{member.name} · {member.role} · {subAgentStatusLabels[member.status] || member.status}</summary><p>{member.task}</p>{member.loading && <p>正在加载…</p>}{member.error && <p role="alert">{member.error}</p>}<TeamMemberTimeline member={member} minimalMode={minimalMode} codeBuddy={false} onCopyLink={async text => { await copyMobileText(text); return true; }} onLinkClick={url => { if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); else fail(new Error("手机浏览器仅支持 HTTP(S) 外链。")); }} /></details>)}

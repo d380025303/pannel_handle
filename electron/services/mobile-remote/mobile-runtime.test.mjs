@@ -272,8 +272,10 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   const discovery = { publish: vi.fn(() => advertisement), destroy: vi.fn() };
   const broadcast = vi.fn();
   const createHttpServer = vi.fn().mockReturnValueOnce(localServer).mockReturnValueOnce(server);
+  let minimalMode = true;
   let menuConfig = { codex: ["plugins"] };
   const service = createMobileRemoteService({
+    getMobileMinimalMode: () => minimalMode,
     getGraphicalMenuConfig: () => menuConfig,
     terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
     agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
@@ -282,6 +284,7 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
     networkInterfaces: () => ({ LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] }),
     createHttpServer, createWebSocketServer: () => wss, createDiscovery: () => discovery
   });
+  service.broadcastMobilePreferences();
   service.broadcastGraphicalMenuConfig();
   expect(client.send).not.toHaveBeenCalled();
   await service.start();
@@ -296,6 +299,22 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "password.login", password: "correct-password", deviceName: "Phone" }));
   await vi.advanceTimersByTimeAsync(0);
   const readyMessage = client.send.mock.calls.map(([raw]) => JSON.parse(raw)).find(message => message.type === "ready");
+  expect(readyMessage.payload.mobileGraphicalSessionMinimalMode).toBe(true);
+  minimalMode = false;
+  service.broadcastMobilePreferences();
+  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "mobile-preferences.changed", mobileGraphicalSessionMinimalMode: false }));
+  const secondClient = socket();
+  wss.handleUpgrade.mockImplementationOnce((_request, _socket, _head, callback) => callback(secondClient));
+  server.emit("upgrade", { url: "/api/v1/ws", headers: { host: "192.168.1.1:43123" }, socket: { remoteAddress: "192.168.1.3" } }, {}, Buffer.alloc(0));
+  secondClient.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "password.login", password: "correct-password", deviceName: "Second phone" }));
+  await vi.advanceTimersByTimeAsync(0);
+  secondClient.send.mockClear();
+  minimalMode = true;
+  service.broadcastMobilePreferences();
+  const preferencesMessage = JSON.stringify({ v: PROTOCOL_VERSION, type: "mobile-preferences.changed", mobileGraphicalSessionMinimalMode: true });
+  expect(client.send).toHaveBeenCalledWith(preferencesMessage);
+  expect(secondClient.send).toHaveBeenCalledWith(preferencesMessage);
+  secondClient.emit("close");
   expect(readyMessage.payload.graphicalMenuSecondaryActions).toEqual(menuConfig);
   expect(readyMessage.payload).not.toHaveProperty("config");
   menuConfig = { codex: ["model"] };

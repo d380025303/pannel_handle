@@ -62,6 +62,8 @@ export function SessionStatusMcpPanel() {
     {state?.enabled && <details><summary>{t("mcp.sessionStatusExamples")}</summary>
       <p>{t("mcp.sessionStatusTokenHint")}</p>
       {examples.map(example => <div key={example.name}><strong>{example.name}</strong><pre>{example.value}</pre></div>)}
+      <div><strong>list_session_templates</strong><pre>{"{}"}</pre></div>
+      <div><strong>create_session_instance</strong><pre>{JSON.stringify({ templateId: "<TEMPLATE_ID>", mode: "plan", prompt: "<TASK>", agentProvider: "codex", modelId: "<MODEL_ID>" }, null, 2)}</pre></div>
     </details>}
   </section>;
 }

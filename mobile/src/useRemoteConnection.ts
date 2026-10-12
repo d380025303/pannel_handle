@@ -10,6 +10,7 @@ type GraphicalMessage = Extract<ServerMessage,
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
 export function useRemoteConnection() {
+  const [mobileGraphicalSessionMinimalMode, setMobileGraphicalSessionMinimalMode] = useState(false);
   const [graphicalMenuConfig, setGraphicalMenuConfig] = useState<GraphicalMenuConfig>({});
   const [sessions, setSessions] = useState<RuntimeSession[]>([]);
   const [overviews, setOverviews] = useState<Record<string, SessionOverview>>({});
@@ -25,7 +26,11 @@ export function useRemoteConnection() {
       case "graphical-menu.changed":
         setGraphicalMenuConfig(normalizeGraphicalMenuConfig(message.config));
         break;
+      case "mobile-preferences.changed":
+        setMobileGraphicalSessionMinimalMode(message.mobileGraphicalSessionMinimalMode === true);
+        break;
       case "ready":
+        setMobileGraphicalSessionMinimalMode(message.payload.mobileGraphicalSessionMinimalMode === true);
         setGraphicalMenuConfig(normalizeGraphicalMenuConfig(message.payload.graphicalMenuSecondaryActions));
         setSessions(message.payload.sessions);
         setOverviews({});
@@ -90,6 +95,6 @@ export function useRemoteConnection() {
     return () => fileListenersRef.current.delete(listener);
   }, []);
 
-  return { ...transport, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
+  return { ...transport, mobileGraphicalSessionMinimalMode, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
     onTerminalMessage, onGraphicalMessage, onFileMessage };
 }

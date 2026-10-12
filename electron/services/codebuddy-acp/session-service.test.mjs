@@ -33,6 +33,26 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("confirms prompt submission before completion and retains later execution failures", async () => {
+    let finishPrompt;
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") finishPrompt = () => emit({ id: message.id, error: { message: "later failure" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      await expect(service.submitStarted("one", " ")).rejects.toThrow("请输入");
+      await service.submitStarted("one", "long task");
+      expect(service.snapshot("one").busy).toBe(true);
+      expect(service.snapshot("one").items.some(item => item.type === "userMessage" && item.text === "long task")).toBe(true);
+      finishPrompt();
+      await vi.waitFor(() => expect(service.snapshot("one").busy).toBe(false));
+      expect(service.snapshot("one").items.some(item => item.type === "turnError" && item.text.includes("later failure"))).toBe(true);
+    } finally { await service.close("one"); }
+  });
   it("previews unsent pasted images and revokes access when they are discarded", async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-acp-image-preview-"));
     const imagePath = path.join(directory, "capture.png");

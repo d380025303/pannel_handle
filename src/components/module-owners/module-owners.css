@@ -1,0 +1,306 @@
+.module-owners-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  padding: 16px;
+  color: var(--color-text);
+  background: var(--color-bg-app);
+}
+.module-owners-workspace[hidden] {
+  display: none;
+}
+.module-owners-toolbar, .module-owners-buttons, .module-owners-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.module-owners-toolbar {
+  flex: 0 0 auto;
+}
+.module-owners-toolbar strong {
+  margin-right: 8px;
+}
+.module-owners-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.module-owners-toolbar select {
+  max-width: 280px;
+}
+.module-owners-toolbar-actions {
+  margin-left: auto;
+}
+.module-owners-count, .module-owners-path {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.module-owners-path {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.module-owners-card {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+.module-owners-workspace :is(input, textarea, select, button), .module-owners-dialog :is(input, textarea, select, button) {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font: inherit;
+}
+.module-owners-dialog textarea {
+  resize: vertical;
+}
+.module-owners-form.module-owners-task-editor {
+  overflow: hidden;
+  gap: 0;
+}
+.module-owners-workspace button, .module-owners-dialog button {
+  cursor: pointer;
+}
+.module-owners-workspace button:hover:not(:disabled), .module-owners-dialog button:hover:not(:disabled), .module-owners-dialog button[aria-pressed="true"] {
+  background: var(--color-bg-selection);
+}
+.module-owners-workspace :is(button, input, textarea, select):focus-visible, .module-owners-dialog :is(button, input, textarea, select, summary):focus-visible {
+  outline: 2px solid var(--color-text-secondary);
+  outline-offset: 2px;
+}
+.module-owners-workspace button:disabled, .module-owners-dialog button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.module-owners-table-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+.module-owners-card .module-owners-table-scroll {
+  flex: 1;
+}
+.module-owners-card table, .module-owners-dialog table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.module-owners-card th, .module-owners-card td, .module-owners-dialog th, .module-owners-dialog td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.module-owners-card th, .module-owners-dialog th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.module-owners-card td:first-child {
+  font-weight: 600;
+}
+.module-owners-card tbody tr:hover {
+  background: var(--color-bg-selection);
+}
+.module-owners-card td code, .module-owners-dialog td code {
+  display: block;
+  font-size: 12px;
+}
+.module-owners-name-column {
+  width: 20%;
+}
+.module-owners-directory-column {
+  width: 29%;
+}
+.module-owners-action-column {
+  width: 220px;
+}
+.module-owners-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.module-owners-workspace .module-owners-history-link {
+  border-color: transparent;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.module-owners-workspace .module-owners-danger, .module-owners-dialog .module-owners-danger {
+  color: var(--color-danger);
+}
+.module-owners-empty {
+  padding: 24px;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.module-owners-dialog {
+  width: 720px;
+  overflow: hidden;
+  color: var(--color-text);
+}
+.module-owners-dialog-wide {
+  width: 1100px;
+}
+.module-owners-dialog-header, .module-owners-dialog-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+}
+.module-owners-dialog-header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+}
+.module-owners-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.module-owners-dialog-header button {
+  width: 32px;
+  height: 32px;
+}
+.module-owners-dialog-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+}
+.module-owners-dialog-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+.module-owners-dialog-body p {
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+}
+.module-owners-form {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+.module-owners-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.module-owners-form label + label {
+  margin-top: 16px;
+}
+.module-owners-form .module-owners-buttons {
+  margin-top: 16px;
+}
+.module-owners-dialog pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  background: var(--color-bg-code);
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.module-owners-dialog details {
+  margin-top: 16px;
+}
+.module-owners-history-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+}
+.module-owners-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.module-owners-history button {
+  text-align: left;
+}
+.module-owners-history-preview {
+  min-width: 0;
+}
+.module-owners-history-preview > button {
+  margin-top: 16px;
+}
+.module-owners-restore-confirm {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.module-owners-error {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--color-text);
+  border-left: 3px solid var(--color-danger);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 800px) {
+  .module-owners-toolbar-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .module-owners-history-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .module-owners-history {
+    max-height: 200px;
+    overflow: auto;
+  }
+  .module-owners-dialog-body {
+    padding: 16px;
+  }
+  .module-owners-card table {
+    min-width: 640px;
+  }
+}
+
+.module-owners-task {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+.module-owners-dialog .module-owners-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.module-owners-dialog .module-owners-check input {
+  width: auto;
+}
+.module-owners-dialog fieldset {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+}
+
+.module-owners-run-detail {
+  min-width: 0;
+}
+
+.module-owners-run-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+}

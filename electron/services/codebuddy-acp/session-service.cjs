@@ -383,20 +383,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   function status(id, entry, state, summary, eventName = "AcpTurn") {
     terminalManager.broadcastAgentStatus({ id, provider, status: state, eventName, activitySummary: summary || undefined });
   }
-  function send(entry, message) {
+  function send(entry, message, onSent) {
     if (entry.httpTransport) {
-      void entry.httpTransport.send({ jsonrpc: "2.0", ...message }).catch(error => entry.transportError?.(error));
+      void entry.httpTransport.send({ jsonrpc: "2.0", ...message }, { onSent }).then(() => onSent?.()).catch(error => entry.transportError?.(error));
       return;
     }
     if (!entry.child.stdin.writable) throw new Error(`${agentName} ACP 已退出。`);
     entry.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+    onSent?.();
   }
-  function request(entry, method, params, timeoutMs = 30000) {
+  function request(entry, method, params, timeoutMs = 30000, onSent) {
     const id = ++entry.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { entry.pending.delete(id); reject(new Error(`${method} 超时。`)); }, timeoutMs);
       entry.pending.set(id, { resolve, reject, timer });
-      try { send(entry, { id, method, params }); }
+      try { send(entry, { id, method, params }, onSent); }
       catch (error) { clearTimeout(timer); entry.pending.delete(id); reject(error); }
     });
   }
@@ -1593,7 +1594,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(buffer) }; }
     catch { return { kind: "unsupported" }; }
   }
-  async function submit(id, text, files = [], _references = [], orderedContent) {
+  async function submit(id, text, files = [], _references = [], orderedContent, onSubmitted) {
     const entry = entryFor(id);
     conversationArchive?.baseline(id, snapshot(id));
     if (entry.mainAgentChanging) throw new Error("主 Agent 正在切换，请稍后重试。");
@@ -1662,7 +1663,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     reportTokenLive(entry, "turnStart");
     try {
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
-        ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
+        ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000, onSubmitted);
       if (sessions.get(id) !== entry) return;
       cancelOpenCodeForms(entry);
       for (const file of files) entry.allowedFiles.delete(file);
@@ -1687,6 +1688,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (provider === "opencode") await updateOpenCodeMessageIds(entry);
       status(id, entry, "failed", error.message); publish(id); if (!entry.busy) reportTokenLive(entry, "turnEnd"); void recordTokenUsage(entry); throw error; }
     finally { if (provider === "opencode" && sessions.get(id) === entry) { interruptCompactions(entry.items); publish(id); } settlePrompt(); entry.promptCompletion = null; await refreshMainAgents(entry); }
+  }
+  function submitStarted(id, text) {
+    return new Promise((resolve, reject) => {
+      // submit keeps reporting later turn failures through the existing session state.
+      void submit(id, text, [], [], undefined, resolve).catch(reject);
+    });
   }
   function startGoalCommand(id, command, action) {
     const entry = entryFor(id);
@@ -1952,7 +1959,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     listMainAgents, setMainAgent,
     executePlan: guardHistoryOperation(executePlan), getGoal, setGoal, clearGoal, refreshGoal,
     allowFiles, allowPastedImage, discardPastedImage, previewAttachment,
-    submit: guardHistoryOperation(submit), interrupt, resolveApproval, answerQuestion, cancelQuestion };
+    submit: guardHistoryOperation(submit), submitStarted: guardHistoryOperation(submitStarted), interrupt, resolveApproval, answerQuestion, cancelQuestion };
 }
 
 module.exports = { createCodeBuddyAcpSessionService, buildInvocation, stopAgentChild };

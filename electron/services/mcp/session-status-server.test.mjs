@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { createSessionStatusServer, workState } = require("./session-status-server.cjs");
 const active = [];
 
-function setup(sessions = []) {
+function setup(sessions = [], dependencies = {}) {
   const userData = mkdtempSync(path.join(tmpdir(), "pannel-mcp-"));
   const terminalManager = {
     listSessions: () => sessions,
@@ -16,7 +16,7 @@ function setup(sessions = []) {
   };
   const service = createSessionStatusServer({ userData, terminalManager, port: 0,
     graphicalService: { snapshot: () => ({ busy: false, items: [{ type: "agentMessage", text: "完成任务" }] }) },
-    stateHub: { getText: async () => "最近命令\n输出结果" } });
+    stateHub: { getText: async () => "最近命令\n输出结果" }, ...dependencies });
   active.push({ service, userData });
   return { service, sessions, userData };
 }
@@ -55,7 +55,7 @@ describe("session status MCP server", () => {
     expect(workState({ status: "空闲" }, { status: "waiting_for_permission" })).toBe("waiting_for_permission");
     expect(workState({ status: "错误" })).toBe("failed");
   });
-  it("starts only after opt in and serves read-only session tools", async () => {
+  it("starts only after opt in and keeps the existing status tools", async () => {
     const sessions = [{ id: "run-1", title: "Work", templateId: "saved-1", type: "windows", runtimeMode: "terminal", agentProvider: "codex" }];
     const { service, userData } = setup(sessions);
     expect(service.status().enabled).toBe(false);
@@ -65,7 +65,7 @@ describe("session status MCP server", () => {
     expect(readFileSync(path.join(userData, "session-status-mcp.json"), "utf8")).toContain(token);
     expect((await rpc(service, token, "initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "test", version: "1" } })).status).toBe(200);
     const tools = await result(await rpc(service, token, "tools/list", {}));
-    expect(tools.result.tools.map(item => item.name)).toEqual(["list_session_instances", "get_session_instance_status"]);
+    expect(tools.result.tools.map(item => item.name)).toEqual(["list_session_instances", "get_session_instance_status", "list_session_templates", "create_session_instance"]);
     const listed = await result(await rpc(service, token, "tools/call", { name: "list_session_instances", arguments: {} }));
     expect(JSON.parse(listed.result.content[0].text).sessions).toMatchObject([{ sessionId: "run-1", workState: "running", summary: "输出结果" }]);
     const single = await result(await rpc(service, token, "tools/call", { name: "get_session_instance_status", arguments: { sessionId: "run-1" } }));
@@ -73,6 +73,46 @@ describe("session status MCP server", () => {
     sessions.splice(0);
     const missing = await result(await rpc(service, token, "tools/call", { name: "get_session_instance_status", arguments: { sessionId: "run-1" } }));
     expect(missing.result.isError).toBe(true);
+  });
+
+  it("queries Agent templates and creates a model-selected Plan instance over authenticated MCP", async () => {
+    const template = { id: "saved", title: "Work", agentProvider: "codex", type: "windows", graphicalSessionEnabled: true };
+    const sessions = [];
+    let mode = "default"; let model = "old";
+    let injectedTools;
+    const { service } = setup(sessions, {
+      sessionStore: { getLibrary: () => [{ id: "shell" }, template], getTemplate: id => id === "saved" ? template : undefined },
+      agentSessionLauncher: { launchSession: async (source, options) => {
+        injectedTools = options.injectedTools;
+        const session = { ...source, id: "new", templateId: options.templateId, runtimeMode: "app-server" };
+        sessions.push(session); return session;
+      } },
+      graphicalService: { snapshot: () => ({ threadId: "thread", mode, model, items: [] }),
+        setModel: async (_id, value) => { model = value; }, setMode: async (_id, value) => { mode = value; }, submitStarted: async () => {} }
+    });
+    await service.setEnabled(true);
+    const token = service.revealToken();
+    const templates = await result(await rpc(service, token, "tools/call", { name: "list_session_templates", arguments: {} }));
+    expect(JSON.parse(templates.result.content[0].text).templates.map(item => item.templateId)).toEqual(["saved"]);
+    const created = await result(await rpc(service, token, "tools/call", { name: "create_session_instance",
+      arguments: { templateId: "saved", agentProvider: "codebuddy", mode: "plan", prompt: "Plan this", modelId: "new-model" } }));
+    expect(JSON.parse(created.result.content[0].text)).toMatchObject({ sessionId: "new", agentProvider: "codebuddy", mode: "plan", modelId: "new-model", status: "started" });
+    const injection = { tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }],
+      toolCallback: { url: "http://localhost/tools" } };
+    const toolCreated = await result(await rpc(service, token, "tools/call", { name: "create_session_instance",
+      arguments: { templateId: "saved", mode: "plan", prompt: "Lookup", ...injection } }));
+    expect(JSON.parse(toolCreated.result.content[0].text)).toMatchObject({ status: "started" });
+    expect(injectedTools).toEqual({ ...injection, toolCallback: { ...injection.toolCallback, timeoutMs: 60000 } });
+    const removedSource = await result(await rpc(service, token, "tools/call", { name: "create_session_instance",
+      arguments: { templateId: "saved", mode: "plan", prompt: "Work", modelSource: "native" } }));
+    expect(removedSource.result?.isError || removedSource.error).toBeTruthy();
+    const invalid = await result(await rpc(service, token, "tools/call", { name: "create_session_instance",
+      arguments: { templateId: "saved", mode: "execute", prompt: "Work" } }));
+    expect(invalid.result?.isError || invalid.error).toBeTruthy();
+    const missing = await result(await rpc(service, token, "tools/call", { name: "create_session_instance",
+      arguments: { templateId: "missing", mode: "default", prompt: "Work" } }));
+    expect(missing.result.isError).toBe(true);
+    expect(sessions).toHaveLength(2);
   });
 
   it("requires the token and rejects foreign origins", async () => {

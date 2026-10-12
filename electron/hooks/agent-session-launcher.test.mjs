@@ -120,6 +120,16 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
+  it("keeps injected tool credentials out of terminal sessions and passes them only to Codex runtime", async () => {
+    const service = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService: service });
+    const injectedTools = { tools: [{ name: "lookup" }], toolCallback: { url: "http://localhost/tools", bearerToken: "secret" } };
+    await mocks.launcher.launchSession({ id: "saved", type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: true },
+      { useProvidedTemplate: true, templateId: undefined, injectedTools });
+    expect(service.start.mock.calls[0][1].injectedTools).toEqual(injectedTools);
+    expect(JSON.stringify(mocks.sessions)).not.toContain("secret");
+    expect(JSON.stringify(mocks.terminalManager.launchSession.mock.calls)).not.toContain("secret");
+  });
   it.each([false, true])("forks into an independent runtime and cleans up on failure=%s", async (fails) => {
     const service = { start: vi.fn(async () => {}), snapshot: vi.fn(() => ({ threadId: "thread-1", busy: false })),
       forkThread: vi.fn(async () => { if (fails) throw new Error("fork failed"); }) };

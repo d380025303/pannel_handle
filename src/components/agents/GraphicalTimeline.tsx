@@ -82,7 +82,7 @@ function ToolCard({ item, codeBuddy = false }: { item: SessionItem; codeBuddy?: 
     <button type="button" className="codex-app-server-tool-heading" data-kind={kind} data-status={item.status}
       aria-expanded={expanded} aria-controls={expanded ? detailsId : undefined} onClick={() => setExpanded(current => !current)}>
       <ChevronRight className="codex-app-server-tool-chevron" aria-hidden="true" /><Icon aria-hidden="true" />
-      <strong>{presentation?.label || item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
+      <strong title={presentation?.label || item.toolName || item.tool || label}>{presentation?.label || item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
       <span className="codex-app-server-tool-status">{item.status === "completed" ? <CircleCheck aria-hidden="true" /> : item.status === "failed" || item.status === "declined" ? <CircleX aria-hidden="true" /> : <span className="codex-app-server-tool-spinner" aria-hidden="true" />}{statusLabel(item.status)}</span>
     </button>
     {expanded && <div id={detailsId} className="codex-app-server-tool-details">

@@ -134,7 +134,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
       ...(connectionId ? { "acp-connection-id": connectionId } : {}),
       ...(sessionToken ? { "acp-session-token": sessionToken } : {}), ...extra };
   }
-  function request(method, route, body, { subscribe = false, rawJson = false, timeoutMs = 0, responseLimit = RESPONSE_LIMIT } = {}) {
+  function request(method, route, body, { subscribe = false, rawJson = false, timeoutMs = 0, responseLimit = RESPONSE_LIMIT, onSent } = {}) {
     return new Promise((resolve, reject) => {
       if (closed) { reject(new Error("CodeBuddy HTTP ACP 已关闭。")); return; }
       const payload = body == null ? null : JSON.stringify(body);
@@ -179,6 +179,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
         });
       });
       requests.add(req);
+      if (onSent) req.once("finish", onSent);
       if (timeoutMs) req.setTimeout(timeoutMs, () => req.destroy(new Error("CodeBuddy HTTP 请求超时。")));
       req.on("error", error => {
         requests.delete(req);
@@ -199,7 +200,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
       if (!connectionId) throw new Error("CodeBuddy HTTP ACP 未返回连接 ID。");
       await request("GET", path, null, { subscribe: true });
     },
-    send(message) { return request("POST", path, message); },
+    send(message, options) { return request("POST", path, message, options); },
     rest(method, route, body) { return request(method, route, body, { rawJson: true }); },
     subscribeRest(route, onEvent, onError) {
       if (closed) throw new Error("CodeBuddy HTTP 服务已关闭。");

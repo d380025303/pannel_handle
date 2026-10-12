@@ -10,6 +10,8 @@ export const TITLE_BAR_ACTIONS = [
   { id: "settings", labelKey: "settings.open" },
   { id: "library", labelKey: "sidebar.openLibrary" },
   { id: "quickAgent", labelKey: "session.quickAgent" },
+  { id: "api", labelKey: "sessionApi.title" },
+  { id: "moduleOwners", labelKey: "moduleOwners.title" },
   { id: "create", labelKey: "sidebar.newSession" }
 ] as const satisfies ReadonlyArray<{ id: string; labelKey: TranslationKey }>;
 
@@ -17,8 +19,9 @@ export type TitleBarActionId = typeof TITLE_BAR_ACTIONS[number]["id"];
 export const DEFAULT_TITLE_BAR_ACTION_ORDER: TitleBarActionId[] = TITLE_BAR_ACTIONS.map(action => action.id);
 
 export function withSettingsAction(order: TitleBarActionId[]): TitleBarActionId[] {
-  if (order.includes("settings")) return order;
   const next = [...order];
-  next.splice(6, 0, "settings");
+  if (!next.includes("settings")) next.splice(6, 0, "settings");
+  if (!next.includes("api")) next.splice(next.includes("create") ? next.indexOf("create") : next.length, 0, "api");
+  if (!next.includes("moduleOwners")) next.splice(next.includes("create") ? next.indexOf("create") : next.length, 0, "moduleOwners");
   return next;
 }

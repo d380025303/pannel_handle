@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, Library, Lightbulb, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Braces, Cable, Library, Lightbulb, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -18,6 +18,8 @@ type TitleBarProps = {
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
   onOpenIdea?: () => void;
+  onOpenApi?: () => void;
+  onOpenModuleOwners?: () => void;
   mobileAccessState: MobileAccessState | null;
   screenshotEnabled?: boolean;
   onCaptureScreenshot?: () => void;
@@ -25,7 +27,7 @@ type TitleBarProps = {
   hiddenActions?: TitleBarActionId[];
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenIdea, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenIdea, onOpenApi, onOpenModuleOwners, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -60,6 +62,8 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
   };
 
   const simpleActions = {
+    moduleOwners: { label: t("moduleOwners.title"), icon: Library, onClick: onOpenModuleOwners },
+    api: { label: t("sessionApi.title"), icon: Braces, onClick: onOpenApi },
     terminal: { label: t("app.openTerminal"), icon: Terminal, onClick: onOpenTerminal },
     stats: { label: t("tokenStats.open"), icon: BarChart3, onClick: onOpenStats },
     skills: { label: t("skills.open"), icon: BookOpen, onClick: onOpenSkills },

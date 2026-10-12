@@ -109,6 +109,10 @@ let remoteSystemService = null;
 let skillsService = null;
 let mcpConfigService = null;
 let sessionStatusServer = null;
+let sessionApiService = null;
+let moduleOwnerService = null;
+const moduleOwnerSuspendHandler = () => moduleOwnerService?.suspend();
+const moduleOwnerResumeHandler = () => moduleOwnerService?.resume();
 let remoteAgentBridgeService = null;
 let codexWorkspaceTrustService = null;
 let tokenUsageModule = null;
@@ -531,6 +535,7 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher
     });
     mobileRemoteService = createMobileRemoteService({
+      getMobileMinimalMode: () => configStore.getConfig().mobileGraphicalSessionMinimalMode,
       getGraphicalMenuConfig: () => configStore.getConfig().graphicalMenuSecondaryActions,
       terminalManager,
       agentSessionLauncher,
@@ -573,8 +578,25 @@ if (!gotSingleInstanceLock) {
         }
       }
     });
+    moduleOwnerService = require("./services/module-owners/module-owner-service.cjs").createModuleOwnerService({
+      userData: app.getPath("userData"), dataStore: businessDataStore, sessionStore, terminalManager,
+      graphicalService: codexAppServerSessionService, getSessionApi: () => sessionApiService, broadcast: windowManager.broadcast
+    });
+    sessionApiService = require("./services/session-api/session-api-service.cjs").createSessionApiService({
+      moduleOwners: moduleOwnerService,
+      listInstances: () => sessionStatusServer.listInstances(),
+      getInstanceStatus: id => sessionStatusServer.getInstanceStatus(id),
+      userData: app.getPath("userData"), broadcast: windowManager.broadcast,
+      instances: require("./services/mcp/session-instance-service.cjs").createSessionInstanceService({
+        sessionStore, agentSessionLauncher, terminalManager, graphicalService: codexAppServerSessionService
+      })
+    });
+    moduleOwnerService.start();
+    powerMonitor.on("suspend", moduleOwnerSuspendHandler);
+    powerMonitor.on("resume", moduleOwnerResumeHandler);
     sessionStatusServer = createSessionStatusServer({
       userData: app.getPath("userData"), terminalManager,
+      sessionStore, agentSessionLauncher,
       graphicalService: codexAppServerSessionService, stateHub: terminalStateHub,
       broadcast: windowManager.broadcast
     });
@@ -606,6 +628,7 @@ if (!gotSingleInstanceLock) {
     await remoteAgentBridgeService.start();
     await ideaModule.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
+    await sessionApiService.start();
     await sessionStatusServer.start().catch((err) => console.error("Failed to start session status MCP:", err));
     registerIpcHandlers({
       environmentService,
@@ -627,7 +650,7 @@ if (!gotSingleInstanceLock) {
       remoteSystemService,
       skillsService,
       mcpConfigService,
-      sessionStatusServer,
+      sessionStatusServer, sessionApiService, moduleOwnerService,
       workBuddyCheckinService,
       hookConfigManager,
       remoteHookConfigService,
@@ -671,6 +694,9 @@ async function flushConversationArchive() {
 let graphicalShutdownComplete = false;
 let graphicalShutdownPending = null;
 app.on("before-quit", event => {
+  powerMonitor.removeListener("suspend", moduleOwnerSuspendHandler);
+  powerMonitor.removeListener("resume", moduleOwnerResumeHandler);
+  moduleOwnerService?.shutdown();
   desktopMascot?.shutdown();
   if (graphicalShutdownComplete || !codexAppServerSessionService) return;
   event.preventDefault();
@@ -735,6 +761,7 @@ app.on("window-all-closed", async () => {
   if (mobileRemoteService) {
     void mobileRemoteService.stop();
   }
+  if (sessionApiService) void sessionApiService.stop();
   if (sessionStatusServer) {
     void sessionStatusServer.stop();
   }

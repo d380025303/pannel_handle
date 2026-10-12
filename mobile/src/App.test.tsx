@@ -6,7 +6,7 @@ import type { RuntimeSession, SavedTemplate } from "./types";
 
 vi.mock("./useRemoteConnection", () => ({ useRemoteConnection: vi.fn() }));
 vi.mock("./TerminalView", () => ({ TerminalView: ({ session }: { session: RuntimeSession }) => <div>终端：{session.title}</div> }));
-vi.mock("./GraphicalView", () => ({ GraphicalView: ({ session }: { session: RuntimeSession }) => <div>图形：{session.title}</div> }));
+vi.mock("./GraphicalView", () => ({ GraphicalView: ({ session, minimalMode }: { session: RuntimeSession; minimalMode?: boolean }) => <div data-minimal={String(minimalMode)}>图形：{session.title}</div> }));
 
 const storageKey = "pannel-handle-mobile-active-session";
 const first: RuntimeSession = { id: "first", title: "第一个会话", type: "windows", runtimeMode: "terminal" };
@@ -25,7 +25,7 @@ let remote: ReturnType<typeof useRemoteConnection>;
 
 beforeEach(() => {
   remote = {
-    graphicalMenuConfig: {},
+    mobileGraphicalSessionMinimalMode: false, graphicalMenuConfig: {},
     status: "connected", statusMessage: "已连接", sessions: [first, second], overviews: {}, templates: [],
     device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
@@ -237,7 +237,7 @@ it("searches saved templates by title and available metadata without changing ru
   expect(screen.getByText("Production API")).toBeTruthy();
   expect(screen.getByText("开发环境")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "运行中 (2)" }));
-  expect(screen.getAllByRole("button", { name: /第一个会话/ }).at(-1)).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "打开第一个会话详情" }).at(-1)).toBeTruthy();
   expect(screen.queryByRole("searchbox", { name: "搜索已保存模板" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "已保存模板 (2)" }));
   expect(screen.getByRole("searchbox", { name: "搜索已保存模板" }).getAttribute("value")).toBe("");
@@ -269,32 +269,16 @@ it("keeps the no-templates message distinct from no search matches", () => {
 });
 
 
-it("persists the mobile minimal mode independently across refreshes", () => {
+it("uses computer preferences instead of legacy browser preferences and removes the mobile toggle", () => {
+  localStorage.setItem("pannel-handle-mobile-graphical-minimal-mode", "true");
+  remote.sessions = [{ ...first, runtimeMode: "app-server" }];
+  localStorage.setItem(storageKey, first.id);
   const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开第一个会话详情" }));
+  expect(screen.getByText("图形：第一个会话").getAttribute("data-minimal")).toBe("false");
+  remote.mobileGraphicalSessionMinimalMode = true;
+  page.rerender(<App />);
+  expect(screen.getByText("图形：第一个会话").getAttribute("data-minimal")).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  const toggle = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
-  fireEvent.click(toggle);
-  expect(toggle.checked).toBe(true);
-  expect(localStorage.getItem("pannel-handle-mobile-graphical-minimal-mode")).toBe("true");
-  page.unmount();
-  render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  const restored = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
-  expect(restored.checked).toBe(true);
-  fireEvent.click(restored);
-  expect(localStorage.getItem("pannel-handle-mobile-graphical-minimal-mode")).toBe("false");
-  expect(remote.send).not.toHaveBeenCalled();
-});
-
-it("keeps minimal mode usable when browser storage is unavailable", () => {
-  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("storage unavailable"); });
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
-  render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  const toggle = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
-  fireEvent.click(toggle);
-  expect(toggle.checked).toBe(true);
-  expect(screen.getByText("无法保存极简模式设置，本次切换仍然有效。")).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "图形会话极简模式" })).toBeNull();
 });

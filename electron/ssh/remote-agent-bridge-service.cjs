@@ -11,6 +11,86 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
 const MAX_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const REMOTE_AGENT_TOKEN_ENV = "PANNEL_HANDLE_REMOTE_AGENT_TOKEN";
 
+const REMOTE_TOOLS = [
+  {
+    name: "remote_context",
+    description: "Return the SSH target and authoritative remote workspace root for this session.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "remote_list",
+    description: "List a directory inside the authoritative remote workspace.",
+    inputSchema: { type: "object", properties: { path: { type: "string", description: "Remote absolute path or path relative to the workspace root." } }, additionalProperties: false },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "remote_search",
+    description: "Search remote file names or text without requiring ripgrep on the server.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        query: { type: "string" },
+        path: { type: "string" },
+        mode: { type: "string", enum: ["text", "files"] },
+        limit: { type: "integer", minimum: 1, maximum: 500 }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "remote_read_text",
+    description: "Read a UTF-8 remote text file. Preserve its version for remote_apply_patch.",
+    inputSchema: { type: "object", required: ["path"], properties: { path: { type: "string" } }, additionalProperties: false },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "remote_apply_patch",
+    description: "Create, replace, or delete remote text files. Updates and deletes require the version from remote_read_text; content null deletes a file.",
+    inputSchema: {
+      type: "object",
+      required: ["changes"],
+      properties: {
+        changes: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            required: ["path", "content"],
+            properties: {
+              path: { type: "string" },
+              expectedVersion: { type: "string" },
+              content: { type: ["string", "null"], description: "Complete new UTF-8 content, or null to delete." }
+            },
+            additionalProperties: false
+          }
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  },
+  {
+    name: "remote_exec",
+    description: "Run a command through a separate SSH channel rooted at the remote workspace. Use for Git, tests, builds, and system inspection.",
+    inputSchema: {
+      type: "object",
+      required: ["command"],
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+        stdin: { type: "string" },
+        timeoutMs: { type: "integer", minimum: 1000, maximum: MAX_COMMAND_TIMEOUT_MS }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }
+];
+
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
@@ -480,85 +560,6 @@ function createRemoteAgentBridgeService({
     }
   }
 
-  const tools = [
-    {
-      name: "remote_context",
-      description: "Return the SSH target and authoritative remote workspace root for this session.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true }
-    },
-    {
-      name: "remote_list",
-      description: "List a directory inside the authoritative remote workspace.",
-      inputSchema: { type: "object", properties: { path: { type: "string", description: "Remote absolute path or path relative to the workspace root." } }, additionalProperties: false },
-      annotations: { readOnlyHint: true }
-    },
-    {
-      name: "remote_search",
-      description: "Search remote file names or text without requiring ripgrep on the server.",
-      inputSchema: {
-        type: "object",
-        required: ["query"],
-        properties: {
-          query: { type: "string" },
-          path: { type: "string" },
-          mode: { type: "string", enum: ["text", "files"] },
-          limit: { type: "integer", minimum: 1, maximum: 500 }
-        },
-        additionalProperties: false
-      },
-      annotations: { readOnlyHint: true }
-    },
-    {
-      name: "remote_read_text",
-      description: "Read a UTF-8 remote text file. Preserve its version for remote_apply_patch.",
-      inputSchema: { type: "object", required: ["path"], properties: { path: { type: "string" } }, additionalProperties: false },
-      annotations: { readOnlyHint: true }
-    },
-    {
-      name: "remote_apply_patch",
-      description: "Create, replace, or delete remote text files. Updates and deletes require the version from remote_read_text; content null deletes a file.",
-      inputSchema: {
-        type: "object",
-        required: ["changes"],
-        properties: {
-          changes: {
-            type: "array",
-            minItems: 1,
-            maxItems: 50,
-            items: {
-              type: "object",
-              required: ["path", "content"],
-              properties: {
-                path: { type: "string" },
-                expectedVersion: { type: "string" },
-                content: { type: ["string", "null"], description: "Complete new UTF-8 content, or null to delete." }
-              },
-              additionalProperties: false
-            }
-          }
-        },
-        additionalProperties: false
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true }
-    },
-    {
-      name: "remote_exec",
-      description: "Run a command through a separate SSH channel rooted at the remote workspace. Use for Git, tests, builds, and system inspection.",
-      inputSchema: {
-        type: "object",
-        required: ["command"],
-        properties: {
-          command: { type: "string" },
-          cwd: { type: "string" },
-          stdin: { type: "string" },
-          timeoutMs: { type: "integer", minimum: 1000, maximum: MAX_COMMAND_TIMEOUT_MS }
-        },
-        additionalProperties: false
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true }
-    }
-  ];
 
   async function callTool(binding, name, args, requestId) {
     if (name === "remote_context") {
@@ -641,7 +642,7 @@ function createRemoteAgentBridgeService({
       } else if (message.method === "ping") {
         result = {};
       } else if (message.method === "tools/list") {
-        result = { tools };
+        result = { tools: REMOTE_TOOLS };
       } else if (message.method === "tools/call") {
         result = toolResult(await callTool(binding, message.params?.name, message.params?.arguments || {}, message.id));
       } else {
@@ -870,6 +871,7 @@ function createRemoteAgentBridgeService({
 }
 
 module.exports = {
+  REMOTE_TOOLS,
   MCP_PROTOCOL_VERSION,
   REMOTE_AGENT_TOKEN_ENV,
   buildRemoteCommand,

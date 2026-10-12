@@ -294,19 +294,19 @@ describe("SettingsModal navigation", () => {
     expect(screen.getByRole("tab", { name: "常用配置" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("protects an unsaved environment draft when changing categories", async () => {
+  it("protects an unsaved environment draft when opening the tool catalog", async () => {
     window.environmentApi = { list: vi.fn(async () => []), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
     renderSettingsModal();
     fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
     fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发代理" } });
-    fireEvent.click(screen.getByRole("tab", { name: "模型服务" }));
+    fireEvent.click(screen.getByRole("tab", { name: "项目工具" }));
     expect(await screen.findByRole("alertdialog", { name: "保存环境变量更改？" })).toBeTruthy();
     fireEvent.click(screen.getByText("继续编辑"));
     expect(screen.getByRole("tab", { name: "环境变量" }).getAttribute("aria-selected")).toBe("true");
 
-    fireEvent.click(screen.getByRole("tab", { name: "模型服务" }));
+    fireEvent.click(screen.getByRole("tab", { name: "项目工具" }));
     fireEvent.click(screen.getByText("放弃更改"));
-    expect(screen.getByRole("tab", { name: "模型服务" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "项目工具" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("protects an unsaved draft when selecting another profile", async () => {
@@ -354,4 +354,36 @@ describe("SettingsModal navigation", () => {
     expect(screen.queryByRole("alertdialog", { name: "保存环境变量更改？" })).toBeNull();
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it("opens the project tool catalog and closes details without closing settings", async () => {
+    const onCancel = vi.fn();
+    window.projectToolsApi = { list: vi.fn().mockResolvedValue([{ name: "list_module_owners", group: "owners", description: "List owners", summary: { "zh-CN": "查询负责人", "en-US": "List owners" }, readOnly: true, inputSchema: {}, example: {}, conditions: { "zh-CN": "需要授权" }, result: { "zh-CN": "返回负责人" }, resultExample: [] }]) };
+    renderSettingsModal({ onCancel });
+    fireEvent.click(screen.getByRole("tab", { name: "项目工具" }));
+    fireEvent.click(await screen.findByRole("button", { name: "详情 list_module_owners" }));
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "list_module_owners" }), { key: "Escape" });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("tab", { name: "项目工具" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+});
+
+it("places the independent mobile minimal toggle after the desktop toggle and reports save failures", async () => {
+  let rejectSave!: (error: Error) => void;
+  const save = vi.fn(() => new Promise<void>((_, reject) => { rejectSave = reject; }));
+  const desktopSave = vi.fn();
+  renderSettingsModal({ graphicalSessionMinimalMode: true, mobileGraphicalSessionMinimalMode: false, onGraphicalSessionMinimalModeChange: desktopSave, onMobileGraphicalSessionMinimalModeChange: save });
+  const desktop = screen.getByRole("checkbox", { name: "图形会话极简模式" }) as HTMLInputElement;
+  const mobile = screen.getByRole("checkbox", { name: "移动端图形会话极简模式" }) as HTMLInputElement;
+  expect(desktop.checked).toBe(true);
+  expect(mobile.checked).toBe(false);
+  expect(desktop.compareDocumentPosition(mobile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(mobile);
+  expect(save).toHaveBeenCalledWith(true);
+  expect(mobile.disabled).toBe(true);
+  expect(desktopSave).not.toHaveBeenCalled();
+  rejectSave(new Error("保存失败"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("保存失败"));
+  expect(mobile.disabled).toBe(false);
+  expect(mobile.checked).toBe(false);
 });

@@ -6,8 +6,9 @@ const { createMascotNotifications } = require("./mascot-notifications.cjs");
 function clampPosition(position, area, size) {
   if (![position.x, position.y, area.x, area.y, area.width, area.height, size.width, size.height].every(Number.isFinite)) throw new TypeError("Invalid desktop mascot geometry");
   const result = {
-    x: Math.round(Math.max(area.x, Math.min(position.x, area.x + Math.max(0, area.width - size.width)))),
-    y: Math.round(Math.max(area.y, Math.min(position.y, area.y + Math.max(0, area.height - size.height))))
+    // Math.round can return -0, which Electron's native integer converter rejects.
+    x: Math.round(Math.max(area.x, Math.min(position.x, area.x + Math.max(0, area.width - size.width)))) + 0,
+    y: Math.round(Math.max(area.y, Math.min(position.y, area.y + Math.max(0, area.height - size.height)))) + 0
   };
   if (!validPosition(result)) throw new RangeError("Desktop mascot coordinates exceed Electron integer range");
   return result;
@@ -58,9 +59,12 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   }
   function move(position, area) {
     movementContext = { ...movementContext, position, area };
-    const next = clampPosition(position, area, size());
+    const dimensions = size();
+    const next = clampPosition(position, area, dimensions);
     const bounds = win.getBounds();
-    if (bounds.x !== next.x || bounds.y !== next.y) win.setPosition(next.x, next.y);
+    if (bounds.width !== dimensions.width || bounds.height !== dimensions.height) {
+      win.setBounds({ ...next, ...dimensions });
+    } else if (bounds.x !== next.x || bounds.y !== next.y) win.setPosition(next.x, next.y);
   }
   // Electron #46882: another window losing focus can repaint our native caption.
   function refreshNativeFrame() {

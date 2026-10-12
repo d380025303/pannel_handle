@@ -161,7 +161,7 @@ describe("McpManager", () => {
 
   it("enables the local session status MCP and shows its manual configuration", async () => {
     renderManager();
-    const panel = await screen.findByRole("region", { name: "本机会话状态 MCP" });
+    const panel = await screen.findByRole("region", { name: "本机会话 MCP" });
     fireEvent.click(screen.getByRole("button", { name: "启用服务" }));
     await waitFor(() => expect(window.sessionStatusMcpApi.setEnabled).toHaveBeenCalledWith(true));
     expect(await screen.findByText("http://127.0.0.1:43124/mcp")).toBeTruthy();

@@ -39,6 +39,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     return codex[method](id, ...args);
   };
   return {
+    getInjectedToolState: routeCodex("getInjectedToolState"), isInjectedToolCallCurrent: routeCodex("isInjectedToolCallCurrent"),
     start: (session, runtime) => serviceForProvider(session.agentProvider).start(session, runtime),
     restart: route("restart"), snapshot: route("snapshot"), getWorkspaceCwd: route("getWorkspaceCwd"),
     allowFiles: route("allowFiles"), previewAttachment: route("previewAttachment"),
@@ -112,6 +113,10 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     resetUsageBaselines: (...args) => codex.resetUsageBaselines?.(...args),
     setExecutionPermission: route("setExecutionPermission"),
     dismissPlan: route("dismissPlan"), executePlan: route("executePlan"), submit: route("submit"),
+    submitStarted(id, text) {
+      const service = serviceFor(id);
+      return service === codex ? service.submit(id, text) : service.submitStarted(id, text);
+    },
     interrupt: route("interrupt"), resolveApproval: route("resolveApproval"), answerQuestion: route("answerQuestion"),
     cancelQuestion(id, requestId) {
       const service = serviceFor(id);

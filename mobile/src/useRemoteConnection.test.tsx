@@ -277,3 +277,23 @@ it("loads shared menu settings, accepts live updates, and replaces them on recon
   ready(reconnected);
   expect(hook.result.current.graphicalMenuConfig.codex).toEqual([]);
 });
+
+it("loads mobile preferences, accepts updates and restores computer values on reconnect", () => {
+  localStorage.setItem(passwordKey, "correct-password");
+  localStorage.setItem("pannel-handle-mobile-graphical-minimal-mode", "true");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  expect(hook.result.current.mobileGraphicalSessionMinimalMode).toBe(false);
+  act(() => socket.receive("mobile-preferences.changed", { mobileGraphicalSessionMinimalMode: true }));
+  expect(hook.result.current.mobileGraphicalSessionMinimalMode).toBe(true);
+  act(() => socket.close());
+  act(() => hook.result.current.retry());
+  const reconnected = FakeWebSocket.instances.at(-1)!;
+  act(() => reconnected.open());
+  act(() => reconnected.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone", sessions: [], templates: [], mobileGraphicalSessionMinimalMode: false } }));
+  expect(hook.result.current.mobileGraphicalSessionMinimalMode).toBe(false);
+  act(() => reconnected.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone", sessions: [], templates: [], mobileGraphicalSessionMinimalMode: true } }));
+  expect(hook.result.current.mobileGraphicalSessionMinimalMode).toBe(true);
+});

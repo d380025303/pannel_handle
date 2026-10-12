@@ -8130,36 +8130,90 @@ button.agent-usage-status[aria-expanded="true"] {
   margin-top: 5px;
   color: var(--color-text-secondary);
 }
-.codex-app-server-event { position: relative; overflow: hidden; padding: 9px 13px; background: var(--color-bg-panel); transition: border-color .2s, box-shadow .2s; }
+.codex-app-server-event { position: relative; container: codex-tools / inline-size; overflow: hidden; padding: 9px 13px; background: var(--color-bg-panel); transition: border-color .2s, box-shadow .2s; }
 .codex-app-server-event:has(.codex-app-server-event-summary[aria-expanded="true"]) { border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border)); box-shadow: 0 8px 28px color-mix(in srgb, var(--color-accent) 11%, transparent); }
 .codex-app-server-event[data-status="进行中"]::after { position: absolute; inset: 0 auto 0 0; width: 2px; content: ""; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); animation: codex-tool-glow 1.8s ease-in-out infinite; }
 .codex-app-server-event[data-status="有失败"]::after { position: absolute; inset: 0 auto 0 0; width: 2px; content: ""; background: var(--color-danger); }
-.codex-app-server-event-summary { cursor: pointer; display: flex; align-items: center; gap: 9px; width: 100%; padding: 0; border: 0; color: var(--color-text); background: none; text-align: left; font: inherit; font-size: 12px; }
+.codex-app-server-event-summary { cursor: pointer; display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--color-text); background: none; text-align: left; font: inherit; font-size: 12px; }
+.codex-app-server-event-summary > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-app-server-event-summary:hover {
+  background: var(--color-bg-hover);
+}
+.codex-app-server-event-summary:focus-visible,
+.codex-app-server-tool-heading:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 .codex-app-server-event-chevron { flex: 0 0 auto; width: 14px; height: 14px; color: var(--color-text-muted); transition: transform .2s; }
 .codex-app-server-event-summary[aria-expanded="true"] .codex-app-server-event-chevron { transform: rotate(90deg); }
 .codex-app-server-event-glyph { display: grid; place-items: center; flex: 0 0 auto; width: 27px; height: 27px; border-radius: 8px; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
 .codex-app-server-event-glyph svg { width: 15px; height: 15px; }
-.codex-app-server-event-summary .codex-app-server-event-status { margin-left: auto; color: var(--color-text-muted); white-space: nowrap; }
+.codex-app-server-event-summary .codex-app-server-event-status { flex-shrink: 0; margin-left: auto; color: var(--color-text-muted); white-space: nowrap; }
 .codex-app-server-event[data-status="有失败"] .codex-app-server-event-status { color: var(--color-danger-text); }
-.codex-app-server-event > .codex-app-server-tool { margin-top: 10px; padding: 12px 10px 2px; border-top: 1px solid var(--color-border); animation: codex-tool-reveal .22s ease-out both; }
-.codex-app-server-tool-heading { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; color: var(--color-text-secondary); background: none; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.codex-app-server-event > .codex-app-server-tool { margin-top: 0; padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent); animation: codex-tool-reveal .22s ease-out both; }
+.codex-app-server-event-summary + .codex-app-server-tool {
+  margin-top: 8px;
+}
+.codex-app-server-tool-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.codex-app-server-tool-heading:hover,
+.codex-app-server-tool-heading[aria-expanded="true"] {
+  background: var(--color-bg-hover);
+}
 .codex-app-server-tool-heading > svg { flex: 0 0 auto; width: 15px; height: 15px; color: var(--color-accent); }
 .codex-app-server-tool-heading > .codex-app-server-tool-chevron { width: 13px; height: 13px; color: var(--color-text-muted); transition: transform .2s; }
 .codex-app-server-tool-heading[aria-expanded="true"] > .codex-app-server-tool-chevron { transform: rotate(90deg); }
 .codex-app-server-tool-heading > strong {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .codex-app-server-tool-heading[data-kind="file"] > svg:not(.codex-app-server-tool-chevron) { color: var(--color-success); }
-.codex-app-server-tool-heading > .codex-app-server-tool-summary { min-width: 0; overflow: hidden; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.codex-app-server-tool-heading > .codex-app-server-tool-summary { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .codex-app-server-tool-heading > .codex-app-server-tool-status { display: flex; align-items: center; flex-shrink: 0; gap: 5px; margin-left: auto; color: var(--color-text-muted); white-space: nowrap; }
 .codex-app-server-tool-status svg { width: 13px; height: 13px; }
-.codex-app-server-tool-status:has(svg) { color: var(--color-success); }
 .codex-app-server-tool-heading[data-status="failed"] > .codex-app-server-tool-status, .codex-app-server-tool-heading[data-status="declined"] > .codex-app-server-tool-status { color: var(--color-danger-text); }
 .codex-app-server-tool-status:has(.codex-app-server-tool-spinner) { color: var(--color-accent); }
 .codex-app-server-tool-spinner { width: 11px; height: 11px; border: 2px solid color-mix(in srgb, var(--color-accent) 25%, transparent); border-top-color: var(--color-accent); border-radius: 50%; animation: codex-tool-spin .8s linear infinite; }
-.codex-app-server-tool-details { margin-top: 6px; }
+.codex-app-server-tool-details { min-width: 0; margin: 8px 8px 4px; }
+@container codex-tools (max-width: 380px) {
+  .codex-app-server-tool-heading {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .codex-app-server-tool-heading > strong {
+    max-width: 40%;
+  }
+  .codex-app-server-tool-heading > .codex-app-server-tool-status {
+    justify-content: flex-end;
+    flex-basis: 100%;
+  }
+}
 .codex-app-server-tool pre { box-sizing: border-box; width: 100%; margin: 6px 0 0; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .codex-app-server-tool-command { border-left: 2px solid var(--color-accent); }
 .codex-app-server-tool-output { max-height: 320px; }

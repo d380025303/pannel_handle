@@ -1,3 +1,5 @@
+import { ModuleOwnerWorkspace } from "./components/module-owners/ModuleOwnerWorkspace";
+import { SessionApiWorkspace } from "./components/session-api/SessionApiWorkspace";
 import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SetStateAction } from "react";
@@ -115,10 +117,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showTokenStats, setShowTokenStats] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [showModuleOwners, setShowModuleOwners] = useState(false);
+  const [moduleOwnersVisited, setModuleOwnersVisited] = useState(false);
+  const [showApi, setShowApi] = useState(false);
+  const [apiVisited, setApiVisited] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [showIdea, setShowIdea] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [mobileGraphicalSessionMinimalMode, setMobileGraphicalSessionMinimalMode] = useState(false);
   const [graphicalSessionMinimalMode, setGraphicalSessionMinimalMode] = useState(false);
   const [desktopMascotEnabled, setDesktopMascotEnabled] = useState(true);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
@@ -237,7 +244,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [showSettingsModal]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
-    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showIdea),
+    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showModuleOwners || showApi || showTokenStats || showSkills || showMcp || showIdea),
     terminalTheme,
     sessions: terminalSessions.sessions
   });
@@ -359,6 +366,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
         setGraphicalSessionMinimalMode(config.graphicalSessionMinimalMode === true);
+        setMobileGraphicalSessionMinimalMode(config.mobileGraphicalSessionMinimalMode === true);
         setDesktopMascotEnabled(config.desktopMascotEnabled !== false);
         setScreenshotEnabled(config.screenshotEnabled);
         setScreenshotShortcut(config.screenshotShortcut);
@@ -775,7 +783,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
+          activeTitle={showModuleOwners ? t("moduleOwners.title") : showApi ? t("sessionApi.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
@@ -786,8 +794,24 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
           onQuickCreateAgent={handleQuickCreateAgent}
+          onOpenModuleOwners={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setModuleOwnersVisited(true); setShowModuleOwners(true);
+            setShowApi(false); setShowMcp(false); setShowSkills(false); setShowIdea(false); setShowTokenStats(false);
+          }}
+          onOpenApi={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setApiVisited(true);
+            setShowModuleOwners(false);
+            setShowApi(true);
+            setShowMcp(false);
+            setShowSkills(false);
+            setShowIdea(false);
+            setShowTokenStats(false);
+          }}
           onOpenTerminal={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowModuleOwners(false); setShowApi(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
@@ -795,6 +819,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowModuleOwners(false); setShowApi(false);
             setShowSkills(false);
             setShowMcp(false);
             setShowTokenStats(true);
@@ -802,18 +827,21 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           }}
           onOpenSkills={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowModuleOwners(false); setShowApi(false);
             setShowTokenStats(false);
             setShowMcp(false);
             setShowSkills(true);
             setShowIdea(false);
           }}
           onOpenMcp={() => {
+            setShowModuleOwners(false); setShowApi(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
             setShowIdea(false);
           }}
           onOpenIdea={() => {
+            setShowModuleOwners(false); setShowApi(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
@@ -845,6 +873,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           </div>
         )}
 
+        {moduleOwnersVisited && <ModuleOwnerWorkspace visible={showModuleOwners} onOpenSession={id => { terminalSessions.setActiveId(id); setShowModuleOwners(false); }} />}
+        {apiVisited && <SessionApiWorkspace visible={showApi} onOpenSession={id => { terminalSessions.setActiveId(id); setShowModuleOwners(false); setShowApi(false); }} />}
         {showTokenStats && <AgentTokenStatsDashboard />}
         {showSkills && <SkillsManager key={terminalSessions.activeSession?.id || "personal"} session={terminalSessions.activeSession} />}
         {showIdea && <IdeaRunPanel />}
@@ -855,7 +885,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showIdea ? "none" : undefined }}>
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showModuleOwners || showApi || showTokenStats || showSkills || showMcp || showIdea ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
@@ -1288,6 +1318,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           autoRestore={terminalSessions.autoRestore}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           autoQoderCheckin={autoQoderCheckin}
+          mobileGraphicalSessionMinimalMode={mobileGraphicalSessionMinimalMode}
+          onMobileGraphicalSessionMinimalModeChange={async enabled => {
+            await window.terminalApi.setConfig({ mobileGraphicalSessionMinimalMode: enabled });
+            setMobileGraphicalSessionMinimalMode(enabled);
+          }}
           graphicalSessionMinimalMode={graphicalSessionMinimalMode}
           onGraphicalSessionMinimalModeChange={async enabled => {
             await window.terminalApi.setConfig({ graphicalSessionMinimalMode: enabled });

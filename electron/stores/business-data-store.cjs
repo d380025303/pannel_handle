@@ -29,7 +29,8 @@ const RECORD_TABLES = {
 
 function createBusinessDataStore({ userData, databaseFile = path.join(userData, "agent-token-stats.sqlite3"), fsApi = fs, Database = DatabaseSync }) {
   let db;
-  const names = new Set(SOURCES);
+  // Module owners use migration 2; keep the original migration source list unchanged.
+  const names = new Set([...SOURCES, "module-owners.json"]);
 
   function ensureOpen() {
     if (!db) throw new Error("Business database is not open.");
@@ -74,6 +75,23 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       .map(row => [row.key, JSON.parse(row.value_json)]));
   }
   function writeDocument(name, value) {
+    if (name === "module-owners.json") {
+      if (value?.schemaVersion !== 1) throw new Error("Invalid module owner schemaVersion.");
+      const templates = entriesOf(value.templates, "module owners templates");
+      db.exec("DELETE FROM app_module_owner_templates; DELETE FROM app_module_owner_records; DELETE FROM app_module_owner_history;");
+      const templateInsert = db.prepare("INSERT INTO app_module_owner_templates(template_id, value_json) VALUES (?, ?)");
+      const recordInsert = db.prepare("INSERT INTO app_module_owner_records(template_id, position, value_json) VALUES (?, ?, ?)");
+      const historyInsert = db.prepare("INSERT INTO app_module_owner_history(template_id, position, value_json) VALUES (?, ?, ?)");
+      for (const [id, template] of templates) {
+        if (!template || !Number.isInteger(template.revision) || template.revision < 0 || !Array.isArray(template.records) || !Array.isArray(template.history) || !template.settings || typeof template.settings !== "object") throw new Error("Invalid module owner template.");
+        const { records, history, ...metadata } = template;
+        templateInsert.run(id, JSON.stringify(metadata));
+        records.forEach((record, position) => recordInsert.run(id, position, JSON.stringify(record)));
+        history.forEach((snapshot, position) => historyInsert.run(id, position, JSON.stringify(snapshot)));
+      }
+      db.prepare("INSERT INTO app_sources(name) VALUES (?) ON CONFLICT(name) DO NOTHING").run(name);
+      return;
+    }
     if (RECORD_TABLES[name]) db.exec(`DELETE FROM ${RECORD_TABLES[name]}`);
     db.prepare("DELETE FROM app_settings WHERE source=?").run(name);
     if (ARRAY_SOURCES.has(name)) {
@@ -118,6 +136,13 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       error.code = "ENOENT";
       throw error;
     }
+    if (name === "module-owners.json") {
+      const templates = Object.fromEntries(db.prepare("SELECT template_id, value_json FROM app_module_owner_templates").all().map(row => {
+        const readRows = table => db.prepare(`SELECT value_json FROM ${table} WHERE template_id=? ORDER BY position`).all(row.template_id).map(item => JSON.parse(item.value_json));
+        return [row.template_id, { ...JSON.parse(row.value_json), records: readRows("app_module_owner_records"), history: readRows("app_module_owner_history") }];
+      }));
+      return { schemaVersion: 1, templates };
+    }
     if (ARRAY_SOURCES.has(name)) return listRecords(name, "items").map(([, value]) => value);
     if (MAP_SOURCES.has(name)) return Object.fromEntries(listRecords(name, "items"));
     const fields = settings(name);
@@ -142,6 +167,9 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
         db.exec(`CREATE TABLE IF NOT EXISTS ${table}(record_group TEXT NOT NULL, record_id TEXT NOT NULL, position INTEGER NOT NULL, value_json TEXT NOT NULL, PRIMARY KEY(record_group,record_id));
           CREATE INDEX IF NOT EXISTS ${table}_order ON ${table}(record_group,position);`);
       }
+      db.exec(`CREATE TABLE IF NOT EXISTS app_module_owner_templates(template_id TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS app_module_owner_records(template_id TEXT NOT NULL, position INTEGER NOT NULL, value_json TEXT NOT NULL, PRIMARY KEY(template_id,position));
+        CREATE TABLE IF NOT EXISTS app_module_owner_history(template_id TEXT NOT NULL, position INTEGER NOT NULL, value_json TEXT NOT NULL, PRIMARY KEY(template_id,position));`);
       if (!db.prepare("SELECT 1 FROM app_migrations WHERE version=1").get()) {
         const imported = [];
         for (const name of SOURCES) {
@@ -157,6 +185,27 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
           db.prepare("INSERT INTO app_migrations(version, completed_at) VALUES (1, ?)").run(Date.now());
         });
       }
+      if (!db.prepare("SELECT 1 FROM app_migrations WHERE version=2").get()) {
+        transaction(() => {
+          const name = "module-owners.json";
+          if (!db.prepare("SELECT 1 FROM app_sources WHERE name=?").get(name)) {
+            let value = { schemaVersion: 1, templates: {} };
+            try { value = JSON.parse(fsApi.readFileSync(path.join(userData, name), "utf8")); }
+            catch (error) { if (error.code !== "ENOENT") throw new Error(`Cannot migrate ${name}: ${error.message}`, { cause: error }); }
+            try { writeDocument(name, value); }
+            catch (error) { throw new Error(`Cannot migrate ${name}: ${error.message}`, { cause: error }); }
+          }
+          db.prepare("INSERT INTO app_migrations(version, completed_at) VALUES (2, ?)").run(Date.now());
+        });
+      }
+      transaction(() => {
+        db.exec(`CREATE TABLE IF NOT EXISTS app_module_owner_task_runs(
+          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, task_id TEXT NOT NULL,
+          called_at INTEGER NOT NULL, status TEXT NOT NULL, value_json TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS app_module_owner_task_runs_order
+          ON app_module_owner_task_runs(template_id, task_id, called_at DESC, id DESC);`);
+        db.prepare("INSERT INTO app_migrations(version, completed_at) VALUES (3, ?) ON CONFLICT(version) DO NOTHING").run(Date.now());
+      });
       const integrity = db.prepare("PRAGMA quick_check").get();
       if (Object.values(integrity)[0] !== "ok") throw new Error("Business database failed integrity check.");
       for (const row of db.prepare("SELECT name FROM app_sources").all()) readDocument(row.name);
@@ -172,7 +221,34 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     transaction(() => writeDocument(sourceName(filePath), value));
   }
   function close() { if (db) { db.close(); db = null; } }
-  return { open, read, write, close };
+  function saveTaskRun(value) {
+    ensureOpen();
+    db.prepare(`INSERT INTO app_module_owner_task_runs(id, template_id, task_id, called_at, status, value_json)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value_json=excluded.value_json`)
+      .run(value.id, value.templateId, value.taskId, value.calledAt, value.status, JSON.stringify(value));
+  }
+  function listTaskRuns(templateId, taskId, page = 0) {
+    ensureOpen();
+    const total = db.prepare("SELECT COUNT(*) AS count FROM app_module_owner_task_runs WHERE template_id=? AND task_id=?").get(templateId, taskId).count;
+    const records = db.prepare("SELECT value_json FROM app_module_owner_task_runs WHERE template_id=? AND task_id=? ORDER BY called_at DESC, id DESC LIMIT 20 OFFSET ?")
+      .all(templateId, taskId, page * 20).map(row => { const { input, output, ...summary } = JSON.parse(row.value_json); return summary; });
+    return { records, total };
+  }
+  function getTaskRun(templateId, taskId, id) {
+    ensureOpen();
+    const row = db.prepare("SELECT value_json FROM app_module_owner_task_runs WHERE template_id=? AND task_id=? AND id=?").get(templateId, taskId, id);
+    if (!row) throw new Error("调用记录不存在或不属于此任务。");
+    return JSON.parse(row.value_json);
+  }
+  function interruptTaskRuns() {
+    ensureOpen();
+    transaction(() => {
+      for (const row of db.prepare("SELECT value_json FROM app_module_owner_task_runs WHERE status IN ('creating', 'running', 'uncertain')").all()) {
+        saveTaskRun({ ...JSON.parse(row.value_json), status: "stopped", endedAt: Date.now(), error: "应用重启，上一轮记录已标记为中断。" });
+      }
+    });
+  }
+  return { open, read, write, close, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };

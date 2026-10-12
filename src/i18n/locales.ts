@@ -5,6 +5,53 @@ export const DEFAULT_LOCALE: Locale = "zh-CN";
 export type TranslationParams = Record<string, string | number>;
 
 export type TranslationKey =
+  | "moduleOwners.title"
+  | "sessionApi.title"
+  | "sessionApi.running"
+  | "sessionApi.stopped"
+  | "sessionApi.port"
+  | "sessionApi.savePort"
+  | "sessionApi.start"
+  | "sessionApi.stop"
+  | "sessionApi.showToken"
+  | "sessionApi.hideToken"
+  | "sessionApi.copyToken"
+  | "sessionApi.resetToken"
+  | "sessionApi.interfaces"
+  | "sessionApi.templates"
+  | "sessionApi.create"
+  | "sessionApi.listInstances"
+  | "sessionApi.getInstanceStatus"
+  | "sessionApi.sessionId"
+  | "sessionApi.queryStatus"
+  | "sessionApi.enableHint"
+  | "sessionApi.template"
+  | "sessionApi.selectTemplate"
+  | "sessionApi.unsupported"
+  | "sessionApi.refresh"
+  | "sessionApi.mode"
+  | "sessionApi.normal"
+  | "sessionApi.source"
+  | "sessionApi.inherit"
+  | "sessionApi.model"
+  | "sessionApi.prompt"
+  | "sessionApi.createHint"
+  | "sessionApi.sending"
+  | "sessionApi.sendCreate"
+  | "sessionApi.send"
+  | "sessionApi.copyJson"
+  | "sessionApi.copyCurl"
+  | "sessionApi.request"
+  | "sessionApi.searchResponse"
+  | "sessionApi.noMatches"
+  | "sessionApi.previousMatch"
+  | "sessionApi.nextMatch"
+  | "sessionApi.copyResponse"
+  | "sessionApi.responseEmpty"
+  | "sessionApi.response"
+  | "sessionApi.sentRequest"
+  | "sessionApi.openSession"
+
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
   | "app.openTerminal"
@@ -155,6 +202,7 @@ export type TranslationKey =
   | "graphicalMenu.back"
   | "graphicalMenu.configure"
   | "graphicalMenu.actions"
+  | "settings.mobileGraphicalSessionMinimalMode"
   | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1049,6 +1097,53 @@ export const VALID_LOCALES = new Set<Locale>(LOCALE_OPTIONS.map((locale) => loca
 
 export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
+    "moduleOwners.title": "模块负责人",
+    "sessionApi.title": "接口调用",
+    "sessionApi.running": "运行中",
+    "sessionApi.stopped": "未运行",
+    "sessionApi.port": "端口",
+    "sessionApi.savePort": "保存端口",
+    "sessionApi.start": "启用服务",
+    "sessionApi.stop": "停止服务",
+    "sessionApi.showToken": "查看令牌",
+    "sessionApi.hideToken": "隐藏令牌",
+    "sessionApi.copyToken": "复制令牌",
+    "sessionApi.resetToken": "重置令牌",
+    "sessionApi.interfaces": "接口列表",
+    "sessionApi.templates": "会话模板列表",
+    "sessionApi.create": "创建会话实例",
+    "sessionApi.listInstances": "查询会话实例",
+    "sessionApi.getInstanceStatus": "查询实例状态",
+    "sessionApi.sessionId": "会话 ID",
+    "sessionApi.queryStatus": "查询状态",
+    "sessionApi.enableHint": "请先启用接口服务。",
+    "sessionApi.template": "会话模板",
+    "sessionApi.selectTemplate": "请选择模板",
+    "sessionApi.unsupported": "不支持创建",
+    "sessionApi.refresh": "刷新模板",
+    "sessionApi.mode": "会话模式",
+    "sessionApi.normal": "正常模式",
+    "sessionApi.source": "Agent 来源",
+    "sessionApi.inherit": "继承模板",
+    "sessionApi.model": "模型 ID（可选）",
+    "sessionApi.prompt": "首条任务",
+    "sessionApi.createHint": "创建会真实启动 Agent 并提交任务；started 表示已提交，不表示任务完成。",
+    "sessionApi.sending": "发送中…",
+    "sessionApi.sendCreate": "创建并提交任务",
+    "sessionApi.send": "发送请求",
+    "sessionApi.copyJson": "复制 JSON",
+    "sessionApi.copyCurl": "复制 cURL",
+    "sessionApi.request": "请求预览",
+    "sessionApi.response": "响应结果",
+    "sessionApi.searchResponse": "搜索响应报文",
+    "sessionApi.noMatches": "未找到匹配内容",
+    "sessionApi.previousMatch": "上一处匹配",
+    "sessionApi.nextMatch": "下一处匹配",
+    "sessionApi.copyResponse": "复制响应",
+    "sessionApi.responseEmpty": "发送请求后，响应报文将在此显示",
+    "sessionApi.sentRequest": "实际发送的请求体",
+    "sessionApi.openSession": "打开会话",
+
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
     "app.openTerminal": "打开终端",
@@ -1189,6 +1284,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder 桌面 App 账号已变化，请刷新额度后重试。",
     "usage.qoderCheckinFailed": "Qoder 签到查询失败，请稍后重试。",
     "settings.graphicalSessionMinimalMode": "图形会话极简模式",
+    "settings.mobileGraphicalSessionMinimalMode": "移动端图形会话极简模式",
     "settings.graphicalMenuTitle": "更多菜单隐藏配置",
     "settings.graphicalMenuHint": "勾选要收纳到“其他操作”的项目。同一 Agent 的桌面端和移动端共享配置；具体可用项取决于当前会话。",
     "settings.graphicalMenuAgent": "配置 Agent",
@@ -1650,8 +1746,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.remoteRequiresCodex": "打开该远程环境的 Codex 图形会话后可查看技能。",
     "skills.pluginRequiresSession": "打开 Codex 图形会话后可查看已安装插件的技能。",
     "mcp.title": "MCP 管理",
-    "mcp.sessionStatusTitle": "本机会话状态 MCP",
-    "mcp.sessionStatusDescription": "只读查看运行中的会话、Agent 状态和最近摘要",
+    "mcp.sessionStatusTitle": "本机会话 MCP",
+    "mcp.sessionStatusDescription": "查询会话与 Agent 模板，选择模型及 Plan/正常模式创建实例并开始任务",
     "mcp.sessionStatusStart": "启用服务",
     "mcp.sessionStatusStop": "停用服务",
     "mcp.sessionStatusRetry": "重试启动",
@@ -1662,7 +1758,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.sessionStatusRefreshToken": "重新查看令牌",
     "mcp.sessionStatusCopyToken": "复制令牌",
     "mcp.sessionStatusExamples": "客户端手动配置示例",
-    "mcp.sessionStatusTokenHint": "将令牌设为 PANNEL_HANDLE_MCP_TOKEN 环境变量；Claude 示例可直接替换令牌。",
+    "mcp.sessionStatusTokenHint": "将令牌设为 PANNEL_HANDLE_MCP_TOKEN 环境变量；Claude 示例可直接替换令牌。持有令牌的客户端可创建会话并自动发送任务，后续执行审批沿用现有权限配置。",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、OpenCode、CodeBuddy 的用户与项目 MCP 配置",
     "mcp.provider": "MCP 提供方",
@@ -2086,6 +2182,53 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "theme.light": "浅色"
   },
   "en-US": {
+    "moduleOwners.title": "Module owners",
+    "sessionApi.title": "API calls",
+    "sessionApi.running": "Running",
+    "sessionApi.stopped": "Stopped",
+    "sessionApi.port": "Port",
+    "sessionApi.savePort": "Save port",
+    "sessionApi.start": "Enable service",
+    "sessionApi.stop": "Stop service",
+    "sessionApi.showToken": "Show token",
+    "sessionApi.hideToken": "Hide token",
+    "sessionApi.copyToken": "Copy token",
+    "sessionApi.resetToken": "Reset token",
+    "sessionApi.interfaces": "Endpoints",
+    "sessionApi.templates": "Session templates",
+    "sessionApi.create": "Create session instance",
+    "sessionApi.listInstances": "List session instances",
+    "sessionApi.getInstanceStatus": "Get instance status",
+    "sessionApi.sessionId": "Session ID",
+    "sessionApi.queryStatus": "Query status",
+    "sessionApi.enableHint": "Enable the API service first.",
+    "sessionApi.template": "Session template",
+    "sessionApi.selectTemplate": "Select a template",
+    "sessionApi.unsupported": "Creation unavailable",
+    "sessionApi.refresh": "Refresh templates",
+    "sessionApi.mode": "Session mode",
+    "sessionApi.normal": "Normal",
+    "sessionApi.source": "Agent provider",
+    "sessionApi.inherit": "Inherit template",
+    "sessionApi.model": "Model ID (optional)",
+    "sessionApi.prompt": "First task",
+    "sessionApi.createHint": "Creation starts an Agent and submits the task. started means submitted, not completed.",
+    "sessionApi.sending": "Sending…",
+    "sessionApi.sendCreate": "Create and submit task",
+    "sessionApi.send": "Send request",
+    "sessionApi.copyJson": "Copy JSON",
+    "sessionApi.copyCurl": "Copy cURL",
+    "sessionApi.request": "Request preview",
+    "sessionApi.response": "Response",
+    "sessionApi.searchResponse": "Search response",
+    "sessionApi.noMatches": "No matches",
+    "sessionApi.previousMatch": "Previous match",
+    "sessionApi.nextMatch": "Next match",
+    "sessionApi.copyResponse": "Copy response",
+    "sessionApi.responseEmpty": "Send a request to view its response",
+    "sessionApi.sentRequest": "Sent request body",
+    "sessionApi.openSession": "Open session",
+
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
     "app.openTerminal": "Open terminal",
@@ -2226,6 +2369,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder desktop account changed. Refresh quota and retry.",
     "usage.qoderCheckinFailed": "Qoder check-in failed. Please retry.",
     "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
+    "settings.mobileGraphicalSessionMinimalMode": "Minimal mobile graphical sessions",
     "settings.graphicalMenuTitle": "More menu visibility settings",
     "settings.graphicalMenuHint": "Select actions to move into Other actions. Desktop and mobile share settings for each Agent; available actions depend on the current session.",
     "settings.graphicalMenuAgent": "Configure Agent",
@@ -2687,8 +2831,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.remoteRequiresCodex": "Open a Codex graphical session in this remote environment to view its skills.",
     "skills.pluginRequiresSession": "Open a Codex graphical session to view installed plugin skills.",
     "mcp.title": "MCP Manager",
-    "mcp.sessionStatusTitle": "Local session status MCP",
-    "mcp.sessionStatusDescription": "Read running sessions, agent states and recent summaries",
+    "mcp.sessionStatusTitle": "Local session MCP",
+    "mcp.sessionStatusDescription": "Query sessions and Agent templates; create instances with a model and Plan/normal mode to start tasks",
     "mcp.sessionStatusStart": "Enable server",
     "mcp.sessionStatusStop": "Disable server",
     "mcp.sessionStatusRetry": "Retry startup",
@@ -2699,7 +2843,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.sessionStatusRefreshToken": "Show token again",
     "mcp.sessionStatusCopyToken": "Copy token",
     "mcp.sessionStatusExamples": "Manual client configuration examples",
-    "mcp.sessionStatusTokenHint": "Set the token in PANNEL_HANDLE_MCP_TOKEN; the Claude example can use the token directly.",
+    "mcp.sessionStatusTokenHint": "Set the token in PANNEL_HANDLE_MCP_TOKEN; the Claude example can use the token directly. Clients with this token can create sessions and submit tasks automatically. Subsequent execution approvals follow the existing permission settings.",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex, OpenCode, and CodeBuddy",
     "mcp.provider": "MCP provider",

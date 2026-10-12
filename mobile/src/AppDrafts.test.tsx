@@ -34,7 +34,7 @@ function switchTo(name: string) {
 beforeEach(() => {
   localStorage.clear();
   listeners.clear();
-  remote = { graphicalMenuConfig: {}, status: "connected", statusMessage: "已连接", sessions: [first, second, terminal], overviews: {}, templates: [], device: null,
+  remote = { mobileGraphicalSessionMinimalMode: false, graphicalMenuConfig: {}, status: "connected", statusMessage: "已连接", sessions: [first, second, terminal], overviews: {}, templates: [], device: null,
     lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1, send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
     onTerminalMessage: vi.fn(() => () => true),
     onGraphicalMessage: vi.fn(listener => { listeners.add(listener); return () => listeners.delete(listener); }),

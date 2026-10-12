@@ -7,7 +7,7 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
-const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"];
+const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "api", "moduleOwners", "create"];
 const VALID_TITLE_BAR_ACTIONS = new Set(DEFAULT_TITLE_BAR_ACTION_ORDER);
 function normalizeTitleBarActionOrder(value) {
   const seen = new Set();
@@ -18,8 +18,10 @@ function normalizeTitleBarActionOrder(value) {
       ordered.push(id);
     }
   }
-  const normalized = [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id) && id !== "settings")];
+  const normalized = [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id) && id !== "settings" && id !== "api" && id !== "moduleOwners")];
   if (!seen.has("settings")) normalized.splice(6, 0, "settings");
+  if (!seen.has("api")) normalized.splice(normalized.indexOf("create"), 0, "api");
+  if (!seen.has("moduleOwners")) normalized.splice(normalized.indexOf("create"), 0, "moduleOwners");
   return normalized;
 }
 function normalizeTitleBarHiddenActions(value) {
@@ -77,6 +79,7 @@ function createConfigStore({ configFile, dataStore }) {
     autoCollapseFileChains: true,
     debugMode: false,
     graphicalSessionMinimalMode: false,
+    mobileGraphicalSessionMinimalMode: false,
     graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(),
     desktopMascotEnabled: true,
     screenshotEnabled: true,
@@ -104,6 +107,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
+      mobileGraphicalSessionMinimalMode: config.mobileGraphicalSessionMinimalMode,
       graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
       desktopMascotEnabled: config.desktopMascotEnabled,
       screenshotEnabled: config.screenshotEnabled,
@@ -136,6 +140,7 @@ function createConfigStore({ configFile, dataStore }) {
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           graphicalSessionMinimalMode: typeof parsed.graphicalSessionMinimalMode === "boolean" ? parsed.graphicalSessionMinimalMode : false,
+          mobileGraphicalSessionMinimalMode: typeof parsed.mobileGraphicalSessionMinimalMode === "boolean" ? parsed.mobileGraphicalSessionMinimalMode : false,
           graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(parsed.graphicalMenuSecondaryActions),
           desktopMascotEnabled: typeof parsed.desktopMascotEnabled === "boolean" ? parsed.desktopMascotEnabled : true,
           screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
@@ -184,6 +189,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
+      mobileGraphicalSessionMinimalMode: config.mobileGraphicalSessionMinimalMode,
       graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
       desktopMascotEnabled: config.desktopMascotEnabled,
       screenshotEnabled: config.screenshotEnabled,
@@ -223,6 +229,9 @@ function createConfigStore({ configFile, dataStore }) {
       }
       if (typeof partial.graphicalSessionMinimalMode === "boolean") {
         config.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
+      }
+      if (typeof partial.mobileGraphicalSessionMinimalMode === "boolean") {
+        config.mobileGraphicalSessionMinimalMode = partial.mobileGraphicalSessionMinimalMode;
       }
       if (Object.hasOwn(partial, "graphicalMenuSecondaryActions")) {
         config.graphicalMenuSecondaryActions = normalizeGraphicalMenuConfig(partial.graphicalMenuSecondaryActions);

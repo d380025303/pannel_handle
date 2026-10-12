@@ -1,10 +1,10 @@
+const { SESSION_TOOLS } = require("./session-tool-definitions.cjs");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomBytes, timingSafeEqual } = require("node:crypto");
 const { Readable } = require("node:stream");
 const { createMcpHandler, McpServer } = require("@modelcontextprotocol/server");
-const { z } = require("zod");
 const { sessionOverview } = require("../mobile-remote/mobile-session-overview.cjs");
 
 const PORT = 43124;
@@ -27,7 +27,8 @@ function workState(overview, agentStatus) {
   return "unknown";
 }
 
-function createSessionStatusServer({ userData, terminalManager, graphicalService, stateHub, broadcast = () => {}, port = PORT }) {
+function createSessionStatusServer({ userData, terminalManager, graphicalService, stateHub, sessionStore, agentSessionLauncher, broadcast = () => {}, port = PORT }) {
+  const instances = require("./session-instance-service.cjs").createSessionInstanceService({ sessionStore, agentSessionLauncher, terminalManager, graphicalService });
   const file = path.join(userData, "session-status-mcp.json");
   const agentStatuses = new Map();
   let enabled = false;
@@ -78,26 +79,29 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
     };
   }
 
+  async function listInstances() {
+    return { sessions: (await Promise.all(terminalManager.listSessions().map(getInstance))).filter(Boolean) };
+  }
+
+  async function getInstanceStatus(sessionId) {
+    const session = terminalManager.listSessions().find(item => item.id === sessionId);
+    return session ? getInstance(session) : null;
+  }
+
   function mcpHandler() {
     return createMcpHandler(() => {
       const mcp = new McpServer({ name: "pannel-handle-sessions", version: "1.0.0" });
-      mcp.registerTool("list_session_instances", {
-        description: "List currently running Pannel Handle session instances with connection, agent and recent activity status.",
-        inputSchema: z.object({})
-      }, async () => {
-        const sessions = (await Promise.all(terminalManager.listSessions().map(getInstance))).filter(Boolean);
-        return { content: [{ type: "text", text: JSON.stringify({ sessions }) }] };
+      mcp.registerTool("list_session_instances", SESSION_TOOLS.list_session_instances, async () => {
+        return { content: [{ type: "text", text: JSON.stringify(await listInstances()) }] };
       });
-      mcp.registerTool("get_session_instance_status", {
-        description: "Get the current status and recent activity summary for one running session instance.",
-        inputSchema: z.object({ sessionId: z.string().min(1) })
-      }, async ({ sessionId }) => {
-        const session = terminalManager.listSessions().find(item => item.id === sessionId);
-        const instance = session && await getInstance(session);
+      mcp.registerTool("get_session_instance_status", SESSION_TOOLS.get_session_instance_status, async ({ sessionId }) => {
+        const instance = await getInstanceStatus(sessionId);
         return instance
           ? { content: [{ type: "text", text: JSON.stringify(instance) }] }
           : { isError: true, content: [{ type: "text", text: "会话实例不存在或已经结束。" }] };
       });
+      mcp.registerTool("list_session_templates", SESSION_TOOLS.list_session_templates, async () => ({ content: [{ type: "text", text: JSON.stringify(instances.listTemplates()) }] }));
+      mcp.registerTool("create_session_instance", SESSION_TOOLS.create_session_instance, async args => ({ content: [{ type: "text", text: JSON.stringify(await instances.create(args)) }] }));
       return mcp;
     }, { legacy: "stateless", maxRequestBodySize: MAX_BODY_BYTES });
   }
@@ -192,7 +196,7 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
   }
 
   load();
-  return { status, revealToken: () => token, setEnabled, start: () => enabled ? start() : Promise.resolve(status()), stop, handleDesktopEvent };
+  return { listInstances, getInstanceStatus, status, revealToken: () => token, setEnabled, start: () => enabled ? start() : Promise.resolve(status()), stop, handleDesktopEvent };
 }
 
 module.exports = { createSessionStatusServer, workState };

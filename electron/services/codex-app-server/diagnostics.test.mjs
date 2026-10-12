@@ -101,12 +101,14 @@ describe("Codex App Server diagnostics", () => {
     }
   });
 
-  it("coalesces streaming snapshots while delivering turn completion immediately", async () => {
+  it("coalesces streaming deltas while delivering turn completion snapshots immediately", async () => {
     const child = fakeProcess();
     const broadcasts = [];
+    const deltas = [];
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: () => {} }, broadcast: (channel, payload) => {
         if (channel === "codex-app-server:changed") broadcasts.push(payload);
+        if (channel === "codex-app-server:delta") deltas.push(payload);
       }, spawnProcess: () => child });
     const emit = (method, params = {}) => child.emitNotification(method, { threadId: "thread-1", ...params });
     try {
@@ -114,16 +116,32 @@ describe("Codex App Server diagnostics", () => {
       emit("turn/started", { turn: { id: "turn-1" } });
       emit("item/started", { turnId: "turn-1", item: { id: "message-1", type: "agentMessage", text: "" } });
       await vi.waitFor(() => expect(service.snapshot("run-1").items).toHaveLength(1));
+      vi.useFakeTimers();
       broadcasts.length = 0;
+      deltas.length = 0;
       emit("hook/started", { turnId: "turn-1", run: { name: "PreToolUse" } });
-      for (let index = 0; index < 20; index += 1) emit("item/agentMessage/delta", { itemId: "message-1", delta: "x" });
-      await vi.waitFor(() => expect(service.snapshot("run-1").items[0].text).toHaveLength(20));
       expect(broadcasts).toHaveLength(0);
-      await vi.waitFor(() => expect(broadcasts).toHaveLength(1));
-      expect(broadcasts[0].snapshot.items[0].text).toHaveLength(20);
+      expect(deltas).toHaveLength(0);
+      for (let index = 0; index < 20; index += 1) emit("item/agentMessage/delta", { itemId: "message-1", delta: "x" });
+      expect(service.snapshot("run-1").items[0].text).toHaveLength(20);
+      expect(broadcasts).toHaveLength(0);
+      expect(deltas).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(79);
+      expect(deltas).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(deltas).toHaveLength(1);
+      expect(deltas[0]).toMatchObject({ id: "run-1", threadId: "thread-1",
+        items: [], turnDiffs: [], textDeltas: [{ itemId: "message-1", delta: "x".repeat(20) }] });
+      expect(deltas[0].revision).toBe(deltas[0].baseRevision + 1);
+      expect(broadcasts).toHaveLength(0);
       emit("turn/completed", { turn: { id: "turn-1", status: "completed" } });
-      await vi.waitFor(() => expect(broadcasts.at(-1).snapshot.turnStatus).toBe("completed"));
-    } finally { service.close("run-1"); }
+      expect(broadcasts).toHaveLength(1);
+      expect(broadcasts[0].snapshot).toMatchObject({ turnStatus: "completed",
+        items: [{ id: "message-1", text: "x".repeat(20) }], revision: deltas[0].revision + 1 });
+      expect(deltas).toHaveLength(1);
+    } finally {
+      try { service.close("run-1"); } finally { vi.useRealTimers(); }
+    }
   });
 
   it("records a durable error when a turn fails without an error object", async () => {

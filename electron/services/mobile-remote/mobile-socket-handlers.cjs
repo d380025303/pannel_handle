@@ -3,7 +3,7 @@ const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getGraphicalMenuConfig = () => ({}) }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, agentSessionLauncher });
 
@@ -12,6 +12,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     send(socket, {
       type: "ready",
       payload: {
+        mobileGraphicalSessionMinimalMode: getMobileMinimalMode() === true,
         graphicalMenuSecondaryActions: getGraphicalMenuConfig(),
         deviceId: socket.mobileDevice.id,
         deviceName: socket.mobileDevice.name,

@@ -1,0 +1,307 @@
+.session-api-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+  background: var(--color-bg-app);
+  color: var(--color-text);
+  font: 13px/1.5 Inter, "Segoe UI", Arial, sans-serif;
+}
+.session-api-workspace[hidden] {
+  display: none;
+}
+.session-api-service {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-height: 35%;
+  padding: 12px 16px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+.session-api-service strong {
+  margin-right: 4px;
+  font-size: 15px;
+}
+.session-api-status, .session-api-http-status, .session-api-method {
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--color-neutral-bg);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.session-api-status[data-running="true"], .session-api-http-status[data-success="true"], .session-api-method {
+  background: var(--color-ok-bg);
+  color: var(--color-ok-text);
+}
+.session-api-http-status[data-success="false"] {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+.session-api-method[data-method="POST"] {
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
+}
+.session-api-service label {
+  flex-direction: row;
+  align-items: center;
+  margin-left: 8px;
+}
+.session-api-token-actions, .session-api-buttons, .session-api-addresses, .session-api-endpoint, .session-api-response-heading, .session-api-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.session-api-token-actions {
+  margin-left: auto;
+}
+.session-api-addresses {
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.session-api-addresses code {
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-code);
+}
+.session-api-workspace code, .session-api-workspace pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.session-api-workspace code {
+  overflow-wrap: anywhere;
+}
+.session-api-columns {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+.session-api-columns nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+.session-api-columns nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: left;
+}
+.session-api-workspace button[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-bg-selection);
+}
+.session-api-detail {
+  display: grid;
+  grid-template-rows: minmax(0, auto) minmax(180px, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.session-api-request-card, .session-api-response-card {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+.session-api-request-card {
+  max-height: 40vh;
+  padding: 12px 16px;
+  overflow: auto;
+}
+.session-api-endpoint {
+  margin-bottom: 12px;
+}
+.session-api-endpoint code {
+  flex: 1;
+}
+.session-api-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.session-api-workspace label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-text-secondary);
+}
+.session-api-workspace .session-api-service label {
+  flex-direction: row;
+}
+.session-api-prompt {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.session-api-workspace input, .session-api-workspace select, .session-api-workspace textarea {
+  min-width: 0;
+  width: 100%;
+}
+.session-api-service input {
+  width: 88px;
+}
+.session-api-workspace button, .session-api-workspace input, .session-api-workspace select, .session-api-workspace textarea {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-control);
+  color: var(--color-text);
+  font: inherit;
+}
+.session-api-workspace button {
+  cursor: pointer;
+}
+.session-api-workspace button:hover:not(:disabled) {
+  background: var(--color-bg-control-hover);
+}
+.session-api-workspace .session-api-primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.session-api-workspace button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.session-api-workspace textarea {
+  resize: vertical;
+}
+.session-api-workspace pre {
+  max-width: 100%;
+  margin: 8px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-code);
+}
+.session-api-workspace details {
+  margin-top: 8px;
+}
+.session-api-workspace summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+.session-api-response-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.session-api-response-heading {
+  flex: none;
+  padding: 12px 16px 8px;
+  color: var(--color-text-muted);
+}
+.session-api-response-heading h3 {
+  margin: 0 auto 0 0;
+  color: var(--color-text);
+  font-size: 14px;
+}
+.session-api-response-url {
+  padding: 0 16px 8px;
+  color: var(--color-text-muted);
+}
+.session-api-sent-body {
+  flex: none;
+  max-height: 25%;
+  padding: 0 16px;
+  overflow: auto;
+}
+.session-api-search {
+  flex: none;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.session-api-search input {
+  flex: 1;
+  width: auto;
+  min-width: 120px;
+}
+.session-api-search [role="status"] {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.session-api-response-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-bg-code);
+}
+.session-api-response-editor .cm-content, .session-api-response-editor .cm-gutters {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.session-api-response-editor .cm-gutters {
+  border-color: var(--color-border);
+  background: var(--color-bg-code);
+  color: var(--color-text-subtle);
+}
+.session-api-response-editor .cm-selectionBackground {
+  background: var(--color-bg-selection);
+}
+.session-api-match {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+.session-api-match-current {
+  outline: 1px solid var(--color-accent);
+  background: var(--color-bg-selection-strong);
+  color: var(--color-text-strong);
+}
+.session-api-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 24px;
+  color: var(--color-text-muted);
+}
+.session-api-error {
+  flex: none;
+  margin: 0;
+  color: var(--color-danger-text);
+}
+.session-api-workspace :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 850px) {
+  .session-api-workspace {
+    padding: 8px;
+  }
+  .session-api-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .session-api-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .session-api-columns nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .session-api-token-actions {
+    margin-left: 0;
+  }
+}

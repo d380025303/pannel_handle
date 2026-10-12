@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+import "./response-test-dom";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { SessionApiWorkspace } from "./SessionApiWorkspace";
+afterEach(cleanup);
+it("queries templates, submits default Plan parameters and opens the created session", async () => {
+  const state = { enabled: true, running: true, port: 43125, url: "http://127.0.0.1:43125", lanUrls: [], error: "" };
+  const invoke = vi.fn().mockResolvedValueOnce({ status: 200, body: { templates: [{ templateId: "saved", title: "Work", agentProvider: "codex", graphicalSessionEnabled: true }] } })
+    .mockResolvedValueOnce({ status: 201, body: { sessionId: "new", status: "started" } });
+  window.sessionApi = { get: vi.fn(async () => state), onChanged: () => () => {}, invoke, configure: vi.fn(), revealToken: vi.fn(), resetToken: vi.fn() };
+  const open = vi.fn();
+  const { rerender } = render(<SessionApiWorkspace visible onOpenSession={open} />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "发送请求" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "发送请求" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith({ operation: "list", body: undefined }));
+  await screen.findByText(/saved/, { selector: ".cm-line" });
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "saved" } });
+  fireEvent.click(screen.getByRole("button", { name: "复制响应" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(JSON.stringify({ templates: [{ templateId: "saved", title: "Work", agentProvider: "codex", graphicalSessionEnabled: true }] }, null, 2)));
+  await waitFor(() => expect((screen.getByRole("button", { name: "POST · 创建会话实例" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "POST · 创建会话实例" }));
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("首条任务"), { target: { value: "Do work" } });
+  fireEvent.change(screen.getByLabelText("Agent 来源"), { target: { value: "codebuddy" } });
+  expect(screen.queryByRole("option", { name: "openrouter" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "创建并提交任务" }));
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith({ operation: "create", body: { templateId: "saved", mode: "plan", prompt: "Do work", agentProvider: "codebuddy" } }));
+  fireEvent.click(await screen.findByRole("button", { name: "打开会话" })); expect(open).toHaveBeenCalledWith("new");
+  rerender(<SessionApiWorkspace visible={false} onOpenSession={open} />);
+  rerender(<SessionApiWorkspace visible onOpenSession={open} />);
+  expect((screen.getByLabelText("首条任务") as HTMLTextAreaElement).value).toBe("Do work");
+});
+it("prevents repeated submissions and displays request failures", async () => {
+  let reject!: (error: Error) => void;
+  const invoke = vi.fn(() => new Promise<never>((_resolve, failure) => { reject = failure; }));
+  window.sessionApi = { get: vi.fn(async () => ({ enabled: true, running: true, port: 43125, url: "http://127.0.0.1:43125", lanUrls: [], error: "" })), onChanged: () => () => {}, invoke, configure: vi.fn(), revealToken: vi.fn(), resetToken: vi.fn() };
+  render(<SessionApiWorkspace visible onOpenSession={() => {}} />);
+  const button = screen.getByRole("button", { name: "发送请求" });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button); fireEvent.click(button);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  reject(new Error("timeout; check sessions"));
+  expect((await screen.findByRole("alert")).textContent).toContain("check sessions");
+});
+
+it("queries instances, validates IDs, encodes cURL and queries a created session", async () => {
+  const state = { enabled: true, running: true, port: 43125, url: "http://127.0.0.1:43125", lanUrls: [], error: "" };
+  const invoke = vi.fn(async (input: Parameters<Window["sessionApi"]["invoke"]>[0]) => ({ method: "GET", url: "http://127.0.0.1:43125", elapsedMs: 0, ...(input.operation === "list" ? { status: 200, body: { templates: [{ templateId: "saved", title: "Work", agentProvider: "codex", graphicalSessionEnabled: true }] } } : input.operation === "create" ? { status: 201, body: { sessionId: "new" } } : { status: 200, body: { sessionId: "new", workState: "running" } }) }));
+  window.sessionApi = { get: vi.fn(async () => state), onChanged: () => () => {}, invoke, configure: vi.fn(), revealToken: vi.fn(), resetToken: vi.fn() };
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  render(<SessionApiWorkspace visible onOpenSession={() => {}} />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "发送请求" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "GET · 查询会话实例" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送请求" }));
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith({ operation: "listInstances", body: undefined }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "GET · 查询实例状态" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "GET · 查询实例状态" }));
+  expect((screen.getByRole("button", { name: "发送请求" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("会话 ID"), { target: { value: "run /中文" } });
+  fireEvent.click(screen.getByRole("button", { name: "复制 cURL" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/session-instances/run%20%2F%E4%B8%AD%E6%96%87")));
+  await waitFor(() => expect((screen.getByRole("button", { name: "GET · 会话模板列表" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "GET · 会话模板列表" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送请求" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "POST · 创建会话实例" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "POST · 创建会话实例" }));
+  fireEvent.change(screen.getByLabelText("首条任务"), { target: { value: "task" } });
+  fireEvent.click(screen.getByRole("button", { name: "创建并提交任务" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查询状态" }));
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith({ operation: "getInstanceStatus", sessionId: "new", body: undefined }));
+  expect((screen.getByLabelText("会话 ID") as HTMLInputElement).value).toBe("new");
+  await screen.findByText(/running/, { selector: ".cm-line" });
+});

@@ -8,6 +8,7 @@ const path = require("node:path");
 const { createSubAgentObserver } = require("./sub-agent-observer.cjs");
 const { createConfigurationController } = require("./configuration-controller.cjs");
 const { createAccountController } = require("./account-controller.cjs");
+const { createInjectedTools } = require("./injected-tools.cjs");
 const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, updateTokenUsage } = require("./snapshot-helpers.cjs");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
@@ -103,6 +104,12 @@ function buildInvocation(session, runtime, environment) {
 function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
   conversationArchive = null, sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
+  const turnListeners = new Set();
+  function notifyTurn(event) {
+    for (const listener of turnListeners) {
+      try { listener(event); } catch (error) { console.error("Turn observer failed:", error.message); }
+    }
+  }
   const publishTimers = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const projectCwd = entry => entry.runtime.workspaceCwd || entry.session.cwd;
@@ -354,8 +361,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return options[0].reasoningEffort;
   }
   function close(id) {
+    notifyTurn({ sessionId: id, status: "stopped", error: "会话已关闭。" });
     const entry = sessions.get(id);
     if (!entry) return;
+    entry.injectedTools?.cancel();
     entry.subAgentObserver?.dispose();
     sessions.delete(id);
     const publishTimer = publishTimers.get(id);
@@ -401,6 +410,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           broadcastStatus(id, entry, true);
           publish(id);
         }
+      } else if (method === "item/tool/call") {
+        void entry.injectedTools.call(message.id, message.params || {}).catch(() => {
+          if (sessions.get(id) === entry) { entry.error = "工具结果回传失败，Codex App Server 可能已退出。"; publish(id); }
+        });
       } else if (method === "item/tool/requestUserInput" || method === "tool/requestUserInput") {
         if (!entry.busy || (message.params?.turnId && entry.turnId && message.params.turnId !== entry.turnId)) return;
         entry.questions.set(message.id, { requestId: message.id, params: message.params || {}, submitting: false,
@@ -621,6 +634,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       updateSummary(id, entry, entry.error);
     }
     if (message.method === "turn/completed") {
+      entry.injectedTools?.cancel();
       entry.turnStatus = params.turn?.status || "failed";
       const completedTurnId = params.turn?.id || entry.turnId || null;
       for (const item of entry.items) if (["reasoning", "sleep", "imageGeneration"].includes(item.type) && ["inProgress", "in_progress", "pending"].includes(item.status)
@@ -657,6 +671,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const finalItem = entry.items.slice(entry.activeTurnStartIndex).filter(item =>
         (item.type === "agentMessage" || item.type === "plan") && item.text?.trim()).at(-1);
       if (finalItem) entry.activitySummary = itemSummary(finalItem);
+      const replyItems = entry.items.slice(entry.activeTurnStartIndex).filter(item =>
+        (item.type === "plan" || (item.type === "agentMessage" && item.phase !== "commentary")) && item.text?.trim());
+      notifyTurn({ sessionId: id, threadId: entry.threadId, turnId: completedTurnId,
+        status: entry.turnStatus === "completed" ? "completed" : entry.turnStatus === "interrupted" ? "stopped" : "failed",
+        output: replyItems.at(-1)?.text || "", error: entry.error || "" });
       entry.status = params.turn?.status === "completed" ? "completed"
         : params.turn?.status === "interrupted" ? "interrupted" : "failed";
       broadcastStatus(id, entry, true);
@@ -675,6 +694,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
 
   async function start(session, runtime = {}) {
+    if (runtime.injectedTools && (session.agentProvider !== "codex" || session.type !== "windows"))
+      throw new Error("工具注入仅支持本机 Windows Codex 图形会话。");
     const id = session.id;
     const template = session.templateId && sessionStore?.getTemplate(session.templateId);
     const fastMode = (session.codexBackend || "openai") === "openai" && (template?.codexAppServerFastMode ?? session.codexAppServerFastMode) === true;
@@ -702,6 +723,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0,
       streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map() };
+    entry.injectedTools = createInjectedTools({ config: runtime.injectedTools, sessionId: id,
+      current: params => sessions.get(id) === entry && entry.busy && entry.threadId === params.threadId && entry.turnId === params.turnId,
+      respond: (requestId, result) => send(entry, { id: requestId, result }) });
     entry.configuration = createConfigurationController({ request: (method, params) => request(entry, method, params),
       cwd: () => projectCwd(entry), check: () => { if (sessions.get(id) !== entry) throw new Error("会话已切换。"); } });
     entry.subAgentObserver = createSubAgentObserver({ request: (method, params) => request(entry, method, params),
@@ -722,6 +746,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       catch { if (sessions.get(id) === entry) { entry.error = "App Server 返回了无效协议消息。"; publish(id); } }
     });
     child.on("error", error => {
+      entry.injectedTools.cancel();
       entry.subAgentObserver.dispose();
       if (sessions.get(id) !== entry) return;
       entry.error = error.message;
@@ -730,6 +755,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.pending.clear(); publish(id);
     });
     child.on("exit", code => {
+      entry.injectedTools.cancel();
       entry.subAgentObserver.dispose();
       if (sessions.get(id) !== entry) return;
       if (entry.windowsSandboxSetup?.status === "running") {
@@ -782,7 +808,12 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const template = session.templateId && sessionStore?.getTemplate(session.templateId);
     const result = runtime.resumeThreadId
       ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry), ...permission })
-      : await request(entry, "thread/start", { cwd: projectCwd(entry), ...permission, serviceName: "pannel_handle_session" });
+      : await request(entry, "thread/start", { cwd: projectCwd(entry), ...permission, serviceName: "pannel_handle_session",
+        ...(entry.injectedTools.definitions.length ? { dynamicTools: entry.injectedTools.definitions } : {}) }).catch(error => {
+          if (!entry.injectedTools.definitions.length) throw error;
+          throw Object.assign(new Error("当前 Codex 无法注册注入工具，请检查 CLI 版本和工具定义。"),
+            { statusCode: 422, apiCode: "unsupported_configuration" });
+        });
     entry.threadId = result.thread.id;
     entry.threadStatus = result.thread.status || null;
     entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
@@ -1437,6 +1468,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
+    entry.injectedTools.revoke();
+    delete entry.runtime.injectedTools;
     entry.archived = false;
     entry.threadStatus = result.thread.status || null;
     entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
@@ -1480,6 +1513,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function newThread(id) {
     const entry = ready(id);
     const result = await request(entry, "thread/start", { cwd: projectCwd(entry), ...threadPermissions(entry), serviceName: "pannel_handle_session" });
+    entry.injectedTools.revoke();
+    delete entry.runtime.injectedTools;
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
@@ -1852,6 +1887,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function interrupt(id) {
     const entry = sessions.get(id);
+    entry?.injectedTools.cancel();
     if (entry?.review && !entry.review.started) { entry.review.interruptRequested = true; return; }
     if (entry?.turnId) await request(entry, "turn/interrupt", { threadId: entry.threadId, turnId: entry.turnId });
   }
@@ -1955,8 +1991,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
+  function getInjectedToolState(id) {
+    const entry = sessions.get(id);
+    return entry ? { threadId: entry.threadId, turnId: entry.turnId, busy: entry.busy, error: entry.error,
+      authorized: Boolean(entry.runtime.injectedTools && entry.injectedTools.definitions.length) } : null;
+  }
+  function isInjectedToolCallCurrent(id, params) {
+    const entry = sessions.get(id);
+    return Boolean(entry?.busy && entry.threadId === params.threadId && entry.turnId === params.turnId && entry.injectedTools.ownsRequest(params));
+  }
   return { readConfiguration, setPermissionProfile, setSubAgentView, refreshSubAgents, start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, setSkillEnabled, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
-    startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
+    onTaskTurnEnded: listener => { turnListeners.add(listener); return () => turnListeners.delete(listener); },
+    getInjectedToolState, isInjectedToolCallCurrent, startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };

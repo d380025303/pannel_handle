@@ -10,6 +10,8 @@ describe("TitleBar session actions", () => {
   it("opens the session library and create dialog from the brand actions", () => {
     const onOpenPicker = vi.fn();
     const onOpenCreate = vi.fn();
+    const onOpenApi = vi.fn();
+    const onOpenModuleOwners = vi.fn();
     const { container } = render(
       <TitleBar
         activeTitle="PowerShell"
@@ -18,6 +20,8 @@ describe("TitleBar session actions", () => {
         onOpenSettings={() => undefined}
         onOpenPicker={onOpenPicker}
         onOpenCreate={onOpenCreate}
+        onOpenApi={onOpenApi}
+        onOpenModuleOwners={onOpenModuleOwners}
       />
     );
 
@@ -29,6 +33,14 @@ describe("TitleBar session actions", () => {
     expect(actionGroup?.contains(createButton)).toBe(true);
     expect(libraryButton.compareDocumentPosition(createButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
+    const apiButton = screen.getByRole("button", { name: "接口调用" });
+    expect(actionGroup?.contains(apiButton)).toBe(true);
+    const ownerButton = screen.getByRole("button", { name: "模块负责人" });
+    expect(actionGroup?.contains(ownerButton)).toBe(true);
+    fireEvent.click(ownerButton);
+    expect(onOpenModuleOwners).toHaveBeenCalledTimes(1);
+    fireEvent.click(apiButton);
+    expect(onOpenApi).toHaveBeenCalledTimes(1);
     fireEvent.click(libraryButton);
     fireEvent.click(createButton);
 
@@ -124,7 +136,7 @@ describe("TitleBar session actions", () => {
       hiddenActions={["settings", "terminal", "library"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 4)).toEqual(["打开设置", "新建会话", "打开 Token 统计", "打开 Skills"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 5)).toEqual(["打开设置", "接口调用", "模块负责人", "新建会话", "打开 Token 统计"]);
     expect(screen.queryByRole("button", { name: "打开终端" })).toBeNull();
     expect(screen.queryByRole("button", { name: "从库中启动" })).toBeNull();
     expect(screen.getByRole("button", { name: "打开设置" })).toBeTruthy();
@@ -139,7 +151,7 @@ describe("TitleBar session actions", () => {
       actionOrder={["create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(5, 8)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(7, 10)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
     fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });

@@ -86,6 +86,7 @@ const initialConfig: AppConfig = {
   autoCollapseFileChains: true,
   debugMode: false,
   graphicalSessionMinimalMode: false,
+  mobileGraphicalSessionMinimalMode: false,
   graphicalMenuSecondaryActions: {},
   desktopMascotEnabled: true,
   screenshotEnabled: true,
@@ -434,7 +435,35 @@ export function installBrowserPreview() {
     connections: [{ bridgeId: "preview-idea", pid: 24680, productName: "IntelliJ IDEA", productVersion: "2026.2", buildNumber: "IU-262.preview", status: "connected" as const, projects: [{ id: "preview-project", name: "pannel-handle", path: "C:\\workspace\\pannel-handle", configurations: [{ id: "preview-run", name: "Desktop Dev", type: "npm", temporary: false, allowParallel: false, supportsRun: true, supportsDebug: true, instances: [] }] }] }]
   };
 
+  let sessionApiState = { enabled: false, running: false, port: 43125, url: "http://127.0.0.1:43125", lanUrls: [] as string[], error: "浏览器预览：查询为模拟数据，不会启动 HTTP 服务。" };
+  const sessionApiChanged = createChannel<typeof sessionApiState>();
+  const previewInstance = (session: TerminalSession) => ({ sessionId: session.id, title: session.title, templateId: session.templateId || null,
+    runtimeMode: session.runtimeMode === "app-server" ? "app-server" : "terminal", type: session.type, agentProvider: session.agentProvider || null,
+    sshConnectionState: session.type === "ssh" ? session.sshConnectionState || "connecting" : null,
+    workState: "unknown", summary: "浏览器预览模拟会话", queriedAt: Date.now() });
   const apis = {
+    sessionApi: {
+      get: async () => copy(sessionApiState),
+      configure: async input => {
+        sessionApiState = { ...sessionApiState, ...input, running: input.enabled ?? sessionApiState.enabled,
+          url: `http://127.0.0.1:${input.port ?? sessionApiState.port}` };
+        sessionApiChanged.emit(copy(sessionApiState)); return copy(sessionApiState);
+      },
+      revealToken: async () => "PREVIEW_TOKEN",
+      resetToken: async () => "PREVIEW_TOKEN",
+      onChanged: sessionApiChanged.subscribe,
+      invoke: async input => {
+        if (!sessionApiState.running) throw new Error("接口服务未启用。");
+        if (input.operation === "create") throw new Error("浏览器预览不支持真实创建；请在 Electron 中验证。");
+        const instance = input.operation === "getInstanceStatus" ? sessions.find(item => item.id === input.sessionId?.trim()) : undefined;
+        const endpoint = input.operation === "list" ? "session-templates" : `session-instances${input.operation === "getInstanceStatus" ? `/${encodeURIComponent(input.sessionId?.trim() || "")}` : ""}`;
+        const body = input.operation === "list" ? { templates: savedSessions.filter(item => item.agentProvider).map(item => ({ templateId: item.id, title: item.title,
+          agentProvider: item.agentProvider, type: item.type, graphicalSessionEnabled: Boolean(item.graphicalSessionEnabled), modelSource: "native", modelId: null })) }
+          : input.operation === "listInstances" ? { sessions: sessions.map(previewInstance) }
+          : instance ? previewInstance(instance) : { error: { code: "session_not_found", message: "会话实例不存在或已经结束。" } };
+        return { method: "GET", url: `${sessionApiState.url}/api/v1/${endpoint}`, status: input.operation === "getInstanceStatus" && !instance ? 404 : 200, elapsedMs: 0, body };
+      }
+    } satisfies Window["sessionApi"],
     environmentApi: {
       list: async () => copy(environments),
       save: async (input) => { const entry = { id: input.id || `preview-env-${nextId++}`, name: input.name, entries: input.entries, references: [] }; environments = [...environments.filter((item) => item.id !== entry.id), entry]; return copy(environments); },
@@ -746,7 +775,7 @@ export function installBrowserPreview() {
       onMaximizedChanged: maximizedChanged.subscribe
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
-    "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
+    "sessionApi" | "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
     "agentConversationApi" | "codexAppServerApi" | "codexPluginApi" | "codeBuddyPluginApi" | "codeBuddyMcpApi" | "codeBuddyVersionApi" | "openCodeAuthApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
