@@ -234,7 +234,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
         && socket.graphicalRevision === payload.baseRevision) {
         send(socket, { type: "graphical.delta", sessionId: payload.id, streamId: payload.streamId,
           threadId: payload.threadId, baseRevision: payload.baseRevision, revision: payload.revision,
-          items: toMobileGraphicalSnapshot({ items: payload.items }).items, turnDiffs: toMobileGraphicalSnapshot({ turnDiffs: payload.turnDiffs }).turnDiffs, textDeltas: payload.textDeltas });
+          items: toMobileGraphicalSnapshot({ items: payload.items }).items, turnDiffs: toMobileGraphicalSnapshot({ turnDiffs: payload.turnDiffs }).turnDiffs, textDeltas: payload.textDeltas, subAgentTextDeltas: payload.subAgentTextDeltas });
         socket.graphicalRevision = payload.revision;
       } else sendSnapshot(socket, payload.id, graphicalService.snapshot(payload.id));
     } catch { /* The session ended while a change was queued. */ }

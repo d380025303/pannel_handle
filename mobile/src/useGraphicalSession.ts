@@ -1,3 +1,4 @@
+import { applySubAgentTextDeltas } from "../../src/utils/subAgentTextDeltas";
 import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../src/utils/codexImageInput";
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { CodexCapabilityReference } from "../../src/vite-env";
@@ -172,7 +173,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           }
           const turnDiffs = [...(current.turnDiffs || [])];
           for (const diff of message.turnDiffs || []) { const index = turnDiffs.findIndex(value => value.turnId === diff.turnId); if (index < 0) turnDiffs.push(diff); else turnDiffs[index] = diff; }
-          const next = { ...current, revision: message.revision, items, turnDiffs };
+          const next = { ...current, revision: message.revision, items, turnDiffs,
+            subAgents: applySubAgentTextDeltas(current.subAgents, message.subAgentTextDeltas) };
           snapshotRef.current = next;
           setSnapshot(next);
         }

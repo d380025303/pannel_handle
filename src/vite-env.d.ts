@@ -1205,9 +1205,11 @@ export type CodexAppServerSnapshot = {
   questions?: CodexQuestionRequest[];
   elicitations?: CodexMcpElicitation[];
 };
+export type CodexSubAgentTextDelta = { threadId: string; itemId: string; field: "text" | "output" | "summary";
+  delta: string; summaryIndex?: number };
 export type CodexAppServerDelta = { id: string; streamId: string; threadId: string | null; baseRevision: number; revision: number;
   items: CodexAppServerSnapshot["items"]; turnDiffs: NonNullable<CodexAppServerSnapshot["turnDiffs"]>;
-  textDeltas: Array<{ itemId: string; delta: string }> };
+  textDeltas: Array<{ itemId: string; delta: string }>; subAgentTextDeltas?: CodexSubAgentTextDelta[] };
 
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
 export type CodexVersionState = { status: "current" | "available" | "updating" | "error";

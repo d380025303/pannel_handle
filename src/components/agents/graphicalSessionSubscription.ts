@@ -1,5 +1,7 @@
 import type { CodexAppServerDelta, CodexAppServerSnapshot } from "../../vite-env";
 
+import { applySubAgentTextDeltas } from "../../utils/subAgentTextDeltas";
+
 type Callbacks = {
   onSnapshot: (snapshot: CodexAppServerSnapshot) => void;
   onError: (error: unknown) => void;
@@ -58,7 +60,8 @@ export function subscribeGraphicalSession(sessionId: string, { onSnapshot, onErr
       const index = turnDiffs.findIndex(value => value.turnId === diff.turnId);
       if (index < 0) turnDiffs.push(diff); else turnDiffs[index] = diff;
     }
-    accept({ ...current, revision: delta.revision, items, turnDiffs });
+    accept({ ...current, revision: delta.revision, items, turnDiffs,
+      subAgents: applySubAgentTextDeltas(current.subAgents, delta.subAgentTextDeltas) });
   });
   reload(true);
   return () => { active = false; off(); offDelta(); };

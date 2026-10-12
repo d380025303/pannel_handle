@@ -135,7 +135,7 @@ export type ServerMessage =
   | { v: 8; type: "terminal.size-owner"; sessionId: string; owner: SizeOwner; cols: number; rows: number }
   | { v: 8; type: "graphical.snapshot"; sessionId: string; snapshot: GraphicalSnapshot }
   | { v: 8; type: "graphical.delta"; sessionId: string; streamId: string; threadId: string | null;
-      baseRevision: number; revision: number; turnDiffs?: CodexAppServerSnapshot["turnDiffs"]; items: GraphicalItem[]; textDeltas: Array<{ itemId: string; delta: string }> }
+      baseRevision: number; revision: number; turnDiffs?: CodexAppServerSnapshot["turnDiffs"]; items: GraphicalItem[]; textDeltas: Array<{ itemId: string; delta: string }>; subAgentTextDeltas?: import("../../src/vite-env").CodexSubAgentTextDelta[] }
   | { v: 8; type: "graphical.usage"; sessionId: string; threadId: string | null; requestId: string; usage: GraphicalUsage }
   | { v: 8; type: "graphical.history"; sessionId: string; threadId: string | null; requestId: string; history: GraphicalHistory }
   | { v: 8; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }

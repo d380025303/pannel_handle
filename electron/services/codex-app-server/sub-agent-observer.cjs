@@ -8,10 +8,12 @@ function runtimeStatus(value) {
 }
 
 // Read-only observation: never resumes, subscribes to, or sends input to a child thread.
-function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
+function createSubAgentObserver({ request, changed, deltaChanged = () => {}, intervalMs = 2000 }) {
   let root = null, generation = 0, members = new Map(), expanded = false, selected = null;
   let loading = false, error = null, warning = null, unsupported = false, timer = null, publishTimer = null;
   let operation = null, refreshAgain = false, disposed = false;
+  let textDeltas = [];
+  function takeTextDeltas() { const result = textDeltas; textDeltas = []; return result; }
   let activeReads = 0; const readWaiters = [];
   async function readHistory(threadId, epoch) {
     if (activeReads < 2) activeReads += 1;
@@ -153,7 +155,7 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
     return operation;
   }
   function reset(threadId, items = []) {
-    generation += 1; clearTimeout(timer); clearTimeout(publishTimer); timer = publishTimer = null;
+    textDeltas = []; generation += 1; clearTimeout(timer); clearTimeout(publishTimer); timer = publishTimer = null;
     root = threadId; members = new Map(); selected = null; expanded = false; loading = false;
     error = warning = null; unsupported = false; operation = null; refreshAgain = false;
     for (const item of items) collaboration(item);
@@ -192,19 +194,28 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
       const summary = [...(item.summary || [])]; const index = params.summaryIndex || 0;
       summary[index] = (summary[index] || "") + (params.delta || ""); item.summary = summary;
     }
-    notify(); return true;
+    const field = { "item/agentMessage/delta": "text", "item/plan/delta": "text",
+      "item/commandExecution/outputDelta": "output", "item/reasoning/summaryTextDelta": "summary" }[method];
+    if (field) {
+      if (expanded && item && params.delta) {
+        textDeltas.push({ threadId, itemId: item.id, field, delta: params.delta,
+          ...(field === "summary" ? { summaryIndex: params.summaryIndex || 0 } : {}) });
+        deltaChanged();
+      }
+    } else notify();
+    return true;
   }
   function setView(value, threadId = selected) {
     if (typeof value !== "boolean") throw new Error("无效的子 Agent 面板状态。");
     if (threadId != null && !members.has(threadId)) throw new Error("子 Agent 不属于当前会话。");
-    expanded = value; selected = threadId; notify();
+    textDeltas = []; expanded = value; selected = threadId; notify();
     if (expanded) void refresh(); else { clearTimeout(timer); timer = null; }
   }
   function snapshot() {
     return { expanded, selectedThreadId: selected, loading, error, warning,
       members: [...members.values()].sort((a, b) => a.createdAt - b.createdAt).map(({ eventRevision, ...member }) => ({ ...member, items: member.items.map(item => ({ ...item })) })) };
   }
-  function dispose() { loading = false; for (const member of members.values()) member.loading = false; disposed = true; generation += 1; clearTimeout(timer); clearTimeout(publishTimer); }
-  return { reset, observe, setView, refresh, snapshot, dispose };
+  function dispose() { loading = false; for (const member of members.values()) member.loading = false; disposed = true; textDeltas = []; generation += 1; clearTimeout(timer); clearTimeout(publishTimer); }
+  return { reset, observe, setView, refresh, snapshot, takeTextDeltas, dispose };
 }
 module.exports = { createSubAgentObserver };

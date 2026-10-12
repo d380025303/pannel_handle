@@ -7,13 +7,50 @@ const itemEvent = (observer, threadId, item) => observer.observe("item/completed
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const observers = [];
 function fixture(implementation = async () => ({})) {
-  const request = vi.fn(implementation), changed = vi.fn();
-  const observer = createSubAgentObserver({ request, changed }); observers.push(observer);
-  return { observer, request, changed };
+  const request = vi.fn(implementation), changed = vi.fn(), deltaChanged = vi.fn();
+  const observer = createSubAgentObserver({ request, changed, deltaChanged }); observers.push(observer);
+  return { observer, request, changed, deltaChanged };
 }
 afterEach(() => { for (const observer of observers.splice(0)) observer.dispose(); vi.useRealTimers(); });
 
 describe("Codex read-only sub-agent observer", () => {
+  it("keeps collapsed 1MiB streams silent and emits only new text when expanded", async () => {
+    vi.useFakeTimers();
+    const { observer, changed, deltaChanged } = fixture();
+    observer.reset("root", [spawn("a")]); await settle();
+    const history = "x".repeat(1024 * 1024);
+    itemEvent(observer, "a", { id: "msg", type: "agentMessage", text: history });
+    observer.setView(false);
+    await vi.advanceTimersByTimeAsync(100); changed.mockClear(); deltaChanged.mockClear();
+    for (let i = 0; i < 10; i++) {
+      observer.observe("item/agentMessage/delta", { threadId: "a", itemId: "msg", delta: "z" });
+      await vi.advanceTimersByTimeAsync(90);
+    }
+    expect(changed).not.toHaveBeenCalled();
+    expect(deltaChanged).not.toHaveBeenCalled();
+    expect(observer.takeTextDeltas()).toEqual([]);
+    observer.setView(true); await settle(); await vi.advanceTimersByTimeAsync(100);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot().members[0].items[0].text).toBe(history + "z".repeat(10));
+    changed.mockClear(); deltaChanged.mockClear();
+    for (let i = 0; i < 10; i++) {
+      observer.observe("item/agentMessage/delta", { threadId: "a", itemId: "msg", delta: "y" });
+      await vi.advanceTimersByTimeAsync(90);
+    }
+    const deltas = observer.takeTextDeltas();
+    expect(changed).not.toHaveBeenCalled();
+    expect(deltas.map(value => value.delta).join("")).toBe("y".repeat(10));
+    expect(JSON.stringify(deltas).length).toBeLessThan(2000);
+    observer.setView(false); await vi.advanceTimersByTimeAsync(100); changed.mockClear();
+    observer.observe("thread/status/changed", { threadId: "a", status: { type: "active", activeFlags: ["waitingOnApproval"] } });
+    await vi.advanceTimersByTimeAsync(90);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot().members[0].status).toBe("waitingOnApproval");
+    observer.observe("turn/completed", { threadId: "a", turn: { status: "completed" } });
+    await vi.advanceTimersByTimeAsync(90);
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(observer.snapshot().members[0].status).toBe("completed");
+  });
   it.each(["completed", "interrupted"])("retains %s across inactive polls and switches to a new running turn", async resultStatus => {
     let threadStatus = { type: "idle" }, turnStatus = resultStatus;
     const thread = () => ({ id: "a", parentThreadId: "root", status: threadStatus,

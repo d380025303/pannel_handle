@@ -2048,6 +2048,40 @@ describe("Codex App Server session", () => {
 
 
 describe("Codex sub-agent observation integration", () => {
+  it("broadcasts bounded child deltas, suppresses collapsed streams and restores full history", async () => {
+    const received = [], events = [];
+    const child = fakeProcess(received, message => message.method === "thread/list" ? { data: [] }
+      : message.method === "thread/read" ? { thread: { id: message.params.threadId, turns: [] } } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: (channel, payload) => events.push({ channel, payload }), spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params })}\n`);
+    const pause = () => new Promise(resolve => setTimeout(resolve, 90));
+    const history = "x".repeat(1024 * 1024);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      emit("item/completed", { threadId: "thread-1", item: { id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" } });
+      emit("item/started", { threadId: "child", item: { id: "answer", type: "agentMessage", text: history } });
+      service.setSubAgentView("run-1", false); await pause(); events.length = 0;
+      for (let i = 0; i < 10; i++) { emit("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "z" }); await pause(); }
+      expect(events.filter(event => ["codex-app-server:changed", "codex-app-server:delta"].includes(event.channel))).toEqual([]);
+      service.setSubAgentView("run-1", true); await pause();
+      const full = events.filter(event => event.channel === "codex-app-server:changed").at(-1).payload.snapshot;
+      expect(full.subAgents.members[0].items[0].text).toBe(history + "z".repeat(10));
+      events.length = 0;
+      for (let i = 0; i < 10; i++) { emit("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "y" }); await pause(); }
+      expect(events.filter(event => event.channel === "codex-app-server:changed")).toEqual([]);
+      const deltas = events.filter(event => event.channel === "codex-app-server:delta").map(event => event.payload);
+      expect(deltas).toHaveLength(10);
+      expect(JSON.stringify(deltas).length).toBeLessThan(5000);
+      expect(deltas.flatMap(delta => delta.subAgentTextDeltas).map(delta => delta.delta).join("")).toBe("y".repeat(10));
+      expect(deltas[0].baseRevision).toBe(full.revision);
+      for (let i = 1; i < deltas.length; i++) expect(deltas[i].baseRevision).toBe(deltas[i - 1].revision);
+      emit("thread/status/changed", { threadId: "child", status: { type: "active", activeFlags: ["waitingOnApproval"] } }); await pause();
+      expect(events.at(-1).payload.snapshot.subAgents.members[0].status).toBe("waitingOnApproval");
+      emit("turn/completed", { threadId: "child", turn: { status: "completed" } }); await pause();
+      expect(events.at(-1).payload.snapshot.subAgents.members[0].status).toBe("completed");
+    } finally { service.shutdown(); }
+  });
   it.each(["collabAgentToolCall", "subAgentActivity"])("routes %s child notifications before root filtering and resets observers on thread switches", async type => {
     const received = [];
     const child = fakeProcess(received, message => {

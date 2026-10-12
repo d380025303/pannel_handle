@@ -218,6 +218,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry) return;
     entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
+    entry.subAgentObserver?.takeTextDeltas();
     entry.revision += 1;
     broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
   }
@@ -231,11 +232,12 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const turnDiffs = [...entry.streamDiffs].map(turnId => entry.turnDiffs.get(turnId)).filter(Boolean);
       const textDeltas = [...entry.streamText].map(([itemId, delta]) => ({ itemId, delta }));
       entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
-      if (!items.length && !turnDiffs.length && !textDeltas.length) return;
+      const subAgentTextDeltas = entry.subAgentObserver?.takeTextDeltas() || [];
+      if (!items.length && !turnDiffs.length && !textDeltas.length && !subAgentTextDeltas.length) return;
       const baseRevision = entry.revision;
       entry.revision += 1;
       broadcast("codex-app-server:delta", { id, streamId: entry.streamId, threadId: entry.threadId, baseRevision,
-        revision: entry.revision, items, turnDiffs, textDeltas });
+        revision: entry.revision, items, turnDiffs, textDeltas, subAgentTextDeltas });
     }, PUBLISH_COALESCE_MS));
   }
   function recordDiagnostic(entry, kind, payload, turnId = null) {
@@ -729,7 +731,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.configuration = createConfigurationController({ request: (method, params) => request(entry, method, params),
       cwd: () => projectCwd(entry), check: () => { if (sessions.get(id) !== entry) throw new Error("会话已切换。"); } });
     entry.subAgentObserver = createSubAgentObserver({ request: (method, params) => request(entry, method, params),
-      changed: () => { if (sessions.get(id) === entry) publish(id); } });
+      changed: () => { if (sessions.get(id) === entry) publish(id); },
+      deltaChanged: () => { if (sessions.get(id) === entry) schedulePublish(id); } });
     entry.accountController = createAccountController({ request: (method, params) => request(entry, method, params),
       changed: () => { if (sessions.get(id) === entry) publish(id); },
       authenticated: async () => { if (sessions.get(id) === entry && !entry.threadId) await initializeThread(id, entry); } });
