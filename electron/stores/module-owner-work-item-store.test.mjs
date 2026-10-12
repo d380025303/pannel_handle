@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createBusinessDataStore } from "./business-data-store.cjs";
+import { createWorkItemStore } from "./module-owner-work-item-store.cjs";
 const fixtures = [];
 function fixture() {
   const userData = mkdtempSync(path.join(tmpdir(), "pannel-work-item-store-"));
@@ -13,6 +14,26 @@ function fixture() {
 const source = number => ({ sourceRunId: `run-${number}`, templateId: number % 2 ? "one" : "two", ownerId: `owner-${number % 2}`, taskId: "timer", taskName: "巡检", template: { title: "工程" }, owner: { name: "负责人" }, tools: [], output: `最终结果 ${number}` });
 afterEach(() => { for (const f of fixtures.splice(0)) { f.db.close(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("work item SQLite persistence", () => {
+  it("adds a covering task index to existing databases and uses both template and task", () => {
+    const database = new DatabaseSync(":memory:");
+    let query;
+    const store = createWorkItemStore(() => ({
+      exec: sql => database.exec(sql),
+      prepare: sql => { query = sql; return database.prepare(sql); }
+    }), callback => callback());
+    try {
+      database.exec("CREATE TABLE app_migrations(version INTEGER PRIMARY KEY,completed_at INTEGER NOT NULL)");
+      store.initializeWorkItems();
+      database.exec("DROP INDEX app_module_owner_work_items_task_status");
+      store.initializeWorkItems();
+      store.initializeWorkItems();
+      expect(store.workItemTaskUnprocessed("template", "task")).toBe(false);
+      const plan = database.prepare(`EXPLAIN QUERY PLAN ${query}`).all("template", "task");
+      expect(plan.map(row => row.detail).join(" ")).toMatch(/USING COVERING INDEX app_module_owner_work_items_task_status \(template_id=\? AND task_id=\?\)/);
+    } finally {
+      database.close();
+    }
+  });
   it("migrates legacy records and keeps explicit false across repeated reopen", () => {
     const { db, userData } = fixture();
     const item = db.insertWorkItem(source(0));

@@ -16,6 +16,7 @@ function createWorkItemStore(database, transaction) {
       value_json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS app_module_owner_work_items_order ON app_module_owner_work_items(created_at DESC,id DESC);
       CREATE INDEX IF NOT EXISTS app_module_owner_work_items_filter ON app_module_owner_work_items(template_id,owner_id,status,created_at DESC);
+      CREATE INDEX IF NOT EXISTS app_module_owner_work_items_task_status ON app_module_owner_work_items(template_id,task_id,status);
       CREATE TABLE IF NOT EXISTS app_module_owner_work_item_attempts(
         id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, status TEXT NOT NULL,
         started_at INTEGER NOT NULL, value_json TEXT NOT NULL);
