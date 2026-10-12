@@ -5,6 +5,21 @@ const { registerIpcHandlers, updateSessionFromIpc } = await import("./ipc-handle
 const { createGraphicalSessionRouter } = createRequire(import.meta.url)("../services/codebuddy-acp/session-router.cjs");
 
 describe("session IPC handlers", () => {
+  it("forwards file sorting unchanged through sessions:update", async () => {
+    const handlers = new Map();
+    const sessions = [{ id: "run-1" }];
+    const terminalManager = { updateSession: vi.fn(() => sessions) };
+    const fileSort = { key: "name", direction: "desc" };
+    registerIpcHandlers({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager
+    });
+
+    await expect(handlers.get("sessions:update")({}, { id: "run-1", fileSort })).resolves.toBe(sessions);
+    expect(terminalManager.updateSession).toHaveBeenCalledWith("run-1", expect.objectContaining({ fileSort }));
+    expect(terminalManager.updateSession.mock.calls[0][1].fileSort).toBe(fileSort);
+  });
+
   it("forwards copied image bytes and authorizes the saved local Agent image", async () => {
     const handlers = new Map();
     const image = { name: "copied.jpg", bytes: new Uint8Array([1]) };
