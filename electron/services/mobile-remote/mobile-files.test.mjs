@@ -44,8 +44,9 @@ it("lists local directories and excludes links and inaccessible paths", async ()
   await expect(files.list(path.resolve(root, ".."))).rejects.toThrow(/本地磁盘/);
 });
 
-it("probes drives once per large listing while validating every child", async () => {
-  const directory = "C:\\folder";
+it.each([1, 6, 12])("validates shared ancestors once per large listing at depth %i", async depth => {
+  const ancestors = Array.from({ length: depth }, (_, index) => path.win32.join("C:\\", ...Array.from({ length: index + 1 }, (_, part) => `folder-${part}`)));
+  const directory = ancestors.at(-1);
   const names = Array.from({ length: 1000 }, (_, index) => `file-${index}.txt`);
   const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
   const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 10 };
@@ -66,20 +67,30 @@ it("probes drives once per large listing while validating every child", async ()
     .sort((a, b) => a.name.localeCompare(b.name));
   expect(await files.list(directory)).toEqual({ path: directory, entries: expected });
   expect(fsApi.statSync).toHaveBeenCalledTimes(26);
-  expect(fsApi.promises.lstat).toHaveBeenCalledTimes(2001);
+  expect(fsApi.promises.lstat).toHaveBeenCalledTimes(1000 + depth);
+  for (const ancestor of ancestors) {
+    expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === ancestor)).toHaveLength(1);
+  }
   expect(fsApi.promises.realpath).toHaveBeenCalledTimes(1001);
 
-  fsApi.promises.lstat.mockImplementation(async target => ({
-    ...fileInfo, isSymbolicLink: () => target === path.win32.join(directory, names[0])
-  }));
+  fsApi.promises.lstat.mockClear();
+  fsApi.promises.lstat.mockImplementation(async target => {
+    if (target === path.win32.join(directory, names[3])) throw Object.assign(new Error("Unreadable"), { code: "EACCES" });
+    return { ...fileInfo, isSymbolicLink: () => [names[0], names[2]].some(name => target === path.win32.join(directory, name)) };
+  });
   fsApi.promises.realpath.mockImplementation(async target =>
     target === path.win32.join(directory, names[1]) ? "D:\\outside.txt" : target);
   const filtered = await files.list(directory);
-  expect(filtered.entries).toEqual(expected.filter(entry => !names.slice(0, 2).includes(entry.name)));
+  expect(filtered.entries).toEqual(expected.filter(entry => !names.slice(0, 4).includes(entry.name)));
+  for (const ancestor of ancestors) {
+    expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === ancestor)).toHaveLength(1);
+  }
   expect(fsApi.statSync).toHaveBeenCalledTimes(52);
   await expect(files.list(path.win32.join(directory, names[0]))).rejects.toThrow(/符号链接/);
   await expect(files.list(path.win32.join(directory, names[1]))).rejects.toThrow(/重定向/);
   await expect(files.list("D:\\outside")).rejects.toThrow(/本地磁盘/);
+  fsApi.promises.lstat.mockImplementation(async target => ({ ...fileInfo, isSymbolicLink: () => target === ancestors[0] }));
+  await expect(files.list(directory)).rejects.toThrow(/符号链接/);
 });
 
 it.each([false, true])("probes drives once per folder download and validates children (nested: %s)", async nested => {
