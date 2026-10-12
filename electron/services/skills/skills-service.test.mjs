@@ -73,6 +73,38 @@ describe("skills-service", () => {
     expect(skill).toMatchObject({ id: expect.any(String), name: "plain", description: "", source: "personal" });
   });
 
+  it.each(["\n", "\r\n"])("parses front matter with %j line endings and delimiter whitespace", async (newline) => {
+    const home = createHome();
+    writeSkill(home, ".codebuddy/skills/review", [
+      "--- \t", "", "name: 'Review'", 'description: "Review code"', "---", "Instructions."
+    ].join(newline));
+
+    const { skills: [skill] } = await createSkillsService({ homeDir: home }).list("codebuddy");
+
+    expect(skill).toMatchObject({ name: "Review", description: "Review code" });
+  });
+
+  it.each([64000, 128000])("handles %i blank lines without a closing delimiter promptly", async (blankLines) => {
+    const home = path.resolve("skills-performance-home");
+    const content = Buffer.from("---\n" + "\n".repeat(blankLines) + "body");
+    const fsApi = { promises: {
+      readdir: async () => [{ name: "malformed", isDirectory: () => true }],
+      realpath: async directory => directory,
+      stat: async () => ({ isFile: () => true, size: content.length }),
+      readFile: async () => content
+    } };
+    const service = createSkillsService({ homeDir: home, fsApi });
+    const started = performance.now();
+    const timer = new Promise(resolve => setTimeout(() => resolve(performance.now() - started), 0));
+
+    const { skills: [skill] } = await service.list("codebuddy");
+    const elapsed = await timer;
+
+    expect(skill).toMatchObject({ name: "malformed", description: "", source: "personal" });
+    // A generous event-loop budget catches the multi-second backtracking regression.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   it("rejects unsupported providers", async () => {
     const home = createHome();
     await expect(createSkillsService({ homeDir: home }).list("other")).rejects.toThrow("Unsupported Skills provider");

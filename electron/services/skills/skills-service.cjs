@@ -13,7 +13,7 @@ function unquote(value) {
 }
 
 function parseFrontmatter(content, directoryName) {
-  const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  const match = content.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) return { name: directoryName, description: "" };
   const fields = {};
   for (const line of match[1].split(/\r?\n/)) {
