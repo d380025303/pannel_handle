@@ -1,4 +1,5 @@
 const path = require("node:path");
+const { runTextQuerySearch } = require("./text-query-search.cjs");
 const { MAX_TEXT_FILE_SIZE, MAX_TEXT_RESULTS, MAX_TEXT_VISITED_ENTRIES, SEARCH_TIMEOUT_MS } = require("./search-limits.cjs");
 const { hasExcludedPathSegment, isLikelyBinary, getLineMatches } = require("./search-matching.cjs");
 const { throwIfCancelled, createProcessError } = require("./search-task.cjs");
@@ -62,7 +63,7 @@ async function listWslGitFiles({ spawnProcess, session, displayRoot, task }) {
   return output.toString("utf-8").split("\0").filter((entry) => entry && !hasExcludedPathSegment(entry));
 }
 
-async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task, options }) {
+async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task, options, matchLines = getLineMatches }) {
   throwIfCancelled(task);
   let stat;
   try {
@@ -81,7 +82,8 @@ async function searchTextFile({ fsApi, hostPath, relativePath, name, query, sess
   throwIfCancelled(task);
   if (buffer.length > MAX_TEXT_FILE_SIZE || isLikelyBinary(buffer)) return;
 
-  const matches = getLineMatches(buffer.toString("utf-8"), query, MAX_TEXT_RESULTS - results.length, options);
+  const matches = await matchLines(buffer.toString("utf-8"), query, MAX_TEXT_RESULTS - results.length, options);
+  throwIfCancelled(task);
   for (const match of matches) {
     results.push({
       path: toDisplayPath(session, displayRoot, relativePath),
@@ -93,7 +95,12 @@ async function searchTextFile({ fsApi, hostPath, relativePath, name, query, sess
   }
 }
 
-async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root, task, options = {} }) {
+function runFallbackTextSearch(args) {
+  return runTextQuerySearch(args.task, args.options || {},
+    (matchLines) => runFallbackTextSearchImpl({ ...args, matchLines }), args.textRegexTimeoutMs);
+}
+
+async function runFallbackTextSearchImpl({ fsApi, spawnProcess, session, query, root, task, options = {}, matchLines }) {
   const { hostRoot, displayRoot } = root;
   const results = [];
   const gitFiles = session.type === "wsl"
@@ -116,7 +123,8 @@ async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root
         displayRoot,
         results,
         task,
-        options
+        options,
+        matchLines
       });
     }
     return { root: displayRoot, results, engine: "fallback" };
@@ -138,7 +146,8 @@ async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root
       displayRoot,
       results,
       task,
-      options
+      options,
+      matchLines
     }),
     includeIgnored: options.includeIgnored
   });

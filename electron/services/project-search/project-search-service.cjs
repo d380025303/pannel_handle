@@ -17,7 +17,8 @@ function createProjectSearchService({
   spawnProcess = spawn,
   resolveRipgrepPath = resolveBundledRipgrepPath,
   forceTextFallback = false,
-  fileRegexTimeoutMs
+  fileRegexTimeoutMs,
+  textRegexTimeoutMs
 }) {
   const activeTextSearches = new Map();
 
@@ -25,6 +26,7 @@ function createProjectSearchService({
     const active = activeTextSearches.get(String(sessionId || ""));
     if (!active || active.requestId !== String(requestId || "")) return false;
     active.cancelled = true;
+    active.cancelMatching?.();
     active.child?.kill();
     return true;
   }
@@ -33,6 +35,7 @@ function createProjectSearchService({
     const active = activeTextSearches.get(String(sessionId || ""));
     if (!active) return;
     active.cancelled = true;
+    active.cancelMatching?.();
     active.child?.kill();
   }
 
@@ -203,7 +206,7 @@ function createProjectSearchService({
 
     try {
       if (forceTextFallback) {
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options, textRegexTimeoutMs });
       }
       const { displayRoot } = root;
       try {
@@ -214,7 +217,7 @@ function createProjectSearchService({
       } catch (error) {
         if (session.type !== "wsl" || error?.code !== "RG_UNAVAILABLE") throw error;
         throwIfCancelled(task);
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options, textRegexTimeoutMs });
       }
     } finally {
       if (activeTextSearches.get(String(sessionId)) === task) {
