@@ -67,10 +67,13 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     return { url: `/api/v1/download/${id}?ticket=${ticket}` };
   }
 
-  async function addDirectory(archive, directory, prefix) {
+  async function addDirectory(archive, directory, prefix, isCancelled) {
+    if (isCancelled()) return;
     const names = await fsApi.promises.readdir(directory);
+    if (isCancelled()) return;
     if (!names.length) archive.append(Buffer.alloc(0), { name: `${prefix}/` });
     for (const name of names) {
+      if (isCancelled()) return;
       const child = pathApi.join(directory, name);
       let info;
       try { ({ info } = await safePath(child)); }
@@ -79,8 +82,9 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
           || /符号链接|重定向/.test(error.message)) continue;
         throw error;
       }
+      if (isCancelled()) return;
       const archiveName = `${prefix}/${name}`.replace(/\\/g, "/");
-      if (info.isDirectory()) await addDirectory(archive, child, archiveName);
+      if (info.isDirectory()) await addDirectory(archive, child, archiveName, isCancelled);
       else if (info.isFile()) archive.file(child, { name: archiveName });
     }
   }
@@ -125,7 +129,11 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       stream = archiver("zip", { zlib: { level: 6 }, forceZip64: true });
       stream.on("error", () => response.destroy());
       stream.pipe(response);
-      try { await addDirectory(stream, target, pathApi.basename(target) || "drive"); await stream.finalize(); }
+      try {
+        await addDirectory(stream, target, pathApi.basename(target) || "drive", isCancelled);
+        if (isCancelled()) { transfer.cancel(); return; }
+        await stream.finalize();
+      }
       catch { stream.abort(); response.destroy(); }
     } else {
       stream = fsApi.createReadStream(target);

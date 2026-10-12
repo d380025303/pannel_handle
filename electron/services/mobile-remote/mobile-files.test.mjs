@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import Archiver from "archiver/lib/core.js";
 import { afterEach, expect, it, vi } from "vitest";
 import filesModule from "./mobile-files.cjs";
 
@@ -163,3 +164,53 @@ it("rejects expired tickets and files removed after preparation", async () => {
   fs.rmSync(target);
   expect((await receive(files, socket, removed.url)).status).toBe(404);
 });
+
+it.each(["disconnect", "close", "stop"])(
+  "stops folder traversal after a paused directory read on %s", async reason => {
+    const fsApi = { ...fs, promises: { ...fs.promises } };
+    const { root, files, socket } = fixture(undefined, fsApi);
+    const folder = path.join(root, "folder");
+    fs.mkdirSync(folder);
+    for (let index = 0; index < 100; index++) fs.mkdirSync(path.join(folder, `child-${index}`));
+    const { url } = await files.prepare(socket, folder);
+    let resume;
+    let entered;
+    const paused = new Promise(resolve => { entered = resolve; });
+    fsApi.promises.readdir = vi.fn(async target => {
+      entered();
+      await new Promise(resolve => { resume = resolve; });
+      return fs.promises.readdir(target);
+    });
+    fsApi.promises.lstat = vi.fn(fs.promises.lstat);
+    fsApi.promises.realpath = vi.fn(fs.promises.realpath);
+    fsApi.promises.stat = vi.fn(fs.promises.stat);
+    const finalize = vi.spyOn(Archiver.prototype, "finalize");
+    const parsed = new URL(url, "http://localhost");
+    const output = new PassThrough();
+    output.writeHead = vi.fn();
+    const closed = new Promise(resolve => output.on("close", resolve));
+    try {
+      const downloading = files.download({ socket: { remoteAddress: socket.remoteAddress } }, output,
+        path.basename(parsed.pathname), parsed.searchParams.get("ticket"));
+      await paused;
+      expect(fsApi.promises.readdir).toHaveBeenCalledTimes(1);
+      const counts = [fsApi.promises.lstat, fsApi.promises.realpath, fsApi.promises.stat]
+        .map(method => method.mock.calls.length);
+      if (reason === "close") output.destroy();
+      else if (reason === "stop") files.stop();
+      else files.releaseSocket(socket);
+      await closed;
+      expect(output.destroyed).toBe(true);
+      resume();
+      await downloading;
+      expect(fsApi.promises.readdir).toHaveBeenCalledTimes(1);
+      expect([fsApi.promises.lstat, fsApi.promises.realpath, fsApi.promises.stat]
+        .map(method => method.mock.calls.length)).toEqual(counts);
+      expect(finalize).not.toHaveBeenCalled();
+    } finally {
+      resume?.();
+      files.stop();
+      finalize.mockRestore();
+    }
+  }
+);
