@@ -1,3 +1,4 @@
+const { isDeepStrictEqual } = require("node:util");
 const { displayItem, historyItems } = require("./snapshot-helpers.cjs");
 
 const isCollaboration = item => ["collabToolCall", "collabAgentToolCall", "subAgentActivity"].includes(item?.type);
@@ -12,6 +13,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   let root = null, generation = 0, members = new Map(), expanded = false, selected = null;
   let loading = false, error = null, warning = null, unsupported = false, timer = null, publishTimer = null;
   let operation = null, refreshAgain = false, disposed = false;
+  const terminalStatuses = ["completed", "failed", "shutdown", "interrupted", "deleted"];
   let textDeltas = [];
   function takeTextDeltas() { const result = textDeltas; textDeltas = []; return result; }
   let activeReads = 0; const readWaiters = [];
@@ -28,33 +30,34 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   }
   function schedule() {
     clearTimeout(timer); timer = null;
-    if (root && expanded && !disposed) timer = setTimeout(() => { timer = null; void refresh(); }, intervalMs);
+    if (root && expanded && !disposed) timer = setTimeout(() => { timer = null; void refresh(false); }, intervalMs);
   }
   function add(thread, parent = root) {
     if (!thread?.id || thread.id === root) return null;
     const existing = members.get(thread.id);
     const member = existing || { threadId: thread.id, parentThreadId: parent, name: thread.id.slice(0, 8), role: "",
-      task: "", status: "unknown", createdAt: thread.createdAt || 0, items: [], loading: false, error: null, eventRevision: 0 };
+      task: "", status: "unknown", createdAt: thread.createdAt || 0, items: [], loading: false, error: null, eventRevision: 0, historyRevision: -1 };
     member.parentThreadId = thread.parentThreadId || member.parentThreadId;
     member.name = thread.agentNickname || thread.name || member.name;
     member.role = thread.agentRole || member.role;
     member.task = member.task || thread.preview || "";
     if (thread.status) {
       const status = runtimeStatus(thread.status);
-      // Stored history reports notLoaded even for a previously completed agent.
-      if (status !== "notLoaded" || !["completed", "failed", "shutdown", "interrupted"].includes(member.status)) member.status = status;
+      // Inactive list records must not erase the terminal state learned from turns/events.
+      if (!["idle", "notLoaded"].includes(status) || !terminalStatuses.includes(member.status)) member.status = status;
     }
     member.createdAt = thread.createdAt || member.createdAt;
     members.set(thread.id, member);
     if (!existing && members.size === 1) { expanded = true; selected = thread.id; schedule(); }
     return member;
   }
-  function collaboration(item, sender = root) {
+  function collaboration(item, sender = root, live = false) {
     if (!isCollaboration(item) || (sender !== root && !members.has(sender))) return;
     if (item.type === "subAgentActivity") {
       if (!item.agentThreadId) return;
       const member = members.get(item.agentThreadId) || add({ id: item.agentThreadId }, sender);
       if (!member) return;
+      if (live) member.eventRevision += 1;
       if (item.agentPath) member.name = item.agentPath;
       const status = { started: "running", interrupted: "interrupted", completed: "completed" }[item.kind];
       if (status) member.status = status;
@@ -65,6 +68,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       const spawning = /spawn/i.test(item.tool || "") || threadId === item.newThreadId;
       const member = members.get(threadId) || (spawning ? add({ id: threadId }, sender) : null);
       if (!member) continue;
+      if (live) member.eventRevision += 1;
       if (spawning && item.prompt) member.task = item.prompt;
       const state = item.agentsStates?.[threadId];
       if (state?.status || item.agentStatus) member.status = state?.status || item.agentStatus;
@@ -86,8 +90,11 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       member.items.push(value);
     } else member.items[index] = value;
   }
-  async function run(epoch) {
-    loading = true; error = null; notify();
+  async function run(epoch, force) {
+    // Automatic polls publish only the final, changed state; loading indicators are for explicit refreshes.
+    const previous = force ? null : snapshot();
+    if (force) loading = true;
+    error = null; if (force) notify();
     try {
       if (!unsupported) {
         const found = []; let cursor;
@@ -116,14 +123,17 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     }
     if (!valid(epoch)) return;
     const member = members.get(selected);
-    if (expanded && member) {
-      member.loading = true; member.error = null; notify();
+    if (expanded && member && (force || member.historyRevision !== member.eventRevision
+      || !terminalStatuses.includes(member.status) || member.error)) {
+      if (force) member.loading = true;
+      member.error = null; if (force) notify();
       const revision = member.eventRevision;
       try {
         const result = await readHistory(member.threadId, epoch);
         if (!valid(epoch)) return;
         if (result.thread?.id !== member.threadId) throw new Error("子线程读取结果不匹配。");
         if (member.eventRevision === revision) {
+          member.historyRevision = revision;
           add(result.thread);
           // Keep streamed items missing from a not-yet-flushed rollout.
           const turnStatuses = new Map((result.thread.turns || []).map(turn => [turn.id, turn.status]));
@@ -140,14 +150,17 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       } catch (cause) { if (valid(epoch)) member.error = cause.message; }
       finally { if (valid(epoch)) member.loading = false; }
     }
-    if (valid(epoch)) { loading = false; notify(); }
+    if (valid(epoch)) {
+      loading = false;
+      if (force || !isDeepStrictEqual(previous, snapshot())) notify();
+    }
   }
-  function refresh() {
+  function refresh(force = true) {
     if (!root || disposed) return Promise.resolve();
-    if (operation) { refreshAgain = true; return operation; }
+    if (operation) { refreshAgain ||= force; return operation; }
     clearTimeout(timer); timer = null;
     const epoch = generation;
-    operation = run(epoch).finally(() => {
+    operation = run(epoch, force).finally(() => {
       if (!valid(epoch)) return;
       operation = null;
       if (refreshAgain && expanded) { refreshAgain = false; void refresh(); } else { refreshAgain = false; schedule(); }
@@ -164,10 +177,14 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   function observe(method, params = {}) {
     if (!root || disposed) return false;
     if (method === "thread/started" && params.thread?.parentThreadId
-      && (params.thread.parentThreadId === root || members.has(params.thread.parentThreadId))) { add(params.thread); notify(); return true; }
+      && (params.thread.parentThreadId === root || members.has(params.thread.parentThreadId))) {
+      const member = add(params.thread);
+      if (member) member.eventRevision += 1;
+      notify(); return true;
+    }
     const threadId = params.threadId || params.thread?.id;
     if (threadId === root) {
-      if (isCollaboration(params.item)) { collaboration(params.item); notify(); }
+      if (isCollaboration(params.item)) { collaboration(params.item, root, true); notify(); }
       return false;
     }
     const member = members.get(threadId);
@@ -182,7 +199,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     if (method === "turn/completed") member.status = params.turn?.status === "failed" ? "failed" : params.turn?.status === "interrupted" ? "interrupted" : "completed";
     if (params.item && ["item/started", "item/completed"].includes(method)) {
       const item = displayItem(params.item);
-      merge(member, { ...item, ...(params.turnId ? { turnId: params.turnId } : {}) }); collaboration(item, threadId);
+      merge(member, { ...item, ...(params.turnId ? { turnId: params.turnId } : {}) }); collaboration(item, threadId, true);
     }
     const item = member.items.find(value => value.id === params.itemId);
     if (item && ["item/agentMessage/delta", "item/plan/delta"].includes(method)) item.text = (item.text || "") + (params.delta || "");
@@ -213,7 +230,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   }
   function snapshot() {
     return { expanded, selectedThreadId: selected, loading, error, warning,
-      members: [...members.values()].sort((a, b) => a.createdAt - b.createdAt).map(({ eventRevision, ...member }) => ({ ...member, items: member.items.map(item => ({ ...item })) })) };
+      members: [...members.values()].sort((a, b) => a.createdAt - b.createdAt).map(({ eventRevision, historyRevision, ...member }) => ({ ...member, items: member.items.map(item => ({ ...item })) })) };
   }
   function dispose() { loading = false; for (const member of members.values()) member.loading = false; disposed = true; textDeltas = []; generation += 1; clearTimeout(timer); clearTimeout(publishTimer); }
   return { reset, observe, setView, refresh, snapshot, takeTextDeltas, dispose };

@@ -14,6 +14,62 @@ function fixture(implementation = async () => ({})) {
 afterEach(() => { for (const observer of observers.splice(0)) observer.dispose(); vi.useRealTimers(); });
 
 describe("Codex read-only sub-agent observer", () => {
+  it("keeps completed 1MiB history silent across polls while retaining refresh, events and discovery", async () => {
+    vi.useFakeTimers();
+    let status = "completed", descendants = [];
+    const thread = () => ({ id: "a", parentThreadId: "root", status: { type: status === "inProgress" ? "active" : "idle" },
+      turns: [{ id: "turn", status, items: [{ id: "msg", type: "agentMessage", text: "x".repeat(1024 * 1024) }] }] });
+    const { observer, request, changed } = fixture(async (method, params) => method === "thread/list"
+      ? { data: [thread(), ...descendants] }
+      : { thread: params.threadId === "a" ? thread() : { id: params.threadId, turns: [] } });
+    const reads = () => request.mock.calls.filter(([method]) => method === "thread/read").length;
+    observer.reset("root"); await settle(); await vi.advanceTimersByTimeAsync(100);
+    expect(reads()).toBe(1);
+    changed.mockClear(); request.mockClear();
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(request.mock.calls.filter(([method]) => method === "thread/list")).toHaveLength(2);
+    expect(reads()).toBe(0);
+    expect(changed).not.toHaveBeenCalled();
+    expect(observer.snapshot().members[0].status).toBe("completed");
+    await observer.refresh(); await vi.advanceTimersByTimeAsync(100);
+    expect(reads()).toBe(1);
+    status = "inProgress";
+    observer.observe("turn/started", { threadId: "a" });
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(reads()).toBe(2);
+    expect(observer.snapshot().members[0].status).toBe("running");
+    status = "completed";
+    observer.observe("turn/completed", { threadId: "a", turn: { status } });
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(reads()).toBe(3);
+    changed.mockClear();
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(reads()).toBe(3);
+    expect(changed).not.toHaveBeenCalled();
+    descendants = [{ id: "nested", parentThreadId: "a" }];
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(reads()).toBe(3);
+    expect(observer.snapshot().members.map(member => member.threadId)).toEqual(["a", "nested"]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    observer.setView(true, "nested"); await settle();
+    observer.setView(true, "a"); await settle();
+    expect(reads()).toBe(5);
+    observer.observe("item/completed", { threadId: "root", item: { type: "subAgentActivity", agentThreadId: "a", kind: "completed" } });
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(reads()).toBe(6);
+  });
+
+  it("does not publish unchanged running history on automatic polls", async () => {
+    vi.useFakeTimers();
+    const { observer, request, changed } = fixture(async method => method === "thread/list" ? { data: [] }
+      : { thread: { id: "a", status: { type: "active" }, turns: [{ id: "turn", status: "inProgress", items: [] }] } });
+    observer.reset("root", [spawn("a")]); await settle(); await vi.advanceTimersByTimeAsync(100);
+    changed.mockClear(); request.mockClear();
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(2);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it("keeps collapsed 1MiB streams silent and emits only new text when expanded", async () => {
     vi.useFakeTimers();
     const { observer, changed, deltaChanged } = fixture();
