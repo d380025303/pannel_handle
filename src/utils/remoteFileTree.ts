@@ -81,6 +81,10 @@ export function flattenLoadedTree(
       return visit(child, depth, parentPath, combined);
     }
 
+    if (!query && !expandedPaths.has(entry.path)) {
+      return [{ entry, depth, parentPath, chainPrefix }];
+    }
+
     const childNodes = directory?.entries.flatMap((child) => visit(child, depth + 1, entry.path, null)) ?? [];
 
     if (query) {

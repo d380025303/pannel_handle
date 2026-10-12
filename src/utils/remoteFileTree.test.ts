@@ -25,6 +25,35 @@ describe("remote file tree", () => {
       .toEqual(["home", "src", "App.tsx"]);
   });
 
+  it.each([true, false])("skips 100,000 cached files after folding a directory (chain collapsing: %s)", (autoCollapse) => {
+    let visitedFiles = 0;
+    const entries = Array.from({ length: 100_000 }, (_, index): RemoteFileEntry => ({
+      ...file(`file-${index}.ts`, `/home/src/file-${index}.ts`),
+      get type() {
+        visitedFiles += 1;
+        return "file" as const;
+      }
+    }));
+    const state: DirectoryTreeState = {
+      ...tree,
+      "/home/src": { status: "ready", entries }
+    };
+
+    expect(flattenLoadedTree(root, state, new Set(["/home", "/home/src"]), "", autoCollapse)).toHaveLength(100_003);
+    expect(visitedFiles).toBe(100_000);
+    visitedFiles = 0;
+
+    for (const query of ["", "   "]) {
+      expect(flattenLoadedTree(root, state, new Set(["/home"]), query, autoCollapse)).toEqual([
+        { entry: root, depth: 0, parentPath: null, chainPrefix: null },
+        { entry: src, depth: 1, parentPath: "/home", chainPrefix: null },
+        { entry: tree["/home"].entries[1], depth: 1, parentPath: "/home", chainPrefix: null }
+      ]);
+      expect(flattenLoadedTree(root, state, new Set(), query, autoCollapse)).toHaveLength(1);
+      expect(visitedFiles).toBe(0);
+    }
+  });
+
   it("finds a loaded directory chain across path separators", () => {
     expect(isPathInside("C:\\Users\\me\\src", "C:\\Users\\me")).toBe(true);
     expect(isPathInside("/home/me", "/")).toBe(true);
