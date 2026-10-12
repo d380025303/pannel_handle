@@ -68,9 +68,9 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
       if (state?.status || item.agentStatus) member.status = state?.status || item.agentStatus;
     }
   }
-  function merge(member, item, incompleteHistory = false) {
+  function merge(member, item, incompleteHistory = false, itemIndices = null) {
     if (!item?.id) return;
-    const index = member.items.findIndex(value => value.id === item.id);
+    const index = itemIndices ? (itemIndices.get(item.id) ?? -1) : member.items.findIndex(value => value.id === item.id);
     const previous = member.items[index];
     const value = { ...previous, ...item };
     if (incompleteHistory && previous?.text?.startsWith(item.text || "") && previous.text.length > (item.text || "").length) value.text = previous.text;
@@ -79,7 +79,10 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
       value.output = incompleteHistory && previous?.output?.startsWith(item.aggregatedOutput)
         && previous.output.length > item.aggregatedOutput.length ? previous.output : item.aggregatedOutput;
     }
-    if (index < 0) member.items.push(value); else member.items[index] = value;
+    if (index < 0) {
+      if (itemIndices) itemIndices.set(item.id, member.items.length);
+      member.items.push(value);
+    } else member.items[index] = value;
   }
   async function run(epoch) {
     loading = true; error = null; notify();
@@ -121,7 +124,9 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
         if (member.eventRevision === revision) {
           add(result.thread);
           // Keep streamed items missing from a not-yet-flushed rollout.
-          for (const item of historyItems(result.thread)) merge(member, item, result.thread.turns?.find(turn => turn.id === item.turnId)?.status === "inProgress");
+          const turnStatuses = new Map((result.thread.turns || []).map(turn => [turn.id, turn.status]));
+          const itemIndices = new Map(member.items.map((item, index) => [item.id, index]));
+          for (const item of historyItems(result.thread)) merge(member, item, turnStatuses.get(item.turnId) === "inProgress", itemIndices);
           for (const item of member.items) collaboration(item, member.threadId);
           const turn = result.thread.turns?.at(-1);
           if (turn?.status === "failed") member.status = "failed";

@@ -135,6 +135,31 @@ describe("Codex read-only sub-agent observer", () => {
     await observer.refresh();
     expect(output()).toBe("replacement");
   });
+  it("indexes appended history items and protects only in-progress turns", async () => {
+    const turns = [
+      { id: "done", status: "completed", items: [
+        { id: "final", type: "agentMessage", text: "old" },
+        { id: "new", type: "agentMessage", text: "first" },
+        { id: "new", type: "agentMessage", text: "updated" }
+      ] },
+      { id: "active", status: "inProgress", items: [{ id: "live", type: "agentMessage", text: "prefix" }] }
+    ];
+    let history = [];
+    const { observer } = fixture(async (method, params) => method === "thread/read"
+      ? { thread: { id: params.threadId, turns: history } } : {});
+    observer.reset("root", [spawn("a")]); await settle();
+    itemEvent(observer, "a", { id: "live", type: "agentMessage", text: "prefix streamed" });
+    itemEvent(observer, "a", { id: "final", type: "agentMessage", text: "old final text" });
+    itemEvent(observer, "a", { id: "pending", type: "agentMessage", text: "not persisted" });
+    history = turns;
+    for (let i = 0; i < 2; i++) {
+      await observer.refresh();
+      expect(observer.snapshot().members[0].items.map(({ id, text }) => ({ id, text }))).toEqual([
+        { id: "live", text: "prefix streamed" }, { id: "final", text: "old" },
+        { id: "pending", text: "not persisted" }, { id: "new", text: "updated" }
+      ]);
+    }
+  });
   it("falls back on unsupported lists, retains history on read errors and retries", async () => {
     let fail = false;
     const { observer } = fixture(async (method, params) => {
