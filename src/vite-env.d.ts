@@ -1860,7 +1860,7 @@ export type SessionApiState = { enabled: boolean; running: boolean; port: number
 export type WorkItemStatus = "pending" | "creating" | "running" | "uncertain" | "completed" | "failed" | "stopped" | "void";
 export type WorkItem = { id: string; sourceRunId: string; taskId: string; ownerId: string; templateId: string; taskName: string;
   output: string; owner: ModuleOwnerRecord; template: { title: string; cwd: string }; tools: string[];
-  status: WorkItemStatus; version: number; createdAt: number; updatedAt: number; latestAttemptId?: string; lastStartedAt?: number;
+  needsFollowUp: boolean; status: WorkItemStatus; version: number; createdAt: number; updatedAt: number; latestAttemptId?: string; lastStartedAt?: number;
   sessionId?: string; sourceSessionId?: string; sourceThreadId?: string; sourceTurnId?: string; error?: string; voidReason?: string; voidedAt?: number | null; unavailable: string };
 export type WorkItemSummary = Omit<WorkItem, "output"> & { summary: string };
 export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItemStatus; startedAt: number; endedAt?: number;
@@ -1868,10 +1868,11 @@ export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItem
 export type WorkItemIdentity = { id: string; version: number };
 export type WorkItemPage = { records: WorkItemSummary[]; total: number; storageErrors?: string[]; templates: { id: string; name: string }[]; owners: { id: string; name: string; templateId: string }[] };
 export interface WorkItemApi {
-  list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; statuses?: WorkItemStatus[]; keyword?: string; page?: number }): Promise<WorkItemPage>;
+  list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; statuses?: WorkItemStatus[]; needsFollowUp?: boolean; keyword?: string; page?: number }): Promise<WorkItemPage>;
   get(input: { id: string }): Promise<WorkItem>;
   preview(input: WorkItemIdentity & { prompt?: string }): Promise<{ body: { prompt: string; tools?: { name: string }[] }; configuration: Record<string, unknown> }>;
   execute(input: WorkItemIdentity & { prompt?: string }): Promise<WorkItem>;
+  setFollowUp(input: WorkItemIdentity & { needsFollowUp: boolean }): Promise<WorkItem>;
   listAttempts(input: { id: string; page?: number }): Promise<{ records: Omit<WorkItemAttempt, "input" | "output" | "configuration">[]; total: number }>;
   getAttempt(input: { id: string; attemptId: string }): Promise<WorkItemAttempt>;
   void(input: WorkItemIdentity & { reason?: string }): Promise<WorkItem>;

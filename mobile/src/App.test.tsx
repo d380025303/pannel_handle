@@ -29,7 +29,7 @@ beforeEach(() => {
     status: "connected", statusMessage: "已连接", sessions: [first, second], overviews: {}, templates: [],
     device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
-    onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
+    onWorkItemMessage: vi.fn(() => () => {}), onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
   };
   vi.mocked(useRemoteConnection).mockImplementation(() => remote);
 });
@@ -281,4 +281,13 @@ it("uses computer preferences instead of legacy browser preferences and removes 
   expect(screen.getByText("图形：第一个会话").getAttribute("data-minimal")).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
   expect(screen.queryByRole("checkbox", { name: "图形会话极简模式" })).toBeNull();
+});
+
+it("opens tasks from the home heading and returns to sessions", () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "任务列表" }));
+  expect(screen.getByRole("heading", { name: "任务列表" })).toBeTruthy();
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "work-items.request", operation: "list" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回会话首页" }));
+  expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
 });

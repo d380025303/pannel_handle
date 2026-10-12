@@ -654,6 +654,7 @@ contextBridge.exposeInMainWorld("workItemApi", {
   get: input => ipcRenderer.invoke("work-items:get", input),
   preview: input => ipcRenderer.invoke("work-items:preview", input),
   execute: input => ipcRenderer.invoke("work-items:execute", input),
+  setFollowUp: input => ipcRenderer.invoke("work-items:setFollowUp", input),
   listAttempts: input => ipcRenderer.invoke("work-items:listAttempts", input),
   getAttempt: input => ipcRenderer.invoke("work-items:getAttempt", input),
   void: input => ipcRenderer.invoke("work-items:void", input),

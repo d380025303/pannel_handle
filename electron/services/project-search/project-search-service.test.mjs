@@ -130,6 +130,31 @@ describe("project-search-service", () => {
     }
   });
 
+  it.each([
+    ["ordinary", {}],
+    ["regex", { regex: true }],
+    ["whole-word", { wholeWord: true }]
+  ])("respects case sensitivity in %s file searches", async (_mode, options) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-case-"));
+    try {
+      writeFile(path.join(dir, "package.json"), "{}");
+      const service = createProjectSearchService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir })
+      });
+
+      for (const caseSensitive of [true, false]) {
+        for (const query of ["PACKAGE", "package"]) {
+          const response = await service.searchFiles("run-1", query, ".", { ...options, caseSensitive });
+          expect(response.results.map((result) => result.name)).toEqual(
+            caseSensitive && query === "PACKAGE" ? [] : ["package.json"]
+          );
+        }
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("searches workspace files and directories without changing file search results", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-workspace-entries-"));
     try {

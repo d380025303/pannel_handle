@@ -271,6 +271,10 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     launch: (id, task) => generate(id, { mode: task.mode, prompt: task.prompt }, task),
     job: taskId => publicJob(refresh(jobs.get(`task:${taskId}`))),
     submitted: taskId => Boolean(jobs.get(`task:${taskId}`)?.submitted),
+    taskUnprocessed: (id, taskId) => {
+      if (!dataStore) throw new Error("SQLite 任务存储不可用。");
+      return dataStore.workItemTaskUnprocessed(id, taskId) || [...pendingResults.values()].some(value => value.item.templateId === id && value.item.taskId === taskId);
+    },
     revokeTask: taskId => { const job = jobs.get(`task:${taskId}`); if (job) grants.delete(job.token); },
     ownerBusy: (id, ownerId) => ownerBusy(id, ownerId) || Boolean(dataStore?.workItemOwnerBusy(id, ownerId)),
     revoke: ownerId => { for (const job of jobs.values()) if (job.ownerId === ownerId) grants.delete(job.token); }

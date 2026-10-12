@@ -19,7 +19,7 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
   }
   function list(input = {}) {
     const query = z.object({ templateId: z.string().min(1).optional(), ownerId: z.string().min(1).optional(), status: statusSchema.optional(), statuses: z.array(statusSchema).max(8).optional(),
-      keyword: z.string().trim().max(1000).optional(), page: z.number().int().min(0).max(1000000).default(0) }).strict().parse(input);
+      needsFollowUp: z.boolean().optional(), keyword: z.string().trim().max(1000).optional(), page: z.number().int().min(0).max(1000000).default(0) }).strict().parse(input);
     const result = database().listWorkItems(query);
     const templates = result.templates.map(value => {
       try { template(value.id); return value; } catch { return { ...value, name: `${value.name}（已删除）` }; }
@@ -70,6 +70,11 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     }
     return get({ id });
   }
+  function setFollowUp(input) {
+    const { id, version, needsFollowUp } = identity.extend({ needsFollowUp: z.boolean() }).parse(input);
+    database().setWorkItemFollowUp(id, version, needsFollowUp);
+    changed(); return get({ id });
+  }
   function change(input, operation) {
     const parsed = identity.extend({ reason: z.string().trim().max(2000).optional() }).parse(input);
     const item = database().changeWorkItem(parsed.id, parsed.version, operation, parsed.reason);
@@ -94,6 +99,6 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     database().updateWorkItemAttempt(id, attempt.id, { status: "stopped", endedAt: Date.now(), error: "人工核对原会话已结束或不存在，标记为中断。" });
     changed(); return get({ id });
   }
-  return { list, get, preview, execute, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
+  return { list, get, preview, execute, setFollowUp, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
 }
 module.exports = { createWorkItemService };

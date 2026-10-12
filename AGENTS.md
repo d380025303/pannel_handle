@@ -13,6 +13,8 @@
 - 以 `package.json` 中的脚本为准。`pnpm test` 和 `pnpm build` 均包含桌面端与移动端；需要缩小范围时使用 `test:desktop`、`test:mobile`、`build:desktop` 或 `build:mobile`。
 - 代码改动后运行相关测试和构建；修改 Electron 的 `.cjs` 文件时，按需运行 `node --check`。
 - 不需要启动 dev 模式进行测试。构建或单元测试不能证明 Electron、PTY、SSH 等运行时行为；需要验证时明确说明实际验证范围。
+- 浏览器视觉验证可运行 `pnpm dev:browser`，打开 `http://127.0.0.1:6174`。该模式通过 `src/browser-preview/installBrowserPreview.ts` 注入内存 mock，可检查主题、布局、弹窗、滚动、窄窗口适配及模拟交互；新增桌面 API 或功能时按需同步补齐 mock。
+- 浏览器 mock 预览不能替代真实 Electron、PTY、SSH、Git、文件系统、IPC 或系统剪贴板验证；报告验收结果时区分浏览器视觉验证与实际运行时验证。
 
 ## 代码与安全
 

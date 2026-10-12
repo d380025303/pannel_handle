@@ -19,7 +19,7 @@ async function fixture(withHistory = false) {
     isInjectedToolCallCurrent: (id, input) => sessions.get(id)?.busy && sessions.get(id)?.turnId === input.turnId && input.callId !== "canceled" };
   let listener;
   graphicalService.onTaskTurnEnded = fn => { listener = fn; return () => { listener = undefined; }; };
-  const dataStore = withHistory ? createBusinessDataStore({ userData }).open() : undefined;
+  const dataStore = createBusinessDataStore({ userData }).open();
   let api;
   const terminalManager = { getSession: id => sessions.get(id) };
   const routedGraphicalService = createGraphicalSessionRouter(graphicalService, {}, terminalManager);
@@ -199,6 +199,8 @@ describe("module owner scheduled HTTP sessions", () => {
     expect(f.owners.listTasks("one")[0].executedCount).toBe(1);
     f.sessions.get("run").busy = false;
     f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "完成巡检" });
+    const item = f.owners.workItems.list().records[0];
+    f.owners.workItems.void({ id: item.id, version: item.version });
     clock.mockReturnValue(f.owners.listTasks("one")[0].nextRunAt);
     await f.owners.tickTasks();
     await vi.waitFor(() => expect(f.owners.listTasks("one")[0].enabled).toBe(false));
@@ -269,6 +271,8 @@ describe("scheduled call history", () => {
     await vi.waitFor(() => expect(f.owners.listTasks("one")[0].executedCount).toBe(1));
     expect(f.owners.listTaskRuns("one", { taskId: task.id }).total).toBe(0);
     f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "unrecorded" });
+    const item = f.owners.workItems.list().records[0];
+    f.owners.workItems.void({ id: item.id, version: item.version });
     f.sessions.get("run").busy = false;
     vi.restoreAllMocks();
     f.owners.saveTask("one", { ...scheduled(owner.id), id: task.id, recordHistory: true });

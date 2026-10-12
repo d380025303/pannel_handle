@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { MobileWorkItems } from "./MobileWorkItems";
+import { useEffect, useState } from "react";
 import { TerminalView } from "./TerminalView";
 import { GraphicalView } from "./GraphicalView";
 import { ComputerFiles } from "./ComputerFiles";
@@ -14,9 +15,21 @@ export default function App() {
   const drafts = useSessionDrafts(remote.sessions, remote.status, remote.onGraphicalMessage);
   const dialog = useSessionActionDialog(remote.send);
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
+  const [taskSessionId, setTaskSessionId] = useState<string | null>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [password, setPassword] = useState("");
   const { view, setView, filesOpen, setFilesOpen, drawerOpen, setDrawerOpen, activeId, activeSession, openSession } = navigation;
 
+  useEffect(() => { setTasksOpen(false); }, [activeId, view, filesOpen, remote.lastLaunchedId]);
+  useEffect(() => {
+    if (taskSessionId && remote.sessions.some(session => session.id === taskSessionId)) {
+      setTasksOpen(false); openSession(taskSessionId); setTaskSessionId(null);
+    }
+  }, [taskSessionId, remote.sessions]);
+  const openTaskSession = (id: string) => {
+    if (remote.sessions.some(session => session.id === id)) { setTasksOpen(false); openSession(id); }
+    else setTaskSessionId(id);
+  };
   const chooseTemplate = () => { setDrawerTab("templates"); setDrawerOpen(true); };
 
   if (remote.status !== "connected" && !remote.device) {
@@ -47,9 +60,10 @@ export default function App() {
     {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
     {drafts.recoveryNotice && <div className="command-error" role="alert">{drafts.recoveryNotice}<button type="button" onClick={() => drafts.setRecoveryNotice("")}>关闭</button></div>}
 
-    {filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} />
+    {tasksOpen ? <MobileWorkItems remote={remote} onClose={() => { setTasksOpen(false); setTaskSessionId(null); }} onOpenSession={openTaskSession} />
+      : filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} />
       : view === "home" ? <SessionHome sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
-        onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} />
+        onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} onOpenTasks={() => setTasksOpen(true)} />
       : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession} graphicalMenuConfig={remote.graphicalMenuConfig}
         minimalMode={remote.mobileGraphicalSessionMinimalMode}
         connectionEpoch={remote.status === "connected" ? remote.connectionEpoch : 0} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
@@ -67,7 +81,7 @@ export default function App() {
           <button className="primary large" type="button" onClick={chooseTemplate}>选择模板</button></section>}
 
     {drawerOpen && <SessionDrawer sessions={remote.sessions} templates={remote.templates} activeId={activeId}
-      tab={drawerTab} onTabChange={setDrawerTab} send={remote.send} onOpen={openSession}
+      tab={drawerTab} onTabChange={setDrawerTab} send={remote.send} onOpen={openTaskSession}
       onAction={dialog.open} onClose={() => setDrawerOpen(false)} />}
     <SessionActionDialog dialog={dialog} />
     {remote.status !== "connected" && <div className="connection-overlay" role="status">

@@ -1,7 +1,7 @@
 import { normalizeGraphicalMenuConfig, type GraphicalMenuConfig } from "../../src/utils/graphicalMenu";
 import { useCallback, useRef, useState } from "react";
 import { useRemoteTransport } from "./useRemoteTransport";
-import type { RuntimeSession, SavedTemplate, ServerMessage, SessionOverview } from "./types";
+import type { RuntimeSession, SavedTemplate, ServerMessage, SessionOverview, WorkItemMessage } from "./types";
 
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
@@ -19,6 +19,7 @@ export function useRemoteConnection() {
   const [commandError, setCommandError] = useState("");
   const terminalListenersRef = useRef(new Set<(message: TerminalMessage) => void>());
   const graphicalListenersRef = useRef(new Set<(message: GraphicalMessage) => void>());
+  const workItemListenersRef = useRef(new Set<(message: WorkItemMessage) => void>());
   const fileListenersRef = useRef(new Set<(message: FileMessage) => void>());
 
   const onMessage = useCallback((message: ServerMessage) => {
@@ -67,14 +68,19 @@ export function useRemoteConnection() {
       case "command.ok":
         graphicalListenersRef.current.forEach(listener => listener(message));
         break;
+      case "work-items.result":
+      case "work-items.changed":
+        workItemListenersRef.current.forEach(listener => listener(message));
+        break;
       case "files.list.result":
       case "files.download.ready":
         fileListenersRef.current.forEach(listener => listener(message));
         break;
       case "error":
+        workItemListenersRef.current.forEach(listener => listener(message));
         graphicalListenersRef.current.forEach(listener => listener(message));
         fileListenersRef.current.forEach(listener => listener(message));
-        if (!["PASSWORD_INVALID", "PASSWORD_CHANGED", "CONNECTION_CLOSED", "SERVICE_STOPPED", "AUTH_RATE_LIMIT", "AUTH_REQUIRED", "PROTOCOL_MISMATCH", "GRAPHICAL_COMMAND_FAILED", "FILE_COMMAND_FAILED"].includes(message.code)) {
+        if (!["PASSWORD_INVALID", "PASSWORD_CHANGED", "CONNECTION_CLOSED", "SERVICE_STOPPED", "AUTH_RATE_LIMIT", "AUTH_REQUIRED", "PROTOCOL_MISMATCH", "GRAPHICAL_COMMAND_FAILED", "FILE_COMMAND_FAILED", "WORK_ITEM_COMMAND_FAILED"].includes(message.code)) {
           setCommandError(message.message);
         }
         break;
@@ -95,6 +101,10 @@ export function useRemoteConnection() {
     return () => fileListenersRef.current.delete(listener);
   }, []);
 
+  const onWorkItemMessage = useCallback((listener: (message: WorkItemMessage) => void) => {
+    workItemListenersRef.current.add(listener);
+    return () => { workItemListenersRef.current.delete(listener); };
+  }, []);
   return { ...transport, mobileGraphicalSessionMinimalMode, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
-    onTerminalMessage, onGraphicalMessage, onFileMessage };
+    onWorkItemMessage, onTerminalMessage, onGraphicalMessage, onFileMessage };
 }

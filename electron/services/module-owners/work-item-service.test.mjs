@@ -49,6 +49,33 @@ afterEach(async () => {
   for (const f of fixtures.splice(0)) { f.service.shutdown(); await f.api.stop(); f.db.close(); rmSync(f.userData, { recursive: true, force: true }); }
 });
 describe("scheduled replies and manual work items through HTTP", () => {
+  it("validates follow-up values and allows marking unavailable tasks", async () => {
+    const f = await fixture(); const item = await f.source();
+    expect(item.needsFollowUp).toBe(true);
+    expect(() => f.work.setFollowUp({ id: item.id, version: item.version, needsFollowUp: "false" })).toThrow();
+    expect(() => f.work.list({ needsFollowUp: "false" })).toThrow();
+    f.templates.length = 0;
+    const updated = f.work.setFollowUp({ id: item.id, version: item.version, needsFollowUp: false });
+    expect(updated).toMatchObject({ needsFollowUp: false, version: item.version + 1 });
+    expect(f.work.list({ needsFollowUp: false }).total).toBe(1);
+    expect(f.work.list({ needsFollowUp: true }).total).toBe(0);
+    expect(() => f.work.setFollowUp({ id: item.id, version: item.version, needsFollowUp: true })).toThrow("已变更");
+  });
+  it.each([false, true])("blocks automatic dispatch with unprocessed results (pending storage=%s) but allows manual dispatch", async pendingStorage => {
+    const f = await fixture();
+    if (pendingStorage) vi.spyOn(f.db, "insertWorkItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    await f.source();
+    const enabled = f.service.saveTask("template", { enabled: true, id: f.task.id, recordHistory: false,
+      schedule: f.task.schedule, ownerId: f.owner.id, name: f.task.name, prompt: f.task.prompt, tools: f.task.tools, mode: f.task.mode,
+    });
+    await f.service.tickTasks();
+    vi.spyOn(Date, "now").mockReturnValue(f.service.listTasks("template")[0].nextRunAt);
+    await f.service.tickTasks();
+    expect(f.instances.create).toHaveBeenCalledTimes(1);
+    expect(f.service.listTasks("template")[0]).toMatchObject({ executedCount: 1, lastRun: { status: "skipped", error: expect.stringContaining("未处理任务") } });
+    await f.service.runTask("template", { id: f.task.id });
+    expect(f.instances.create).toHaveBeenCalledTimes(2);
+  });
   it("creates independently of history, preserves text, deduplicates events but not separate runs", async () => {
     const f = await fixture();
     const output = "  <proposed_plan>\n" + "完整回复".repeat(2000) + "\n</proposed_plan>  ";

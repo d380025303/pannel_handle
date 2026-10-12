@@ -1,0 +1,207 @@
+.mobile-work-items-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+}
+.mobile-work-items-page button,
+.mobile-work-items-overlay button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #d8e2f0;
+  background: #172235;
+  cursor: pointer;
+}
+.mobile-work-items-workspace,
+.work-items-toolbar,
+.work-items-heading,
+.work-items-cards {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.work-items-heading h2 {
+  margin: 8px 0 0;
+}
+.work-items-search,
+.work-items-select-filters,
+.work-items-actions,
+.work-items-pagination,
+.mobile-work-items-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.work-items-search input {
+  flex: 1;
+  min-width: 0;
+}
+.work-items-select-filters label {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.work-items-select-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.work-items-status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+}
+.work-items-status-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+}
+.work-items-status-option input {
+  width: auto;
+}
+.work-items-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #172033;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.work-items-summary {
+  max-height: 180px;
+  overflow: auto;
+}
+.work-items-summary p {
+  margin: 4px 0;
+}
+.work-items-summary pre,
+.work-items-summary table {
+  max-width: 100%;
+  overflow: auto;
+}
+.work-items-time,
+.work-items-source-meta,
+.mobile-work-items-path {
+  color: #a9b8cf;
+  font-size: 13px;
+}
+.work-items-status {
+  font-weight: 700;
+}
+.mobile-work-items-error {
+  color: #ffb4b4;
+  overflow-wrap: anywhere;
+}
+.work-items-pagination {
+  margin-top: 12px;
+}
+.mobile-work-items-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  background: #0009;
+}
+.mobile-work-items-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 640px);
+  max-height: 100%;
+  min-height: 0;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #111827;
+  padding: 16px;
+  gap: 12px;
+}
+.mobile-work-items-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mobile-work-items-dialog-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.mobile-work-items-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.mobile-work-items-dialog-body textarea {
+  width: 100%;
+  min-height: 100px;
+}
+.work-items-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.work-items-attempt-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.work-items-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 8px;
+  gap: 4px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #172033;
+}
+.work-items-menu button {
+  min-height: 44px;
+  text-align: left;
+}
+
+.mobile-work-items-page input,
+.mobile-work-items-page select,
+.mobile-work-items-overlay textarea {
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #d8e2f0;
+  background: #101827;
+}
+.mobile-work-items-page input[type="checkbox"] {
+  min-height: auto;
+}
+.work-items-menu button {
+  padding: 8px 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #d8e2f0;
+  background: #172235;
+}
+.work-items-menu button.work-items-menu-danger {
+  color: #ffb4b4;
+}
+.work-items-help summary {
+  min-height: 40px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.work-items-help p {
+  margin: 4px 0;
+  color: #a9b8cf;
+}

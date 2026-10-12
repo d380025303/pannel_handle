@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { createBusinessDataStore } from "./business-data-store.cjs";
 const fixtures = [];
 function fixture() {
@@ -12,6 +13,66 @@ function fixture() {
 const source = number => ({ sourceRunId: `run-${number}`, templateId: number % 2 ? "one" : "two", ownerId: `owner-${number % 2}`, taskId: "timer", taskName: "巡检", template: { title: "工程" }, owner: { name: "负责人" }, tools: [], output: `最终结果 ${number}` });
 afterEach(() => { for (const f of fixtures.splice(0)) { f.db.close(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("work item SQLite persistence", () => {
+  it("migrates legacy records and keeps explicit false across repeated reopen", () => {
+    const { db, userData } = fixture();
+    const item = db.insertWorkItem(source(0));
+    db.close();
+    const legacy = new DatabaseSync(path.join(userData, "agent-token-stats.sqlite3"));
+    legacy.exec("UPDATE app_module_owner_work_items SET value_json=json_remove(value_json,'$.needsFollowUp'); ALTER TABLE app_module_owner_work_items DROP COLUMN needs_follow_up");
+    legacy.close();
+    db.open();
+    expect(db.getWorkItem(item.id)).toMatchObject({ needsFollowUp: true, version: 1 });
+    db.setWorkItemFollowUp(item.id, 1, false);
+    db.close(); db.open(); db.close(); db.open();
+    expect(db.getWorkItem(item.id)).toMatchObject({ needsFollowUp: false, version: 2 });
+    expect(db.listWorkItems({ needsFollowUp: false }).total).toBe(1);
+  });
+  it("filters follow-up before pagination and combines other conditions", () => {
+    const { db } = fixture();
+    for (let i = 0; i < 45; i++) {
+      const item = db.insertWorkItem(source(i));
+      expect(item.needsFollowUp).toBe(true);
+      if (i % 2) db.setWorkItemFollowUp(item.id, item.version, false);
+    }
+    expect(db.listWorkItems({ needsFollowUp: true })).toMatchObject({ total: 23, records: expect.any(Array) });
+    expect(db.listWorkItems({ needsFollowUp: true, page: 1 }).records).toHaveLength(3);
+    expect(db.listWorkItems({ needsFollowUp: false }).total).toBe(22);
+    expect(db.listWorkItems({ needsFollowUp: false, templateId: "one", ownerId: "owner-1", statuses: ["pending"], keyword: "结果 1" }).total).toBe(6);
+  });
+  it.each(["creating", "running", "uncertain", "failed", "stopped", "completed", "void"])("retains follow-up through %s and rejects stale versions", status => {
+    const { db } = fixture(); const item = db.insertWorkItem(source(0));
+    const marked = db.setWorkItemFollowUp(item.id, item.version, false);
+    expect(() => db.setWorkItemFollowUp(item.id, item.version, true)).toThrow("已变更");
+    if (status === "void") {
+      const removed = db.changeWorkItem(item.id, marked.version, "void");
+      expect(removed.needsFollowUp).toBe(false);
+      expect(db.setWorkItemFollowUp(item.id, removed.version, true).needsFollowUp).toBe(true);
+      expect(db.changeWorkItem(item.id, db.getWorkItem(item.id).version, "restore").needsFollowUp).toBe(true);
+    } else {
+      const attempt = db.startWorkItemAttempt(item.id, marked.version, {}, {});
+      const current = db.getWorkItem(item.id);
+      const updated = db.setWorkItemFollowUp(item.id, current.version, true);
+      db.updateWorkItemAttempt(item.id, attempt.id, { status });
+      expect(db.getWorkItem(item.id)).toMatchObject({ needsFollowUp: true, status });
+      expect(db.getWorkItem(item.id).version).toBeGreaterThanOrEqual(updated.version);
+    }
+  });
+
+  it.each(["pending", "creating", "running", "uncertain", "failed", "stopped", "completed", "void"])("checks unprocessed task results in status %s with template and task isolation", status => {
+    const { db } = fixture(); const item = db.insertWorkItem(source(0));
+    if (status === "void") db.changeWorkItem(item.id, item.version, "void");
+    else if (status !== "pending") {
+      const attempt = db.startWorkItemAttempt(item.id, item.version, {}, {});
+      db.updateWorkItemAttempt(item.id, attempt.id, { status });
+    }
+    expect(db.workItemTaskUnprocessed("two", "timer")).toBe(!["completed", "void"].includes(status));
+    expect(db.workItemTaskUnprocessed("one", "timer")).toBe(false);
+    expect(db.workItemTaskUnprocessed("two", "other")).toBe(false);
+    if (status === "void") {
+      db.changeWorkItem(item.id, db.getWorkItem(item.id).version, "restore");
+      expect(db.workItemTaskUnprocessed("two", "timer")).toBe(true);
+    }
+  });
   it("excludes void items by default and filters multiple statuses before pagination", () => {
     const { db } = fixture();
     const pending = db.insertWorkItem(source(0));

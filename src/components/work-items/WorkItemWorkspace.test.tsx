@@ -6,13 +6,14 @@ import { WorkItemWorkspace } from "./WorkItemWorkspace";
 
 const item: WorkItem = { id: "item", sourceRunId: "source", taskId: "timer", ownerId: "owner", templateId: "template", taskName: "模块巡检", output: "最终执行方案",
   owner: { id: "owner", version: 1, name: "模块", responsibilities: "职责", directories: ["src"], createdAt: 1, updatedAt: 1 }, template: { title: "工程", cwd: "C:\\repo" },
-  tools: [], status: "pending", version: 1, createdAt: 1, updatedAt: 1, unavailable: "" };
+  tools: [], needsFollowUp: true, status: "pending", version: 1, createdAt: 1, updatedAt: 1, unavailable: "" };
 function setup(overrides: Partial<WorkItem> = {}) {
   let value = { ...item, ...overrides };
   let changed = () => {};
-  const api = { list: vi.fn(async () => ({ records: [{ ...value, summary: value.output }], total: 1, templates: [{ id: "template", name: "工程" }], owners: [{ id: "owner", name: "模块", templateId: "template" }] })),
+  const api = { list: vi.fn(async (_input?: Parameters<WorkItemApi["list"]>[0]) => ({ records: [{ ...value, summary: value.output }], total: 1, templates: [{ id: "template", name: "工程" }], owners: [{ id: "owner", name: "模块", templateId: "template" }] })),
     get: vi.fn(async () => value), preview: vi.fn(async () => ({ body: { prompt: value.output }, configuration: { cwd: "C:\\repo", codexAppServerModel: "model" } })),
     execute: vi.fn(async () => { value = { ...value, status: "running", version: 2 }; return value; }),
+    setFollowUp: vi.fn(async (input: { needsFollowUp: boolean }) => { value = { ...value, needsFollowUp: input.needsFollowUp, version: value.version + 1 }; return value; }),
     void: vi.fn(async () => ({ ...value, status: "void" as const })), restore: vi.fn(async () => value), resolveUncertain: vi.fn(async () => value),
     listAttempts: vi.fn(async () => ({ records: [{ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", error: "" }], total: 1 })),
     getAttempt: vi.fn(async () => ({ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", input: { prompt: "实际输入" }, configuration: {}, output: "执行回复", error: "" })),
@@ -26,13 +27,82 @@ function setup(overrides: Partial<WorkItem> = {}) {
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("manual task list", () => {
+  it("defaults to Markdown preview, keeps edits across modes and resets configuration on reopen", async () => {
+    const f = setup({ output: "## 修复建议\n\n**检查统计基线**\n\n- 保留累计值\n\n```js\nclear();\n```" });
+    fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+    let dialog = await screen.findByRole("dialog", { name: "执行任务" });
+    await within(dialog).findByRole("heading", { name: "修复建议" });
+    expect(within(dialog).queryByRole("textbox", { name: "实际提示词" })).toBeNull();
+    const config = within(dialog).getByText("执行配置").closest("details")!;
+    expect(config.open).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "编辑" }));
+    const editor = within(dialog).getByRole("textbox", { name: "实际提示词" });
+    fireEvent.change(editor, { target: { value: "## 编辑后的建议\n\n**保留原文**" } });
+    config.open = true;
+    fireEvent.click(within(dialog).getByRole("button", { name: "预览" }));
+    expect(within(dialog).getByRole("heading", { name: "编辑后的建议" })).toBeTruthy();
+    await act(async () => f.changed());
+    await waitFor(() => expect((within(dialog).getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(config.open).toBe(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "编辑" }));
+    expect((within(dialog).getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("## 编辑后的建议\n\n**保留原文**");
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getByRole("button", { name: "执行" }));
+    dialog = await screen.findByRole("dialog", { name: "执行任务" });
+    await within(dialog).findByRole("heading", { name: "修复建议" });
+    expect(within(dialog).getByText("执行配置").closest("details")!.open).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认执行" }));
+    await waitFor(() => expect(f.api.execute).toHaveBeenCalledWith({ id: "item", version: 1, prompt: "## 修复建议\n\n**检查统计基线**\n\n- 保留累计值\n\n```js\nclear();\n```" }));
+  });
+  it("filters follow-up and resets to all", async () => {
+    const { api } = setup();
+    await screen.findByRole("columnheader", { name: "后续处理" });
+    fireEvent.change(screen.getByRole("combobox", { name: "后续处理" }), { target: { value: "false" } });
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ needsFollowUp: false, page: 0 })));
+    fireEvent.change(screen.getByRole("combobox", { name: "后续处理" }), { target: { value: "true" } });
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ needsFollowUp: true, page: 0 })));
+    fireEvent.click(screen.getByRole("button", { name: "重置筛选" }));
+    await waitFor(() => expect(api.list.mock.calls.at(-1)?.[0]).not.toHaveProperty("needsFollowUp"));
+  });
+  it("marks from the execute dialog without losing edits and executes the latest version", async () => {
+    const { api } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    const prompt = await screen.findByRole("textbox", { name: "实际提示词" });
+    fireEvent.change(prompt, { target: { value: "保留编辑" } });
+    fireEvent.click(screen.getByRole("button", { name: "标记为不需要后续处理" }));
+    await screen.findByRole("button", { name: "标记为需要后续处理" });
+    await waitFor(() => expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+    expect((prompt as HTMLTextAreaElement).value).toBe("保留编辑");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await waitFor(() => expect(api.execute).toHaveBeenCalledWith({ id: "item", version: 2, prompt: "保留编辑" }));
+  });
+  it("toggles both ways from more even when void and reports failures", async () => {
+    const { api } = setup({ status: "void", unavailable: "来源已删除" });
+    fireEvent.click(await screen.findByRole("button", { name: "模块巡检：更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "标记为不需要后续处理" }));
+    await waitFor(() => expect(api.setFollowUp).toHaveBeenCalledWith({ id: "item", version: 1, needsFollowUp: false }));
+    await screen.findByText("不需要", { selector: "td" });
+    fireEvent.click(screen.getByRole("button", { name: "模块巡检：更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "标记为需要后续处理" }));
+    await screen.findByText("需要", { selector: "td" });
+    api.setFollowUp.mockRejectedValueOnce(new Error("任务已变更，请刷新后重试。"));
+    fireEvent.click(screen.getByRole("button", { name: "模块巡检：更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "标记为不需要后续处理" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toContain("任务已变更");
+  });
   it("previews raw output/config before execution and submits only once", async () => {
     const { api } = setup();
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));
     const dialog = await screen.findByRole("dialog", { name: "执行任务" });
+    fireEvent.click(await within(dialog).findByRole("button", { name: "编辑" }));
     const prompt = await within(dialog).findByRole("textbox", { name: "实际提示词" });
     expect((prompt as HTMLTextAreaElement).value).toBe(item.output);
     fireEvent.change(prompt, { target: { value: "编辑后的方案" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "预览" }));
+    expect(within(dialog).getByText("编辑后的方案")).toBeTruthy();
     expect(api.execute).not.toHaveBeenCalled();
     const confirm = within(dialog).getByRole("button", { name: "确认执行" });
     await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
@@ -46,6 +116,7 @@ describe("manual task list", () => {
     const f = setup();
     f.api.execute.mockRejectedValueOnce(new Error("创建失败"));
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     let prompt = await screen.findByRole("textbox", { name: "实际提示词" });
     fireEvent.change(prompt, { target: { value: " \n " } });
     expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(true);
@@ -59,6 +130,8 @@ describe("manual task list", () => {
     expect((prompt as HTMLTextAreaElement).value).toBe("本次编辑");
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     fireEvent.click(screen.getByRole("button", { name: "执行" }));
+    expect((await screen.findByRole("button", { name: "预览" })).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     prompt = await screen.findByRole("textbox", { name: "实际提示词" });
     expect((prompt as HTMLTextAreaElement).value).toBe(item.output);
   });
@@ -120,7 +193,7 @@ describe("manual task list", () => {
     fireEvent.keyDown(menu, { key: "End" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "作废" }));
     fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "打开最近会话" }));
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "标记为不需要后续处理" }));
     fireEvent.keyDown(menu, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);

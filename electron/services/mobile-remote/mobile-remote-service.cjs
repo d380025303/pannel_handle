@@ -25,6 +25,7 @@ function createMobileRemoteService({
   stateHub,
   getStaticRoot,
   desktopBroadcast,
+  getWorkItems = () => null,
   getMobileMinimalMode = () => false,
   getGraphicalMenuConfig = () => ({}),
   notifyConnection,
@@ -60,7 +61,7 @@ function createMobileRemoteService({
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now,
-    auth, sizes, uploads, files, send, sendError, getGraphicalMenuConfig, getMobileMinimalMode,
+    auth, sizes, uploads, files, send, sendError, getWorkItems, getGraphicalMenuConfig, getMobileMinimalMode,
     getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
@@ -327,6 +328,9 @@ function createMobileRemoteService({
     updateConfig,
     setPassword,
     getState: currentState,
+    broadcastWorkItems: () => {
+      for (const client of auth.getClients()) if (client.socket.authenticated) send(client.socket, { type: "work-items.changed" });
+    },
     broadcastMobilePreferences: () => {
       const mobileGraphicalSessionMinimalMode = getMobileMinimalMode() === true;
       for (const client of auth.getClients()) {

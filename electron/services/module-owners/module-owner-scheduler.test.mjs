@@ -2,19 +2,45 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 const { createModuleOwnerScheduler } = createRequire(import.meta.url)("./module-owner-scheduler.cjs");
 afterEach(() => vi.useRealTimers());
-function fixture() {
+function fixture(taskUnprocessed = () => false) {
   let at = 1000000;
   let state = { records: [{ id: "owner" }], tasks: [] };
   let run; let submitted = false;
   const launch = vi.fn(async () => { run = { status: "running", startedAt: at, sessionId: "session", error: "" }; submitted = true; return { result: { status: 201 } }; });
   const service = createModuleOwnerScheduler({
     store: { get: () => structuredClone(state), tasks: (_id, tasks) => { state.tasks = structuredClone(tasks); }, templateIds: () => ["one"] },
-    template: () => ({}), supported: () => true, now: () => at,
+    template: () => ({}), supported: () => true, now: () => at, taskUnprocessed,
     launch, job: () => run, submitted: () => submitted, ownerBusy: () => Boolean(run && ["running", "uncertain"].includes(run.status)), revoke: vi.fn(), revokeTask: vi.fn()
   });
   const input = { ownerId: "owner", name: "task", prompt: "inspect", mode: "default", enabled: true, tools: [], schedule: { kind: "interval", minutes: 1, count: 2 } };
   return { service, launch, input, setTime: value => { at = value; }, setRun: (value, sent = false) => { run = value; submitted = sent; }, getState: () => state };
 }
+it("skips unprocessed results without counting and retries only at the next due time", async () => {
+  const check = vi.fn(() => true);
+  const f = fixture(check); const task = f.service.save("one", f.input)[0];
+  f.setTime(task.nextRunAt); await f.service.tick();
+  expect(check).toHaveBeenCalledWith("one", task.id);
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.service.list("one")[0]).toMatchObject({ executedCount: 0, nextRunAt: 1120000, lastRun: { status: "skipped", error: expect.stringContaining("未处理任务") } });
+  check.mockReturnValue(false);
+  await f.service.tick(); expect(f.launch).not.toHaveBeenCalled();
+  f.setTime(1120000); await f.service.tick(); await Promise.resolve(); await Promise.resolve();
+  expect(f.launch).toHaveBeenCalledTimes(1);
+  expect(f.service.list("one")[0].executedCount).toBe(1);
+});
+it("does not launch when the unprocessed check fails, but manual execution bypasses it", async () => {
+  const check = vi.fn(() => { throw new Error("storage unavailable"); });
+  const f = fixture(check); const task = f.service.save("one", f.input)[0];
+  f.setRun({ status: "completed", startedAt: 1, error: "" });
+  f.setTime(task.nextRunAt); await f.service.tick();
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.service.list("one")[0]).toMatchObject({ executedCount: 0, lastRun: { status: "failed", error: expect.stringContaining("storage unavailable") } });
+  await f.service.tick();
+  expect(f.service.list("one")[0].lastRun.status).toBe("failed");
+  await f.service.runTask("one", { id: task.id });
+  expect(check).toHaveBeenCalledTimes(1);
+  expect(f.launch).toHaveBeenCalledTimes(1);
+});
 it("recalculates on restart, stops stale run tracking, preserves counts, and resumes without catch-up", async () => {
   vi.useFakeTimers();
   const f = fixture(); f.service.save("one", f.input);

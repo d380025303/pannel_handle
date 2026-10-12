@@ -51,9 +51,11 @@ function normalizeQuery(query) {
   return String(query || "").trim();
 }
 
-function isOrderedSubsequence(candidate, query) {
-  const normalizedCandidate = String(candidate || "").toLowerCase();
-  const normalizedQuery = String(query || "").toLowerCase();
+function isOrderedSubsequence(candidate, query, caseSensitive = false) {
+  const candidateValue = String(candidate || "");
+  const queryValue = String(query || "");
+  const normalizedCandidate = caseSensitive ? candidateValue : candidateValue.toLowerCase();
+  const normalizedQuery = caseSensitive ? queryValue : queryValue.toLowerCase();
   let queryIndex = 0;
 
   for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length && queryIndex < normalizedQuery.length; candidateIndex += 1) {
@@ -71,7 +73,7 @@ function matchesFileQuery(candidate, query, options = {}) {
   const haystack = options.caseSensitive ? value : value.toLowerCase();
   const needle = options.caseSensitive ? query : query.toLowerCase();
   if (options.wholeWord) return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, options.caseSensitive ? "" : "i").test(value);
-  return isOrderedSubsequence(haystack, needle);
+  return isOrderedSubsequence(haystack, needle, options.caseSensitive);
 }
 
 module.exports = {

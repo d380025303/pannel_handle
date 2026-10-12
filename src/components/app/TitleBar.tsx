@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Braces, Cable, Library, Lightbulb, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Braces, Cable, Library, Lightbulb, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, UserRoundCog, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -64,7 +64,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
 
   const simpleActions = {
     workItems: { label: t("workItems.title"), icon: PanelsTopLeft, onClick: onOpenWorkItems },
-    moduleOwners: { label: t("moduleOwners.title"), icon: Library, onClick: onOpenModuleOwners },
+    moduleOwners: { label: t("moduleOwners.title"), icon: UserRoundCog, onClick: onOpenModuleOwners },
     api: { label: t("sessionApi.title"), icon: Braces, onClick: onOpenApi },
     terminal: { label: t("app.openTerminal"), icon: Terminal, onClick: onOpenTerminal },
     stats: { label: t("tokenStats.open"), icon: BarChart3, onClick: onOpenStats },

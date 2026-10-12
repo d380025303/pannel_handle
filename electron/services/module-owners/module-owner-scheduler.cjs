@@ -3,13 +3,13 @@ const { z } = require("zod");
 const { taskSchema, nextRun } = require("./task-schedule.cjs");
 const active = job => job && ["creating", "running", "uncertain"].includes(job.status);
 
-function createModuleOwnerScheduler({ store, template, supported, launch, job, submitted, revoke, revokeTask, ownerBusy, now = () => Date.now() }) {
+function createModuleOwnerScheduler({ store, template, supported, launch, job, submitted, revoke, revokeTask, ownerBusy, taskUnprocessed = () => false, now = () => Date.now() }) {
   let timer; let ticking = false; let stopped = false; let suspended = false; let lastTick = now();
   const pending = new Set();
   const manualPending = new Set();
   function visibleRun(task, run = job(task.id)) {
     const saved = task.lastRun;
-    if (saved && run && saved.startedAt >= run.startedAt && ((saved.status === "stopped" && !task.enabled) || saved.status === "skipped")) return saved;
+    if (saved && run && saved.startedAt >= run.startedAt && ((saved.status === "stopped" && !task.enabled) || saved.status === "skipped" || (saved.status === "failed" && saved.error?.startsWith("未处理任务检查失败：")))) return saved;
     return run || saved;
   }
   function list(id) {
@@ -133,6 +133,13 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           if (!task.nextRunAt || resumed) { update({ nextRunAt: nextRun(task.schedule, at) }); continue; }
           if (task.nextRunAt > at) continue;
           update({ nextRunAt: nextRun(task.schedule, at) });
+          try {
+            if (taskUnprocessed(id, task.id)) {
+              update({ lastRun: { status: "skipped", error: "此定时任务仍有未处理任务，已跳过本周期。", startedAt: at } }); continue;
+            }
+          } catch (error) {
+            update({ lastRun: { status: "failed", error: `未处理任务检查失败：${error.message}`, startedAt: at } }); continue;
+          }
           const key = `${id}:${task.ownerId}`;
           if (pending.has(key) || ownerBusy(id, task.ownerId)) {
             update({ lastRun: { status: "skipped", error: "上一轮未结束，已跳过本周期。", startedAt: at } }); continue;

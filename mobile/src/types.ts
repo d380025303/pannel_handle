@@ -113,7 +113,11 @@ export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qo
       credit: number; owed: number };
   limits: GraphicalUsageLimit[] };
 
+export type WorkItemOperation = Exclude<keyof import("../../src/vite-env").WorkItemApi, "onChanged">;
+export type WorkItemMessage = Extract<ServerMessage, { type: "work-items.result" | "work-items.changed" | "error" }>;
 export type ServerMessage =
+  | { v: 8; type: "work-items.result"; requestId: string; result: unknown }
+  | { v: 8; type: "work-items.changed" }
   | { v: 8; type: "mobile-preferences.changed"; mobileGraphicalSessionMinimalMode: boolean }
   | { v: 8; type: "graphical-menu.changed"; config: import("../../src/utils/graphicalMenu").GraphicalMenuConfig }
   | { v: 8; type: "graphical.opencode.auth-data"; id: string; generation: number; seq: number; data: string }
@@ -141,6 +145,7 @@ export type ServerMessage =
   | { v: 8; type: "error"; code: string; message: string; requestId?: string };
 
 export type ClientMessage =
+  | { v: 8; type: "work-items.request"; requestId: string; operation: WorkItemOperation; input: unknown }
   | { v: 8; type: `graphical.opencode.${OpenCodeCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }
   | { v: 8; type: `graphical.codebuddy.${CodeBuddyCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }
   | { v: 8; type: `graphical.codex.${CodexCommand}`; sessionId: string; threadId: string | null; requestId: string; input?: Record<string, unknown> }

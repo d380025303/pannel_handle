@@ -21,12 +21,12 @@ function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
     .some(value => value?.toLowerCase().includes(query));
 }
 
-export function SessionHome({ sessions, overviews, activeId, onOpen, onAction, onChooseTemplate }: {
+export function SessionHome({ sessions, overviews, activeId, onOpen, onAction, onChooseTemplate, onOpenTasks }: {
   sessions: RuntimeSession[]; overviews: Record<string, SessionOverview>; activeId: string | null;
-  onOpen: (id: string) => void; onAction: SessionAction; onChooseTemplate: () => void;
+  onOpen: (id: string) => void; onAction: SessionAction; onChooseTemplate: () => void; onOpenTasks: () => void;
 }) {
   return <section className="mobile-home">
-    <div className="mobile-home-heading"><div><span>会话总览</span><h1>运行中的会话</h1></div><strong>{sessions.length}</strong></div>
+    <div className="mobile-home-heading mobile-home-heading-with-tasks"><div><span>会话总览</span><h1>运行中的会话</h1></div><strong>{sessions.length}</strong><button type="button" className="mobile-files-button" onClick={onOpenTasks}>任务列表</button></div>
     {sessions.length ? <div className="mobile-home-list">{sessions.map(session => {
       const overview = overviews[session.id];
       return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>

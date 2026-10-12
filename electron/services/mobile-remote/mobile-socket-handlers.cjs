@@ -3,7 +3,7 @@ const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getWorkItems = () => null, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, agentSessionLauncher });
 
@@ -59,7 +59,14 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
   async function handleAuthenticatedMessage(socket, message) {
     const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
     try {
-      if (message.type === "files.list") {
+      if (message.type === "work-items.request") {
+        const operations = ["list", "get", "preview", "execute", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"];
+        if (!requestId || !operations.includes(message.operation)) throw new Error("任务操作无效。");
+        const service = getWorkItems();
+        if (!service) throw new Error("任务服务尚未就绪。");
+        const result = await service[message.operation](message.input);
+        send(socket, { type: "work-items.result", requestId, result });
+      } else if (message.type === "files.list") {
         const result = await files.list(message.path);
         send(socket, { type: "files.list.result", requestId, ...result });
       } else if (message.type === "files.download.prepare") {
@@ -150,7 +157,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     } catch (error) {
       const graphicalQuickCommand = message.type === "quick-command.invoke"
         && terminalManager.getSession(String(message.sessionId || ""))?.runtimeMode === "app-server";
-      sendError(socket, message.type.startsWith("files.") ? "FILE_COMMAND_FAILED"
+      sendError(socket, message.type.startsWith("work-items.") ? "WORK_ITEM_COMMAND_FAILED" : message.type.startsWith("files.") ? "FILE_COMMAND_FAILED"
         : message.type.startsWith("graphical.") || graphicalQuickCommand ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
         error.message || String(error), requestId);
     }

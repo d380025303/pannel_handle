@@ -20,7 +20,13 @@ function createWorkItemStore(database, transaction) {
         id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, status TEXT NOT NULL,
         started_at INTEGER NOT NULL, value_json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS app_module_owner_work_item_attempts_order ON app_module_owner_work_item_attempts(work_item_id,started_at DESC,id DESC);`);
+    if (!db().prepare("PRAGMA table_info(app_module_owner_work_items)").all().some(column => column.name === "needs_follow_up")) {
+      db().exec("ALTER TABLE app_module_owner_work_items ADD COLUMN needs_follow_up INTEGER NOT NULL DEFAULT 1");
+    }
+    db().exec(`UPDATE app_module_owner_work_items SET value_json=json_set(value_json,'$.needsFollowUp',json(CASE WHEN needs_follow_up=1 THEN 'true' ELSE 'false' END))
+      WHERE json_type(value_json,'$.needsFollowUp') IS NULL`);
     db().prepare("INSERT INTO app_migrations(version,completed_at) VALUES(4,?) ON CONFLICT(version) DO NOTHING").run(Date.now());
+    db().prepare("INSERT INTO app_migrations(version,completed_at) VALUES(5,?) ON CONFLICT(version) DO NOTHING").run(Date.now());
   }
   function getWorkItem(id) {
     const row = db().prepare("SELECT value_json FROM app_module_owner_work_items WHERE id=?").get(id);
@@ -28,22 +34,23 @@ function createWorkItemStore(database, transaction) {
     return JSON.parse(row.value_json);
   }
   function writeItem(value) {
-    db().prepare("UPDATE app_module_owner_work_items SET status=?,version=?,value_json=? WHERE id=?")
-      .run(value.status, value.version, JSON.stringify(value), value.id);
+    db().prepare("UPDATE app_module_owner_work_items SET status=?,version=?,needs_follow_up=?,value_json=? WHERE id=?")
+      .run(value.status, value.version, value.needsFollowUp ? 1 : 0, JSON.stringify(value), value.id);
     return value;
   }
   function insertWorkItem(value) {
-    const item = { ...value, id: randomUUID(), status: "pending", version: 1, createdAt: value.createdAt || Date.now(), updatedAt: Date.now() };
-    db().prepare(`INSERT INTO app_module_owner_work_items(id,source_run_id,task_id,owner_id,template_id,status,version,created_at,output,task_name,owner_name,template_name,value_json)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_run_id) DO NOTHING`).run(item.id, item.sourceRunId, item.taskId, item.ownerId, item.templateId,
-      item.status, item.version, item.createdAt, item.output, item.taskName, item.owner.name, item.template.title, JSON.stringify(item));
+    const item = { ...value, id: randomUUID(), status: "pending", needsFollowUp: true, version: 1, createdAt: value.createdAt || Date.now(), updatedAt: Date.now() };
+    db().prepare(`INSERT INTO app_module_owner_work_items(id,source_run_id,task_id,owner_id,template_id,status,version,created_at,output,task_name,owner_name,template_name,needs_follow_up,value_json)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_run_id) DO NOTHING`).run(item.id, item.sourceRunId, item.taskId, item.ownerId, item.templateId,
+      item.status, item.version, item.createdAt, item.output, item.taskName, item.owner.name, item.template.title, 1, JSON.stringify(item));
     return JSON.parse(db().prepare("SELECT value_json FROM app_module_owner_work_items WHERE source_run_id=?").get(item.sourceRunId).value_json);
   }
-  function listWorkItems({ templateId, ownerId, status, statuses, keyword, page = 0 } = {}) {
+  function listWorkItems({ templateId, ownerId, status, statuses, needsFollowUp, keyword, page = 0 } = {}) {
     const conditions = []; const args = [];
     for (const [field, value] of [["template_id", templateId], ["owner_id", ownerId]]) {
       if (value) { conditions.push(`${field}=?`); args.push(value); }
     }
+    if (needsFollowUp !== undefined) { conditions.push("needs_follow_up=?"); args.push(needsFollowUp ? 1 : 0); }
     const selectedStatuses = statuses ?? (status ? [status] : undefined);
     if (selectedStatuses) {
       conditions.push(selectedStatuses.length ? `status IN (${selectedStatuses.map(() => "?").join(",")})` : "0");
@@ -94,6 +101,13 @@ function createWorkItemStore(database, transaction) {
       return updated;
     });
   }
+  function setWorkItemFollowUp(id, version, needsFollowUp) {
+    return transaction(() => {
+      const item = getWorkItem(id);
+      if (item.version !== version) throw new Error("任务已变更，请刷新后重试。");
+      return writeItem({ ...item, needsFollowUp, version: item.version + 1, updatedAt: Date.now() });
+    });
+  }
   function changeWorkItem(id, version, operation, reason = "") {
     return transaction(() => {
       const item = getWorkItem(id);
@@ -122,7 +136,10 @@ function createWorkItemStore(database, transaction) {
   function workItemOwnerBusy(templateId, ownerId) {
     return Boolean(db().prepare("SELECT 1 FROM app_module_owner_work_items WHERE template_id=? AND owner_id=? AND status IN ('creating','running','uncertain') LIMIT 1").get(templateId, ownerId));
   }
+  function workItemTaskUnprocessed(templateId, taskId) {
+    return Boolean(db().prepare("SELECT 1 FROM app_module_owner_work_items WHERE template_id=? AND task_id=? AND status NOT IN ('completed','void') LIMIT 1").get(templateId, taskId));
+  }
   return { initializeWorkItems, insertWorkItem, getWorkItem, listWorkItems, getWorkItemAttempt, startWorkItemAttempt,
-    updateWorkItemAttempt, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy };
+    updateWorkItemAttempt, setWorkItemFollowUp, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy, workItemTaskUnprocessed };
 }
 module.exports = { createWorkItemStore };

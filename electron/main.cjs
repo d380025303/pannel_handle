@@ -535,6 +535,7 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher
     });
     mobileRemoteService = createMobileRemoteService({
+      getWorkItems: () => moduleOwnerService?.workItems,
       getMobileMinimalMode: () => configStore.getConfig().mobileGraphicalSessionMinimalMode,
       getGraphicalMenuConfig: () => configStore.getConfig().graphicalMenuSecondaryActions,
       terminalManager,
@@ -580,7 +581,11 @@ if (!gotSingleInstanceLock) {
     });
     moduleOwnerService = require("./services/module-owners/module-owner-service.cjs").createModuleOwnerService({
       userData: app.getPath("userData"), dataStore: businessDataStore, sessionStore, terminalManager,
-      graphicalService: codexAppServerSessionService, getSessionApi: () => sessionApiService, broadcast: windowManager.broadcast
+      graphicalService: codexAppServerSessionService, getSessionApi: () => sessionApiService,
+      broadcast: (channel, ...args) => {
+        windowManager.broadcast(channel, ...args);
+        if (channel === "work-items:changed" || channel === "module-owners:changed") mobileRemoteService?.broadcastWorkItems();
+      }
     });
     sessionApiService = require("./services/session-api/session-api-service.cjs").createSessionApiService({
       moduleOwners: moduleOwnerService,
