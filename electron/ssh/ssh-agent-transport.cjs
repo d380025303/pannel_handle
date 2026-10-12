@@ -113,7 +113,9 @@ function createSshAgentTransport({ sshSessionRuntime }) {
 
   async function createHttpForwarder(sessionId, remotePort) {
     const client = await sshSessionRuntime.connectClient(sessionId, { actionName: "CodeBuddy ACP HTTP connection" });
-    const agent = new http.Agent({ keepAlive: true });
+    // SSH channels are Duplex streams, without TCP socket keep-alive/ref methods.
+    // Reuse the SSH connection, but close each completed HTTP request's channel.
+    const agent = new http.Agent({ keepAlive: false });
     agent.createConnection = (_options, callback) => {
       client.forwardOut("127.0.0.1", 0, "127.0.0.1", remotePort, callback);
     };

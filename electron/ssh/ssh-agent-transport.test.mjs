@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import http from "node:http";
+import { Duplex } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -16,6 +18,82 @@ function createStream() {
 }
 
 describe("ssh-agent-transport", () => {
+  function createHttpRuntime(response) {
+    const channels = [];
+    const client = {
+      forwardOut: vi.fn((_sourceHost, _sourcePort, _host, _port, done) => {
+        let answered = false;
+        const channel = new Duplex({
+          read() {},
+          final(callback) {
+            this.push(null);
+            callback();
+          },
+          write(_chunk, _encoding, callback) {
+            callback();
+            if (!answered) {
+              answered = true;
+              setImmediate(() => this.push(response));
+            }
+          }
+        });
+        channels.push(channel);
+        done(null, channel);
+      }),
+      end: vi.fn()
+    };
+    return { channels, client, runtime: { connectClient: vi.fn(async () => client) } };
+  }
+
+  it("closes completed keep-alive HTTP channels and opens a new channel for the next request", async () => {
+    const { channels, client, runtime } = createHttpRuntime("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\n{}");
+    const forwarder = await createSshAgentTransport({ sshSessionRuntime: runtime }).createHttpForwarder("ssh-1", 48123);
+    const request = () => new Promise((resolve, reject) => {
+      http.get({ host: "127.0.0.1", port: 48123, agent: forwarder.agent }, res => {
+        let body = "";
+        res.on("data", chunk => { body += chunk; });
+        res.on("error", reject);
+        res.on("end", () => resolve(body));
+      }).on("error", reject);
+    });
+    try {
+      await expect(request()).resolves.toBe("{}");
+      await new Promise(resolve => setImmediate(resolve));
+      expect(channels[0].destroyed).toBe(true);
+      await expect(request()).resolves.toBe("{}");
+      await new Promise(resolve => setImmediate(resolve));
+      expect(client.forwardOut).toHaveBeenCalledTimes(2);
+      expect(channels.every(channel => channel.destroyed)).toBe(true);
+      expect(runtime.connectClient).toHaveBeenCalledTimes(1);
+    } finally { forwarder.close(); }
+    expect(client.end).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an active SSE channel open until the forwarder is closed", async () => {
+    const { channels, client, runtime } = createHttpRuntime("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: keep-alive\r\n\r\ndata: {}\n\n");
+    const forwarder = await createSshAgentTransport({ sshSessionRuntime: runtime }).createHttpForwarder("ssh-1", 48123);
+    let request;
+    try {
+      const response = await new Promise((resolve, reject) => {
+        request = http.get({ host: "127.0.0.1", port: 48123, agent: forwarder.agent }, res => {
+          res.on("error", () => {});
+          res.once("data", () => resolve(res));
+        }).on("error", reject);
+      });
+      await new Promise(resolve => setImmediate(resolve));
+      expect(response.complete).toBe(false);
+      expect(channels[0].destroyed).toBe(false);
+      const closed = new Promise(resolve => channels[0].once("close", resolve));
+      forwarder.close();
+      await closed;
+      expect(channels[0].destroyed).toBe(true);
+      expect(client.end).toHaveBeenCalledOnce();
+    } finally {
+      request?.destroy();
+      if (!channels[0]?.destroyed) forwarder.close();
+    }
+  });
+
   it("forwards CodeBuddy HTTP sockets to the remote loopback port", async () => {
     const socket = new EventEmitter();
     socket.destroy = vi.fn();
