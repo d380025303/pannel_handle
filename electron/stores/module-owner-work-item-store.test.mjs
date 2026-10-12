@@ -123,3 +123,34 @@ describe("work item SQLite persistence", () => {
     db.recoverWorkItemAttempts(); expect(db.getWorkItem(item.id).status).toBe("uncertain");
   });
 });
+
+it.each(["pending", "failed", "stopped"])("manually completes %s without altering attempts and persists it", status => {
+  const { db } = fixture(); const item = db.insertWorkItem(source(0));
+  if (status !== "pending") {
+    const attempt = db.startWorkItemAttempt(item.id, item.version, {}, {});
+    db.updateWorkItemAttempt(item.id, attempt.id, { status, error: "old error", endedAt: 10 });
+  }
+  const before = db.getWorkItem(item.id);
+  const attempts = db.listWorkItemAttempts(item.id);
+  expect(() => db.markWorkItemCompleted(item.id, before.version + 1)).toThrow("已变更");
+  const updated = db.markWorkItemCompleted(item.id, before.version);
+  expect(updated).toEqual({ ...before, status: "completed", error: "", version: before.version + 1, updatedAt: expect.any(Number) });
+  expect(db.listWorkItemAttempts(item.id)).toEqual(attempts);
+  if (before.latestAttemptId) {
+    db.updateWorkItemAttempt(item.id, before.latestAttemptId, { status: "failed", error: "late event" });
+    expect(db.getWorkItem(item.id).status).toBe("completed");
+  }
+  db.close(); db.open();
+  expect(db.getWorkItem(item.id)).toEqual(updated);
+});
+it.each(["creating", "running", "uncertain", "completed", "void"])("rejects manual completion of %s", status => {
+  const { db } = fixture(); const item = db.insertWorkItem(source(0));
+  if (status === "void") db.changeWorkItem(item.id, item.version, "void");
+  else {
+    const attempt = db.startWorkItemAttempt(item.id, item.version, {}, {});
+    db.updateWorkItemAttempt(item.id, attempt.id, { status });
+  }
+  const current = db.getWorkItem(item.id);
+  expect(() => db.markWorkItemCompleted(item.id, current.version)).toThrow("仅待执行");
+  expect(db.getWorkItem(item.id)).toEqual(current);
+});

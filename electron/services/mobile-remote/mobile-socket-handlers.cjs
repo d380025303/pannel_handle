@@ -60,7 +60,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
     try {
       if (message.type === "work-items.request") {
-        const operations = ["list", "get", "preview", "execute", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"];
+        const operations = ["listQuickPrompts", "mutateQuickPrompt", "list", "get", "preview", "execute", "markCompleted", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"];
         if (!requestId || !operations.includes(message.operation)) throw new Error("任务操作无效。");
         const service = getWorkItems();
         if (!service) throw new Error("任务服务尚未就绪。");

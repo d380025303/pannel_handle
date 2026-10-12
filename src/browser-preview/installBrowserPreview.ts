@@ -782,5 +782,31 @@ export function installBrowserPreview() {
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"
   >;
 
-  Object.assign(window, apis);
+  const workItemChanges = createChannel<void>();
+  let quickPrompts: import("../vite-env").WorkItemQuickPrompt[] = [];
+  const previewWorkItem = { id: "preview-work-item", sourceRunId: "preview-run", taskId: "preview-task", ownerId: "preview-owner", templateId: "preview-local-template", taskName: "预览任务", unavailable: "", output: "检查项目并修复问题。", tools: [], needsFollowUp: true, status: "pending", version: 1, createdAt: now, updatedAt: now, owner: { id: "preview-owner", version: 1, name: "开发", responsibilities: "维护项目", directories: ["src"], createdAt: now, updatedAt: now }, template: { title: "本地开发", cwd: "C:\\workspace" } } as import("../vite-env").WorkItem;
+  const workItemApi: import("../vite-env").WorkItemApi = {
+    listQuickPrompts: async () => copy(quickPrompts),
+    mutateQuickPrompt: async input => {
+      const index = quickPrompts.findIndex(value => value.id === ("id" in input ? input.id : ""));
+      if (input.operation !== "add" && (index < 0 || quickPrompts[index].version !== input.version)) throw new Error("常用提示词已修改或删除，请刷新后重试。");
+      if (input.operation === "delete") quickPrompts.splice(index, 1);
+      else if (input.operation === "add") quickPrompts.push({ id: `preview-prompt-${nextId++}`, version: 1, name: input.name, prompt: input.prompt });
+      else quickPrompts[index] = { id: input.id, version: input.version + 1, name: input.name, prompt: input.prompt };
+      workItemChanges.emit(); return copy(quickPrompts);
+    },
+    list: async () => ({ records: [{ ...copy(previewWorkItem), summary: previewWorkItem.output }], total: 1, templates: [], owners: [] }),
+    get: async () => copy(previewWorkItem),
+    preview: async input => ({ body: { prompt: input.prompt ?? previewWorkItem.output }, configuration: { cwd: previewWorkItem.template.cwd } }),
+    execute: async () => { previewWorkItem.status = "running"; previewWorkItem.version++; workItemChanges.emit(); return copy(previewWorkItem); },
+    markCompleted: async () => { previewWorkItem.status = "completed"; previewWorkItem.error = ""; previewWorkItem.version++; previewWorkItem.updatedAt = Date.now(); workItemChanges.emit(); return copy(previewWorkItem); },
+    setFollowUp: async input => { previewWorkItem.needsFollowUp = input.needsFollowUp; workItemChanges.emit(); return copy(previewWorkItem); },
+    listAttempts: async () => ({ records: [], total: 0 }),
+    getAttempt: async () => { throw new Error("暂无执行记录。"); },
+    void: async () => { previewWorkItem.status = "void"; return copy(previewWorkItem); },
+    restore: async () => { previewWorkItem.status = "pending"; return copy(previewWorkItem); },
+    resolveUncertain: async () => { previewWorkItem.status = "stopped"; return copy(previewWorkItem); },
+    onChanged: callback => workItemChanges.subscribe(callback)
+  };
+  Object.assign(window, apis, { workItemApi, moduleOwnerApi: { listTemplates: async () => [], onChanged: () => () => {} } });
 }

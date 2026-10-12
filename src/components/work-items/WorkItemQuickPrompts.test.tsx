@@ -1,0 +1,56 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import type { WorkItemApi } from "../../vite-env";
+import { OwnerDialog } from "../module-owners/OwnerDialog";
+import { WorkItemQuickPrompts } from "./WorkItemQuickPrompts";
+afterEach(cleanup);
+it("manages shared prompts, refreshes external changes and retains drafts on conflict", async () => {
+  let changed = () => {};
+  const record = { id: "one", version: 1, name: "验证", prompt: "运行测试" };
+  const api = { listQuickPrompts: vi.fn(async () => [] as typeof record[]), mutateQuickPrompt: vi.fn(async () => [record]), onChanged: vi.fn(callback => { changed = callback; return () => {}; }) } as unknown as WorkItemApi;
+  const append = vi.fn();
+  const view = render(<WorkItemQuickPrompts api={api} disabled={false} onAppend={append} Dialog={OwnerDialog} />);
+  fireEvent.click(screen.getByRole("button", { name: "管理常用提示词" }));
+  fireEvent.click(screen.getByRole("button", { name: "新增常用提示词" }));
+  const save = screen.getByRole("button", { name: "保存常用提示词" }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("按钮名称"), { target: { value: record.name } });
+  fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: record.prompt } });
+  fireEvent.click(save);
+  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "add", name: record.name, prompt: record.prompt }));
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+  vi.mocked(api.mutateQuickPrompt).mockRejectedValueOnce(new Error("版本冲突"));
+  fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: "保留草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存常用提示词" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert").textContent).toContain("版本冲突");
+  expect((screen.getByLabelText("常用提示词正文") as HTMLTextAreaElement).value).toBe("保留草稿");
+  vi.mocked(api.listQuickPrompts).mockResolvedValue([{ ...record, version: 2, name: "手机更新" }]);
+  await act(async () => changed());
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: "修改正文" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存常用提示词" }));
+  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "update", id: "one", version: 2, name: "手机更新", prompt: "修改正文" }));
+  await waitFor(() => expect(screen.queryByLabelText("常用提示词正文")).toBeNull());
+  vi.mocked(api.mutateQuickPrompt).mockResolvedValueOnce([]);
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "delete", id: "one", version: 1 }));
+  await screen.findByText("暂无常用提示词。");
+  await act(async () => changed());
+  fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
+  fireEvent.click(screen.getByRole("button", { name: "手机更新" }));
+  expect(append).toHaveBeenCalledWith("运行测试");
+  view.rerender(<WorkItemQuickPrompts api={api} disabled onAppend={append} Dialog={OwnerDialog} />);
+  expect((screen.getByRole("button", { name: "手机更新" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("reports load errors and allows retry", async () => {
+  const api = { listQuickPrompts: vi.fn().mockRejectedValueOnce(new Error("连接失败")).mockResolvedValueOnce([{ id: "q", version: 1, name: "重试结果", prompt: "内容" }]), onChanged: () => () => {} } as unknown as WorkItemApi;
+  const append = vi.fn();
+  render(<WorkItemQuickPrompts api={api} disabled={false} onAppend={append} Dialog={OwnerDialog} />);
+  expect((await screen.findByRole("alert")).textContent).toContain("连接失败");
+  fireEvent.click(screen.getByRole("button", { name: "刷新常用提示词" }));
+  fireEvent.click(await screen.findByRole("button", { name: "重试结果" }));
+  expect(append).toHaveBeenCalledWith("内容");
+});

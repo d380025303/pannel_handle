@@ -162,3 +162,17 @@ it("persists paginated task runs separately from owner documents and interrupts 
   expect(() => store.getTaskRun("t", "task", "completed")).toThrow();
   store.close(); store = f.open(); expect(store.listTaskRuns("t", "task").total).toBe(3); store.close();
 });
+
+it("persists quick prompts independently and rejects stale edits and deletions", () => {
+  const f = fixture(); let db = f.open();
+  expect(db.listWorkItemPrompts()).toEqual([]);
+  const first = db.mutateWorkItemPrompt({ operation: "add", name: "验证", prompt: "运行测试" })[0];
+  db.close(); db = f.open();
+  expect(db.listWorkItemPrompts()).toEqual([first]);
+  const updated = db.mutateWorkItemPrompt({ operation: "update", ...first, prompt: "相关测试" })[0];
+  expect(updated.version).toBe(2);
+  expect(() => db.mutateWorkItemPrompt({ operation: "update", ...first })).toThrow("已修改或删除");
+  expect(() => db.mutateWorkItemPrompt({ operation: "delete", id: first.id, version: 1 })).toThrow("已修改或删除");
+  db.mutateWorkItemPrompt({ operation: "delete", id: updated.id, version: updated.version });
+  expect(db.listWorkItemPrompts()).toEqual([]); db.close();
+});

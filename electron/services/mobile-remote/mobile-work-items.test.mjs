@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import socketModule from "./mobile-socket-handlers.cjs";
 
 function fixture() {
-  const service = Object.fromEntries(["list", "get", "preview", "execute", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"].map(name => [name, vi.fn(async input => ({ name, input }))]));
+  const service = Object.fromEntries(["listQuickPrompts", "mutateQuickPrompt", "list", "get", "preview", "execute", "markCompleted", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"].map(name => [name, vi.fn(async input => ({ name, input }))]));
   const send = vi.fn(), sendError = vi.fn();
   const handlers = socketModule.createMobileSocketHandlers({ getWorkItems: () => service, sizes: {}, now: Date.now, send, sendError, auth: {}, terminalManager: {} });
   const socket = new EventEmitter();

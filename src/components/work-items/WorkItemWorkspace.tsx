@@ -1,3 +1,4 @@
+import { WorkItemQuickPrompts } from "./WorkItemQuickPrompts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -97,7 +98,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       setDialog(null); onOpenSession(id);
     } catch (err) { if (dialog) setDialogError(String(err)); else setError(String(err)); }
   }
-  async function perform(operation: "execute" | "void" | "restore" | "resolveUncertain") {
+  async function perform(operation: "execute" | "markCompleted" | "void" | "restore" | "resolveUncertain") {
     if (!item || submitting.current || (operation === "execute" && !prompt.trim())) return;
     submitting.current = true; setBusy(true); setDialogError("");
     try {
@@ -126,7 +127,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       <header className="work-items-toolbar">
         <div className="work-items-heading">
           <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
-          <button type="button" className="work-items-help" aria-label="任务生成与完成规则" title="定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮才记为已完成。">?</button>
+          <button type="button" className="work-items-help" aria-label="任务生成与完成规则" title="定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。">?</button>
         </div>
         <div className="work-items-select-filters">
           <div className="work-items-search">
@@ -181,6 +182,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
           {dialog.kind === "execute" && <>
             <p className="work-items-execute-hint">普通模式创建新会话，提示词修改仅用于本次执行。</p>
             {preview && <>
+              <WorkItemQuickPrompts api={window.workItemApi} disabled={busy || dialogLoading} Dialog={OwnerDialog} onAppend={text => setPrompt(value => value ? `${value}\n\n${text}` : text)} />
               <section className="work-items-prompt" aria-label="实际提示词">
                 <div className="work-items-prompt-toolbar"><strong>实际提示词</strong><div role="group" aria-label="提示词显示模式"><button type="button" aria-pressed={promptMode === "preview"} disabled={busy} onClick={() => setPromptMode("preview")}>预览</button><button type="button" aria-pressed={promptMode === "edit"} disabled={busy} onClick={() => setPromptMode("edit")}>编辑</button></div></div>
                 {promptMode === "preview" ? <div className="work-items-prompt-preview remote-preview-markdown-content" tabIndex={0}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{prompt || "提示词为空，请切换到编辑填写。"}</ReactMarkdown></div>
@@ -202,6 +204,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       </div>
       <footer className="module-owners-dialog-footer work-items-dialog-footer"><button type="button" disabled={busy} onClick={() => setDialog(null)}>关闭</button>
         {dialog.kind === "execute" && item && <button type="button" disabled={busy || dialogLoading} onClick={() => void toggleFollowUp(item)}>{followUpAction(item.needsFollowUp)}</button>}
+        {dialog.kind === "execute" && item && ["pending", "failed", "stopped"].includes(item.status) && <button type="button" disabled={busy || dialogLoading} onClick={() => void perform("markCompleted")}>标记完成</button>}
         {dialog.kind === "execute" && <button type="button" disabled={busy || dialogLoading || !item || !preview || !prompt.trim() || active(item.status) || item.status === "void" || Boolean(item.unavailable)} onClick={() => void perform("execute")}>{busy ? "创建中…" : "确认执行"}</button>}
         {dialog.kind === "void" && <button type="button" disabled={busy || dialogLoading || !item || active(item.status) || item.status === "void"} onClick={() => void perform("void")}>确认作废</button>}
         {dialog.kind === "restore" && <button type="button" disabled={busy || dialogLoading || item?.status !== "void"} onClick={() => void perform("restore")}>确认恢复</button>}

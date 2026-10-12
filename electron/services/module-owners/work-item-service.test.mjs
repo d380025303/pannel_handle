@@ -17,7 +17,8 @@ async function fixture() {
   const graphical = { snapshot: id => sessions.get(id), getInjectedToolState: id => sessions.get(id),
     isInjectedToolCallCurrent: (id, input) => sessions.get(id)?.busy && sessions.get(id)?.turnId === input.turnId,
     onTaskTurnEnded: callback => { listener = callback; return () => { listener = undefined; }; } };
-  const service = createModuleOwnerService({ userData, dataStore: db, sessionStore: { getTemplate: id => templates.find(value => value.id === id), getLibrary: () => templates },
+  const broadcast = vi.fn();
+  const service = createModuleOwnerService({ userData, dataStore: db, broadcast, sessionStore: { getTemplate: id => templates.find(value => value.id === id), getLibrary: () => templates },
     terminalManager: terminal, graphicalService: graphical, getSessionApi: () => api });
   const instances = { listTemplates: () => ({ templates: [] }), create: vi.fn(async (body, hooks) => {
     const id = `session-${++sequence}`;
@@ -41,7 +42,7 @@ async function fixture() {
     end(result.result.body.sessionId, output, status);
     return service.workItems.list().records[0];
   }
-  const f = { userData, db, service, api, instances, templates, sessions, graphical, owner, task, end, source, work: service.workItems };
+  const f = { broadcast, userData, db, service, api, instances, templates, sessions, graphical, owner, task, end, source, work: service.workItems };
   fixtures.push(f); return f;
 }
 afterEach(async () => {
@@ -321,4 +322,27 @@ describe("scheduled replies and manual work items through HTTP", () => {
     const large = await f.source("中".repeat(100000));
     expect(() => f.work.preview({ id: large.id, version: large.version })).toThrow("256 KiB");
   });
+});
+
+it("validates quick prompt management", async () => {
+  const f = await fixture();
+  expect(() => f.work.mutateQuickPrompt({ operation: "add", name: " ", prompt: "内容" })).toThrow();
+  expect(() => f.work.mutateQuickPrompt({ operation: "add", name: "要求", prompt: " \n " })).toThrow();
+  const first = f.work.mutateQuickPrompt({ operation: "add", name: "要求", prompt: "追加要求" })[0];
+  expect(f.work.listQuickPrompts()).toEqual([first]);
+  expect(f.broadcast).toHaveBeenCalledWith("work-items:changed");
+  expect(() => f.work.mutateQuickPrompt({ operation: "update", ...first, version: 99 })).toThrow("已修改或删除");
+});
+
+it("manually completes unavailable work items and broadcasts without launching", async () => {
+  const f = await fixture(); const item = await f.source();
+  f.templates.length = 0;
+  const attempts = f.work.listAttempts({ id: item.id });
+  f.broadcast.mockClear();
+  expect(() => f.work.markCompleted({ id: item.id, version: item.version, extra: true })).toThrow();
+  const updated = f.work.markCompleted({ id: item.id, version: item.version });
+  expect(updated).toMatchObject({ status: "completed", version: item.version + 1, needsFollowUp: item.needsFollowUp });
+  expect(f.work.listAttempts({ id: item.id })).toEqual(attempts);
+  expect(f.broadcast).toHaveBeenCalledWith("work-items:changed");
+  expect(() => f.work.markCompleted({ id: item.id, version: item.version })).toThrow("已变更");
 });

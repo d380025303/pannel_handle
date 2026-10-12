@@ -70,6 +70,11 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     }
     return get({ id });
   }
+  function markCompleted(input) {
+    const { id, version } = identity.parse(input);
+    database().markWorkItemCompleted(id, version);
+    changed(); return get({ id });
+  }
   function setFollowUp(input) {
     const { id, version, needsFollowUp } = identity.extend({ needsFollowUp: z.boolean() }).parse(input);
     database().setWorkItemFollowUp(id, version, needsFollowUp);
@@ -99,6 +104,18 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     database().updateWorkItemAttempt(id, attempt.id, { status: "stopped", endedAt: Date.now(), error: "人工核对原会话已结束或不存在，标记为中断。" });
     changed(); return get({ id });
   }
-  return { list, get, preview, execute, setFollowUp, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
+  function listQuickPrompts() { return database().listWorkItemPrompts(); }
+  function mutateQuickPrompt(input) {
+    const fields = { name: z.string().trim().min(1).max(100), prompt: z.string().min(1).max(100000).refine(value => Boolean(value.trim()), "提示词不能为空。") };
+    const parsed = z.discriminatedUnion("operation", [
+      z.object({ operation: z.literal("add"), ...fields }).strict(),
+      z.object({ operation: z.literal("update"), ...identity.shape, ...fields }).strict(),
+      z.object({ operation: z.literal("delete"), ...identity.shape }).strict()
+    ]).parse(input);
+    const records = database().mutateWorkItemPrompt(parsed);
+    changed();
+    return records;
+  }
+  return { listQuickPrompts, mutateQuickPrompt, list, get, preview, execute, markCompleted, setFollowUp, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
 }
 module.exports = { createWorkItemService };

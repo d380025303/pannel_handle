@@ -1867,11 +1867,16 @@ export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItem
   sessionId?: string; threadId?: string; turnId?: string; input: { prompt: string; [key: string]: unknown }; configuration: Record<string, unknown>; output: string; error: string };
 export type WorkItemIdentity = { id: string; version: number };
 export type WorkItemPage = { records: WorkItemSummary[]; total: number; storageErrors?: string[]; templates: { id: string; name: string }[]; owners: { id: string; name: string; templateId: string }[] };
+export type WorkItemQuickPrompt = { id: string; version: number; name: string; prompt: string };
+export type WorkItemQuickPromptMutation = { operation: "add"; name: string; prompt: string } | ({ operation: "update" } & WorkItemQuickPrompt) | { operation: "delete"; id: string; version: number };
 export interface WorkItemApi {
+  listQuickPrompts(): Promise<WorkItemQuickPrompt[]>;
+  mutateQuickPrompt(input: WorkItemQuickPromptMutation): Promise<WorkItemQuickPrompt[]>;
   list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; statuses?: WorkItemStatus[]; needsFollowUp?: boolean; keyword?: string; page?: number }): Promise<WorkItemPage>;
   get(input: { id: string }): Promise<WorkItem>;
   preview(input: WorkItemIdentity & { prompt?: string }): Promise<{ body: { prompt: string; tools?: { name: string }[] }; configuration: Record<string, unknown> }>;
   execute(input: WorkItemIdentity & { prompt?: string }): Promise<WorkItem>;
+  markCompleted(input: WorkItemIdentity): Promise<WorkItem>;
   setFollowUp(input: WorkItemIdentity & { needsFollowUp: boolean }): Promise<WorkItem>;
   listAttempts(input: { id: string; page?: number }): Promise<{ records: Omit<WorkItemAttempt, "input" | "output" | "configuration">[]; total: number }>;
   getAttempt(input: { id: string; attemptId: string }): Promise<WorkItemAttempt>;

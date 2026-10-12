@@ -108,6 +108,14 @@ function createWorkItemStore(database, transaction) {
       return writeItem({ ...item, needsFollowUp, version: item.version + 1, updatedAt: Date.now() });
     });
   }
+  function markWorkItemCompleted(id, version) {
+    return transaction(() => {
+      const item = getWorkItem(id);
+      if (item.version !== version) throw new Error("任务已变更，请刷新后重试。");
+      if (!["pending", "failed", "stopped"].includes(item.status)) throw new Error("仅待执行、失败或中断任务可以手动标记完成。");
+      return writeItem({ ...item, status: "completed", error: "", version: item.version + 1, updatedAt: Date.now() });
+    });
+  }
   function changeWorkItem(id, version, operation, reason = "") {
     return transaction(() => {
       const item = getWorkItem(id);
@@ -140,6 +148,6 @@ function createWorkItemStore(database, transaction) {
     return Boolean(db().prepare("SELECT 1 FROM app_module_owner_work_items WHERE template_id=? AND task_id=? AND status NOT IN ('completed','void') LIMIT 1").get(templateId, taskId));
   }
   return { initializeWorkItems, insertWorkItem, getWorkItem, listWorkItems, getWorkItemAttempt, startWorkItemAttempt,
-    updateWorkItemAttempt, setWorkItemFollowUp, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy, workItemTaskUnprocessed };
+    updateWorkItemAttempt, setWorkItemFollowUp, markWorkItemCompleted, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy, workItemTaskUnprocessed };
 }
 module.exports = { createWorkItemStore };

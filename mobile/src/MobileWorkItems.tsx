@@ -27,7 +27,7 @@ export function MobileWorkItems({ remote, onClose, onOpenSession }: {
         clearTimeout(timer); pending.current.delete(requestId); reject(new Error("连接已断开，请重新连接后核对任务结果。"));
       }
     });
-    const operations: WorkItemOperation[] = ["list", "get", "preview", "execute", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"];
+    const operations: WorkItemOperation[] = ["listQuickPrompts", "mutateQuickPrompt", "list", "get", "preview", "execute", "markCompleted", "setFollowUp", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"];
     return { ...Object.fromEntries(operations.map(operation => [operation, (input: unknown) => request(operation, input)])),
       onChanged: (listener: () => void) => { listeners.current.add(listener); return () => { listeners.current.delete(listener); }; }
     } as WorkItemApi;

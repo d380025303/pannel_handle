@@ -259,7 +259,26 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       }
     });
   }
-  return { open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  function listWorkItemPrompts() {
+    ensureOpen();
+    return JSON.parse(db.prepare("SELECT value_json FROM app_settings WHERE source='work-item-prompts' AND key='records'").get()?.value_json || "[]");
+  }
+  function mutateWorkItemPrompt(input) {
+    ensureOpen();
+    return transaction(() => {
+      const records = listWorkItemPrompts();
+      const index = records.findIndex(value => value.id === input.id);
+      if (input.operation !== "add" && (index < 0 || records[index].version !== input.version)) throw new Error("常用提示词已修改或删除，请刷新后重试。");
+      if (input.operation === "delete") records.splice(index, 1);
+      else {
+        const record = { id: input.id || require("node:crypto").randomUUID(), name: input.name, prompt: input.prompt, version: input.operation === "add" ? 1 : records[index].version + 1 };
+        if (index < 0) records.push(record); else records[index] = record;
+      }
+      putSetting("work-item-prompts", "records", records);
+      return records;
+    });
+  }
+  return { listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };

@@ -654,10 +654,13 @@ contextBridge.exposeInMainWorld("sessionApi", {
 });
 
 contextBridge.exposeInMainWorld("workItemApi", {
+  listQuickPrompts: () => ipcRenderer.invoke("work-items:listQuickPrompts"),
+  mutateQuickPrompt: input => ipcRenderer.invoke("work-items:mutateQuickPrompt", input),
   list: input => ipcRenderer.invoke("work-items:list", input),
   get: input => ipcRenderer.invoke("work-items:get", input),
   preview: input => ipcRenderer.invoke("work-items:preview", input),
   execute: input => ipcRenderer.invoke("work-items:execute", input),
+  markCompleted: input => ipcRenderer.invoke("work-items:markCompleted", input),
   setFollowUp: input => ipcRenderer.invoke("work-items:setFollowUp", input),
   listAttempts: input => ipcRenderer.invoke("work-items:listAttempts", input),
   getAttempt: input => ipcRenderer.invoke("work-items:getAttempt", input),

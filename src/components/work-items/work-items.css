@@ -493,3 +493,41 @@
   max-width: 100%;
   overflow: auto;
 }
+
+.work-items-quick-prompts {
+  flex: 0 0 auto;
+  max-height: 25%;
+  overflow: auto;
+}
+.work-items-quick-prompts,
+.work-items-quick-actions,
+.work-items-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.work-items-quick-prompts button,
+.work-items-quick-row span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.work-items-quick-manager,
+.work-items-quick-form,
+.work-items-quick-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.work-items-quick-row span {
+  flex: 1;
+}
+.work-items-quick-form input,
+.work-items-quick-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}

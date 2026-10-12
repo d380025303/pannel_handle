@@ -1,3 +1,4 @@
+import { WorkItemQuickPrompts } from "../../src/components/work-items/WorkItemQuickPrompts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -94,7 +95,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       setDialog(null); onOpenSession(id);
     } catch (err) { if (dialog) setDialogError(String(err)); else setError(String(err)); }
   }
-  async function perform(operation: "execute" | "void" | "restore" | "resolveUncertain") {
+  async function perform(operation: "execute" | "markCompleted" | "void" | "restore" | "resolveUncertain") {
     if (!item || submitting.current || (operation === "execute" && !prompt.trim())) return;
     submitting.current = true; setBusy(true); setDialogError("");
     try {
@@ -124,7 +125,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       <header className="work-items-toolbar">
         <div className="work-items-heading">
           <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
-          <details className="work-items-help"><summary>任务生成与完成规则</summary><p>定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮才记为已完成。</p></details>
+          <details className="work-items-help"><summary>任务生成与完成规则</summary><p>定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。</p></details>
         </div>
         <div className="work-items-select-filters">
           <div className="work-items-search">
@@ -179,7 +180,8 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
           </>}
           {dialog.kind === "execute" && <>
             <p>确认后使用普通模式创建新会话。提示词默认使用原始最终回复，编辑仅用于本次执行，并保留在执行记录中。</p>
-            {preview && <><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p><label>实际提示词<textarea aria-label="实际提示词" rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} /></label></>}
+            {preview && <><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p><WorkItemQuickPrompts api={api} disabled={busy || dialogLoading} Dialog={OwnerDialog} onAppend={text => setPrompt(value => value ? `${value}\n\n${text}` : text)} />
+              <label>实际提示词<textarea aria-label="实际提示词" rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} /></label></>}
           </>}
           {dialog.kind === "void" && <><p>作废后保留回复和执行记录，恢复后才能执行。</p><label>作废原因（可选）<textarea aria-label="作废原因" value={reason} maxLength={2000} onChange={event => setReason(event.target.value)} /></label></>}
           {dialog.kind === "restore" && <p>恢复为待执行，保留原始回复及全部执行记录。</p>}
@@ -194,6 +196,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       </div>
       <footer className="mobile-work-items-dialog-footer work-items-dialog-footer"><button type="button" disabled={busy} onClick={() => setDialog(null)}>关闭</button>
         {dialog.kind === "execute" && item && <button type="button" disabled={busy || dialogLoading} onClick={() => void toggleFollowUp(item)}>{followUpAction(item.needsFollowUp)}</button>}
+        {dialog.kind === "execute" && item && ["pending", "failed", "stopped"].includes(item.status) && <button type="button" disabled={busy || dialogLoading} onClick={() => void perform("markCompleted")}>标记完成</button>}
         {dialog.kind === "execute" && <button type="button" disabled={busy || dialogLoading || !item || !preview || !prompt.trim() || active(item.status) || item.status === "void" || Boolean(item.unavailable)} onClick={() => void perform("execute")}>{busy ? "创建中…" : "确认执行"}</button>}
         {dialog.kind === "void" && <button type="button" disabled={busy || dialogLoading || !item || active(item.status) || item.status === "void"} onClick={() => void perform("void")}>确认作废</button>}
         {dialog.kind === "restore" && <button type="button" disabled={busy || dialogLoading || item?.status !== "void"} onClick={() => void perform("restore")}>确认恢复</button>}

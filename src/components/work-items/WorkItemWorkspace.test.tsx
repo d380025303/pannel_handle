@@ -10,10 +10,10 @@ const item: WorkItem = { id: "item", sourceRunId: "source", taskId: "timer", own
 function setup(overrides: Partial<WorkItem> = {}) {
   let value = { ...item, ...overrides };
   let changed = () => {};
-  const api = { list: vi.fn(async (_input?: Parameters<WorkItemApi["list"]>[0]) => ({ records: [{ ...value, summary: value.output }], total: 1, templates: [{ id: "template", name: "工程" }], owners: [{ id: "owner", name: "模块", templateId: "template" }] })),
+  const api = { listQuickPrompts: vi.fn<WorkItemApi["listQuickPrompts"]>(async () => []), mutateQuickPrompt: vi.fn(async () => []), list: vi.fn(async (_input?: Parameters<WorkItemApi["list"]>[0]) => ({ records: [{ ...value, summary: value.output }], total: 1, templates: [{ id: "template", name: "工程" }], owners: [{ id: "owner", name: "模块", templateId: "template" }] })),
     get: vi.fn(async () => value), preview: vi.fn(async () => ({ body: { prompt: value.output }, configuration: { cwd: "C:\\repo", codexAppServerModel: "model" } })),
     execute: vi.fn(async () => { value = { ...value, status: "running", version: 2 }; return value; }),
-    setFollowUp: vi.fn(async (input: { needsFollowUp: boolean }) => { value = { ...value, needsFollowUp: input.needsFollowUp, version: value.version + 1 }; return value; }),
+    markCompleted: vi.fn(async () => ({ ...value, status: "completed" as const })), setFollowUp: vi.fn(async (input: { needsFollowUp: boolean }) => { value = { ...value, needsFollowUp: input.needsFollowUp, version: value.version + 1 }; return value; }),
     void: vi.fn(async () => ({ ...value, status: "void" as const })), restore: vi.fn(async () => value), resolveUncertain: vi.fn(async () => value),
     listAttempts: vi.fn(async () => ({ records: [{ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", error: "" }], total: 1 })),
     getAttempt: vi.fn(async () => ({ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", input: { prompt: "实际输入" }, configuration: {}, output: "执行回复", error: "" })),
@@ -230,4 +230,66 @@ describe("manual task list", () => {
     await screen.findByText("暂无任务");
   });
 
+});
+
+it("appends quick prompts to edited input and resets when reopening", async () => {
+  const f = setup();
+  vi.mocked(f.api.listQuickPrompts).mockResolvedValue([{ id: "quick", version: 1, name: "补充验证", prompt: "运行测试" }]);
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  const quick = await screen.findByRole("button", { name: "补充验证" });
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  const input = await screen.findByRole("textbox", { name: "实际提示词" });
+  fireEvent.change(input, { target: { value: "手动修改" } });
+  fireEvent.click(quick); fireEvent.click(quick);
+  expect((input as HTMLTextAreaElement).value).toBe("手动修改\n\n运行测试\n\n运行测试");
+  fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  await screen.findByRole("button", { name: "补充验证" });
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("最终执行方案");
+  fireEvent.click(screen.getByRole("button", { name: "补充验证" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(f.api.execute).toHaveBeenCalledWith({ id: "item", version: 1, prompt: "最终执行方案\n\n运行测试" }));
+});
+
+it.each(["pending", "failed", "stopped"] as const)("manually completes %s without executing", async status => {
+  const f = setup({ status });
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  const button = await screen.findByRole("button", { name: "标记完成" });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button); fireEvent.click(button);
+  await waitFor(() => expect(f.api.markCompleted).toHaveBeenCalledExactlyOnceWith({ id: "item", version: 1 }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "执行任务" })).toBeNull());
+  expect(f.api.execute).not.toHaveBeenCalled();
+});
+it("allows manual completion when execution preview fails", async () => {
+  const status = "pending" as const; const f = setup({ status });
+  vi.mocked(f.api.preview).mockRejectedValueOnce(new Error("来源模板已删除"));
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  await screen.findByText("Error: 来源模板已删除");
+  const button = screen.getByRole("button", { name: "标记完成" });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button);
+  await waitFor(() => expect(f.api.markCompleted).toHaveBeenCalledWith({ id: "item", version: 1 }));
+});
+it("hides manual completion for completed tasks", async () => {
+  const status = "completed" as const; setup({ status });
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  await screen.findByRole("dialog", { name: "执行任务" });
+  expect(screen.queryByRole("button", { name: "标记完成" })).toBeNull();
+});
+
+it("keeps edited prompt on manual completion conflict", async () => {
+  const f = setup();
+  vi.mocked(f.api.markCompleted).mockRejectedValueOnce(new Error("任务已变更，请刷新后重试。"));
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+  const input = await screen.findByRole("textbox", { name: "实际提示词" });
+  fireEvent.change(input, { target: { value: "保留编辑" } });
+  const button = screen.getByRole("button", { name: "标记完成" });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button);
+  await screen.findByText("Error: 任务已变更，请刷新后重试。");
+  expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("保留编辑");
+  expect(screen.getByRole("dialog", { name: "执行任务" })).toBeTruthy();
 });
