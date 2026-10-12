@@ -61,9 +61,11 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     const state = ensure(id, cols, rows);
     const nextCols = Math.max(2, Math.floor(cols));
     const nextRows = Math.max(1, Math.floor(rows));
-    if (state.terminal.cols !== nextCols || state.terminal.rows !== nextRows) {
-      state.terminal.resize(nextCols, nextRows);
-    }
+    state.pending = state.pending.then(() => {
+      if (state.terminal.cols !== nextCols || state.terminal.rows !== nextRows) {
+        state.terminal.resize(nextCols, nextRows);
+      }
+    });
   }
 
   async function getSnapshot(id, owner = "desktop") {

@@ -48,4 +48,41 @@ describe("terminal state hub", () => {
     expect({ cols: snapshot.cols, rows: snapshot.rows }).toEqual({ cols: 50, rows: 20 });
     hub.shutdown();
   });
+
+  it.each([
+    ["output followed by resize", [
+      ["write", "\x1b[1;30HX"],
+      ["resize", 40, 5]
+    ]],
+    ["interleaved output and resizes", [
+      ["write", "\x1b[1;30HX"],
+      ["resize", 40, 5],
+      ["write", "\x1b[2;35HY"],
+      ["resize", 20, 5],
+      ["write", "\x1b[3;30HZ"],
+      ["resize", 40, 5],
+      ["resize", 20, 5],
+      ["resize", 40, 5]
+    ]]
+  ])("preserves call order for %s", async (_name, operations) => {
+    const queued = createTerminalStateHub();
+    const sequential = createTerminalStateHub();
+    try {
+      queued.start("run-1", 20, 5);
+      sequential.start("run-1", 20, 5);
+      for (const [method, ...args] of operations) queued[method]("run-1", ...args);
+      for (const [method, ...args] of operations) {
+        sequential[method]("run-1", ...args);
+        await sequential.getSnapshot("run-1");
+      }
+
+      expect(await queued.getSnapshot("run-1")).toEqual(await sequential.getSnapshot("run-1"));
+      expect((await queued.getText("run-1")).split("\n")[0]).toBe("X");
+      expect(queued.ensure("run-1").terminal.buffer.active.getLine(0).translateToString(true))
+        .toBe(" ".repeat(19) + "X");
+    } finally {
+      queued.shutdown();
+      sequential.shutdown();
+    }
+  });
 });
