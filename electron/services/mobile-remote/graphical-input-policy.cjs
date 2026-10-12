@@ -8,4 +8,11 @@ function graphicalSubmitError(snapshot) {
   if (snapshot.busy && snapshot.provider !== "codex") return "当前 Agent 正在运行，请完成后再发送。";
   return null;
 }
-module.exports = { graphicalSubmitError };
+function validateGraphicalSubmitText(value, hasAttachments = false) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if ((!text && !hasAttachments) || Buffer.byteLength(text, "utf8") > 16 * 1024)
+    throw new Error("消息为空或过长。");
+  return text;
+}
+
+module.exports = { graphicalSubmitError, validateGraphicalSubmitText };

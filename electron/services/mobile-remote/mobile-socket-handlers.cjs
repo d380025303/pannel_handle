@@ -2,6 +2,7 @@ const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = requir
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview, canCloseCompleted } = require("./mobile-session-overview.cjs");
+const { graphicalSubmitError, validateGraphicalSubmitText } = require("./graphical-input-policy.cjs");
 
 function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getWorkItems = () => null, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
@@ -117,9 +118,12 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
           if (socket.graphicalSessionId !== sessionId || !graphicalService) throw new Error("请先打开此图形会话。");
           const current = graphicalService.snapshot(sessionId);
           if (!current.threadId || current.threadId !== message.threadId || current.archived) throw new Error("对话已切换或已归档，请刷新后重试。");
-          const blocked = require("./graphical-input-policy.cjs").graphicalSubmitError(current);
+          const blocked = graphicalSubmitError(current);
           if (blocked) throw new Error(blocked);
-          if (mode === "auto-enter") await graphicalService.submit(sessionId, command.command, []);
+          if (mode === "auto-enter") {
+            const text = validateGraphicalSubmitText(command.command);
+            await graphicalService.submit(sessionId, text, []);
+          }
         } else {
           if (typeof session.term?.write !== "function" || session.type === "ssh"
             && ["reconnecting", "disconnected"].includes(session.sshConnectionState))

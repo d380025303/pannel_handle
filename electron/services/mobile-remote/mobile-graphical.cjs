@@ -4,9 +4,7 @@ const { createMobileCodexHandlers } = require("./mobile-codex.cjs");
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
 const { availableModelIds, visibleOpenCodeOptions, nativeModeFor } = require("./graphical-command-policy.cjs");
 
-const { graphicalSubmitError } = require("./graphical-input-policy.cjs");
-
-const MAX_TEXT_BYTES = 16 * 1024;
+const { graphicalSubmitError, validateGraphicalSubmitText } = require("./graphical-input-policy.cjs");
 
 function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
   const openCode = createMobileOpenCodeHandlers({ graphicalService, openCodeVersionService, agentSessionLauncher });
@@ -114,11 +112,9 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     } else if (message.type === "graphical.submit") {
       const blocked = graphicalSubmitError(current);
       if (blocked) throw new Error(blocked);
-      const text = typeof message.text === "string" ? message.text.trim() : "";
       const fileIds = message.fileIds === undefined ? [] : message.fileIds;
       const filePaths = uploads ? uploads.paths(socket, sessionId, current.threadId, fileIds) : [];
-      if ((!text && !filePaths.length) || Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES)
-        throw new Error("消息为空或过长。");
+      const text = validateGraphicalSubmitText(message.text, filePaths.length > 0);
       if (filePaths.length) graphicalService.allowFiles(sessionId, filePaths);
       const references = message.references || [];
       if (!Array.isArray(references) || references.length > 50 || references.some(value => !value || !["skill", "app"].includes(value.kind)

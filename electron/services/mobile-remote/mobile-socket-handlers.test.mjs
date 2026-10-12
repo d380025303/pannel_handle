@@ -10,6 +10,45 @@ import httpModule from "./mobile-http.cjs";
 const hubs = [];
 afterEach(() => { for (const hub of hubs.splice(0)) hub.shutdown(); });
 
+describe("mobile graphical submit text policy", () => {
+  it.each(["graphical.submit", "quick-command.invoke"])("validates UTF-8 bytes and empty text through %s", async type => {
+    const session = { id: "graph", runtimeMode: "app-server", quickCommands: [{ id: "quick", mode: "auto-enter", command: "" }] };
+    const submit = vi.fn();
+    const send = vi.fn();
+    const sendError = vi.fn();
+    const handlers = socketModule.createMobileSocketHandlers({
+      terminalManager: { getSession: () => session },
+      graphicalService: { snapshot: () => ({ threadId: "thread", provider: "codex" }), submit },
+      stateHub: {}, now: Date.now, auth: {}, sizes: {}, send, sendError
+    });
+    const socket = new EventEmitter();
+    handlers.handleWebSocket(socket, { socket: { remoteAddress: "127.0.0.1" } });
+    socket.authenticated = true;
+    socket.graphicalSessionId = session.id;
+    const invoke = async text => {
+      submit.mockClear();
+      send.mockClear();
+      sendError.mockClear();
+      session.quickCommands[0].command = text;
+      socket.emit("message", JSON.stringify({ v: protocolModule.PROTOCOL_VERSION, type,
+        sessionId: session.id, threadId: "thread", commandId: "quick", text, requestId: "submit" }));
+      await vi.waitFor(() => expect(send.mock.calls.length + sendError.mock.calls.length).toBe(1));
+    };
+    for (const text of ["中".repeat(6000), "中".repeat(5461) + "aa", " \n\t "]) {
+      await invoke(text);
+      expect(sendError).toHaveBeenCalledExactlyOnceWith(socket, "GRAPHICAL_COMMAND_FAILED", "消息为空或过长。", "submit");
+      expect(submit).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    }
+    const boundary = "中".repeat(5461) + "a";
+    expect(Buffer.byteLength(boundary, "utf8")).toBe(16 * 1024);
+    await invoke(` ${boundary} \n`);
+    expect(submit).toHaveBeenCalledExactlyOnceWith(session.id, boundary, []);
+    expect(sendError).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledExactlyOnceWith(socket, { type: "command.ok", requestId: "submit" });
+  });
+});
+
 it("isolates an unauthenticated unmasked frame and keeps HTTP and another websocket available", async () => {
   let port;
   const closed = vi.fn();
