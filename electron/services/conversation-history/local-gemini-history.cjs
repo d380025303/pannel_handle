@@ -24,7 +24,10 @@ function getGeminiChatFiles(fsApi, homeDir, cwd, scope) {
 }
 
 function readGeminiRecords(fsApi, filePath) {
-  const text = fsApi.readFileSync(filePath, "utf-8");
+  return parseGeminiRecords(fsApi.readFileSync(filePath, "utf-8"), filePath);
+}
+
+function parseGeminiRecords(text, filePath) {
   if (filePath.toLowerCase().endsWith(".json")) {
     try {
       const value = JSON.parse(text);
@@ -60,12 +63,16 @@ function materializeGeminiMessages(records) {
 
 function geminiMetadata(fsApi, candidate, cwd) {
   const records = readGeminiRecords(fsApi, candidate.filePath);
+  return metadataFromRecords(records, candidate, cwd, () => fsApi.statSync(candidate.filePath).mtimeMs);
+}
+
+function metadataFromRecords(records, candidate, cwd, getMtime) {
   const metadata = records.find(item => item?.sessionId || item?.projectHash) || {};
   const messages = materializeGeminiMessages(records);
   const firstUser = messages.find(item => item.type === "user");
   const id = path.basename(candidate.filePath).replace(/\.jsonl?$/i, "");
   const createdAt = timestampMs(metadata.startTime || messages[0]?.timestamp);
-  const updatedAt = timestampMs(metadata.lastUpdated || messages.at(-1)?.timestamp) || fsApi.statSync(candidate.filePath).mtimeMs;
+  const updatedAt = timestampMs(metadata.lastUpdated || messages.at(-1)?.timestamp) || getMtime();
   const preview = typeof firstUser?.content === "string" ? firstUser.content.trim() : "";
   return {
     ref: `gemini:${candidate.projectHash}:${id}`,
@@ -80,8 +87,59 @@ function geminiMetadata(fsApi, candidate, cwd) {
   };
 }
 
-function listLocalGemini({ homeDir, cwd, scope, fsApi }) {
-  return getGeminiChatFiles(fsApi, homeDir, cwd, scope).map(candidate => geminiMetadata(fsApi, candidate, scope === "cwd" ? cwd : ""));
+async function getGeminiChatFilesAsync(fsApi, homeDir, cwd, scope) {
+  const tmpRoot = path.join(process.env.GEMINI_CLI_HOME || homeDir, ".gemini", "tmp");
+  async function readDirectory(directory) {
+    try {
+      return await fsApi.promises.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+  }
+  const projectDirs = scope === "all"
+    ? (await readDirectory(tmpRoot)).filter(entry => entry.isDirectory()).map(entry => entry.name)
+    : [geminiProjectHash(cwd)];
+  const files = [];
+  for (const projectHash of projectDirs) {
+    const chats = path.join(tmpRoot, projectHash, "chats");
+    for (const entry of await readDirectory(chats)) {
+      if (entry.isFile() && /\.jsonl?$/.test(entry.name.toLowerCase())) files.push({ filePath: path.join(chats, entry.name), projectHash });
+    }
+  }
+  return files;
+}
+
+async function listLocalGemini({ homeDir, cwd, scope, fsApi, metadataCache }) {
+  const candidates = await getGeminiChatFilesAsync(fsApi, homeDir, cwd, scope);
+  const items = [];
+  for (const candidate of candidates) {
+    const stat = await fsApi.promises.stat(candidate.filePath);
+    const signature = `${stat.size}:${stat.mtimeMs}`;
+    const cached = metadataCache?.get(candidate.filePath);
+    let item = cached?.signature === signature ? cached.item : null;
+    if (!item) {
+      const text = await fsApi.promises.readFile(candidate.filePath, "utf-8");
+      item = metadataFromRecords(parseGeminiRecords(text, candidate.filePath), candidate, "", () => stat.mtimeMs);
+      metadataCache?.set(candidate.filePath, { signature, item });
+    }
+    // cwd belongs to the request, rather than the cached file metadata.
+    items.push({ ...item, cwd: scope === "cwd" ? cwd || "" : "" });
+    // Even immediately resolved reads/cache hits must allow timers and IPC to run.
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  if (metadataCache) {
+    const listedPaths = new Set(candidates.map(candidate => candidate.filePath));
+    const root = path.join(process.env.GEMINI_CLI_HOME || homeDir, ".gemini", "tmp");
+    const scannedRoot = scope === "all" ? root : path.join(root, geminiProjectHash(cwd), "chats");
+    for (const filePath of metadataCache.keys()) {
+      const relative = path.relative(scannedRoot, filePath);
+      if (relative && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative) && !listedPaths.has(filePath)) {
+        metadataCache.delete(filePath);
+      }
+    }
+  }
+  return items;
 }
 
 function getLocalGeminiMessages({ homeDir, cwd, id, fsApi }) {

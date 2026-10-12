@@ -26,6 +26,7 @@ function createAgentConversationHistoryService({
   remoteScriptFile = path.join(__dirname, "agent-conversation-history-remote.py")
 }) {
   const codeBuddyMetadataCache = new Map();
+  const geminiMetadataCache = new Map();
   const listCache = new Map();
   const messageCache = new Map();
   const codexMessageCache = new Map();
@@ -86,7 +87,7 @@ function createAgentConversationHistoryService({
           : provider === "opencode"
             ? listLocalOpenCode({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
           : provider === "gemini"
-            ? listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
+            ? await listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: geminiMetadataCache })
             : provider === "grok"
               ? listLocalGrok({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
               : await listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
