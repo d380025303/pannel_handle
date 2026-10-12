@@ -45,6 +45,48 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps memory and SQLite unchanged after a read-only duplicate, then persists a successful retry", () => {
+    const sessionsFile = createTempSessionsFile();
+    let database;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    }).open();
+    const onChanged = vi.fn();
+    const openSessions = () => createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe", onChanged });
+    try {
+      const store = openSessions();
+      store.addToLibrary({ id: "1", title: "Original", type: "windows" });
+      store.loadLibrary();
+      const before = store.getLibrary();
+      const persisted = dataStore.read(sessionsFile);
+      onChanged.mockClear();
+      database.exec("PRAGMA query_only=ON");
+      expect(() => store.duplicateInLibrary("1")).toThrow(/readonly|read-only/i);
+      expect(store.getLibrary()).toEqual(before);
+      expect(dataStore.read(sessionsFile)).toEqual(persisted);
+      expect(openSessions().loadLibrary()).toEqual(persisted);
+      expect(onChanged).not.toHaveBeenCalled();
+
+      database.exec("PRAGMA query_only=OFF");
+      const duplicated = store.duplicateInLibrary("1");
+      expect(duplicated).toMatchObject({ id: "2", title: "Original - 副本" });
+      expect(store.getLibrary()).toHaveLength(2);
+      expect(dataStore.read(sessionsFile)).toEqual(store.exportLibrary());
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      dataStore.close();
+      dataStore.open();
+      const reopened = openSessions();
+      reopened.loadLibrary();
+      expect(reopened.getLibrary()).toEqual(store.getLibrary());
+    } finally {
+      dataStore.close();
+    }
+  });
+
   it("keeps memory and SQLite unchanged after a read-only update, then persists a successful retry", () => {
     const sessionsFile = createTempSessionsFile();
     let database;

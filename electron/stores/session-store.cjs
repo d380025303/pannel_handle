@@ -315,13 +315,17 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
     const duplicated = {
       ...serializeTemplate(source),
-      id: createTemplateId(),
+      id: String(nextSessionId),
       title: `${source.title} - 副本`,
       ignoredCodexConfigWarnings: [],
       createdAt: Date.now()
     };
-    librarySessions.push(duplicated);
-    saveLibrary();
+    const updated = [...librarySessions, duplicated];
+    writeJson(dataStore, sessionsFile, updated);
+    librarySessions = updated;
+    nextSessionId++;
+    try { onChanged(); }
+    catch (err) { console.error("Failed to notify library change:", err); }
     return sanitizeTemplate(duplicated);
   }
 
