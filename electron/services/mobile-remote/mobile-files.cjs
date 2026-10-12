@@ -4,6 +4,7 @@ const path = require("node:path");
 const archiver = require("archiver");
 
 const TICKET_MS = 60_000;
+const LIST_CONCURRENCY = 8;
 
 function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.now(), getRoots } = {}) {
   const tickets = new Map();
@@ -44,14 +45,19 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
     const names = await fsApi.promises.readdir(target);
     const entries = [];
-    for (const name of names) {
-      const child = pathApi.join(target, name);
-      try {
-        const item = await safePath(child, allowed);
-        if (item.info.isDirectory() || item.info.isFile()) entries.push({ name, path: child,
-          type: item.info.isDirectory() ? "directory" : "file", size: item.info.isFile() ? item.info.size : null });
-      } catch { /* Unreadable entries and links are omitted. */ }
+    let nextIndex = 0;
+    async function validateEntries() {
+      while (nextIndex < names.length) {
+        const name = names[nextIndex++];
+        const child = pathApi.join(target, name);
+        try {
+          const item = await safePath(child, allowed);
+          if (item.info.isDirectory() || item.info.isFile()) entries.push({ name, path: child,
+            type: item.info.isDirectory() ? "directory" : "file", size: item.info.isFile() ? item.info.size : null });
+        } catch { /* Unreadable entries and links are omitted. */ }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(LIST_CONCURRENCY, names.length) }, validateEntries));
     entries.sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
     return { path: target, entries };
   }

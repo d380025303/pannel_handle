@@ -82,6 +82,41 @@ it("probes drives once per large listing while validating every child", async ()
   await expect(files.list("D:\\outside")).rejects.toThrow(/本地磁盘/);
 });
 
+it.each([0, 3, 25])("bounds concurrent path checks and filters failed entries with %i children", async count => {
+  const directory = "C:\\folder";
+  const names = Array.from({ length: count }, (_, index) => `entry-${index}`);
+  const info = target => ({
+    isSymbolicLink: () => target === path.win32.join(directory, "entry-0"),
+    isDirectory: () => target === directory || target.endsWith("entry-4"),
+    isFile: () => target !== directory && !target.endsWith("entry-4"),
+    size: 10
+  });
+  let active = 0;
+  let maximum = 0;
+  const delayed = operation => async target => {
+    maximum = Math.max(maximum, ++active);
+    try {
+      await new Promise(resolve => setTimeout(resolve, target.endsWith("entry-3") ? 2 : 0));
+      return operation(target);
+    } finally { active--; }
+  };
+  const files = filesModule.createMobileFiles({ getRoots: () => ["C:\\"], fsApi: { promises: {
+    readdir: async () => names,
+    lstat: delayed(target => {
+      if (target.endsWith("entry-2")) throw Object.assign(new Error("Unreadable"), { code: "EACCES" });
+      return info(target);
+    }),
+    realpath: delayed(target => target.endsWith("entry-1") ? "D:\\outside" : target),
+    stat: delayed(info)
+  } } });
+  const expected = names.slice(3).map(name => ({ name, path: path.win32.join(directory, name),
+    type: name === "entry-4" ? "directory" : "file", size: name === "entry-4" ? null : 10 }))
+    .sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
+  expect(await files.list(directory)).toEqual({ path: directory, entries: expected });
+  expect(maximum).toBe(count ? Math.min(8, count) : 1);
+  expect(active).toBe(0);
+});
+
 it("streams a file once to the authenticated phone", async () => {
   const { root, files, socket } = fixture();
   const target = path.join(root, "note.txt");
