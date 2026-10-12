@@ -259,11 +259,11 @@ describe("git command routing", () => {
     await service.discardWorkingTree(target, { path: "src/App.tsx", status: "M", indexStatus: "M" }, "discard-1");
     await service.discardWorkingTree(target, { path: "scratch.txt", status: "?", indexStatus: "?" }, "discard-2");
     expect(spawn.calls.map((call) => call.args)).toEqual([
-      ["diff", "--cached", "--no-color", "--find-renames", "--", "src/App.tsx"],
+      ["diff", "--cached", "--no-color", "--find-renames", "--", ":(literal)src/App.tsx"],
       ["stash", "apply", "--index", "stash@{0}"],
       ["stash", "pop", "--index", "stash@{1}"],
-      ["restore", "--worktree", "--", "src/App.tsx"],
-      ["clean", "-f", "--", "scratch.txt"]
+      ["restore", "--worktree", "--", ":(literal)src/App.tsx"],
+      ["clean", "-f", "--", ":(literal)scratch.txt"]
     ]);
   });
 
@@ -291,52 +291,77 @@ describe("git command routing", () => {
     const target = repositoryTarget("win", "C:\\work\\repo");
     for (const repoPath of [" a.txt", "a.txt ", " a.txt "]) {
       await service.stageFiles(target, [repoPath], "stage-spaces");
-      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(`:(literal)${repoPath}`);
       await service.unstageFiles(target, [repoPath], "unstage-spaces");
-      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(`:(literal)${repoPath}`);
       await service.getDiff(target, { scope: "working", path: repoPath });
-      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(`:(literal)${repoPath}`);
       await service.discardWorkingTree(target, { path: repoPath }, "discard-spaces");
-      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(`:(literal)${repoPath}`);
     }
   });
 });
 
 describe("real temporary repository workflow", () => {
-  it("isolates diff, stage, unstage, and discard for a filename with a leading space", async () => {
+  it.each([ [" a.txt", "a.txt"], ["a[1].txt", "a1.txt"] ])("isolates diff, stage, unstage, and discard for %s", async (selectedName, otherName) => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");
     const target = repositoryTarget(session.id, directory);
-    const plainPath = path.join(directory, "a.txt");
-    const spacedPath = path.join(directory, " a.txt");
+    const plainPath = path.join(directory, otherName);
+    const spacedPath = path.join(directory, selectedName);
     fs.writeFileSync(plainPath, "plain base\n");
     fs.writeFileSync(spacedPath, "spaced base\n");
-    git(directory, "add", "--", "a.txt", " a.txt");
+    git(directory, "add", "-A");
     git(directory, "commit", "-m", "Base");
     fs.writeFileSync(plainPath, "plain modified\n");
     fs.writeFileSync(spacedPath, "spaced modified\n");
 
-    const workingDiff = await service.getDiff(target, { scope: "working", path: " a.txt" });
+    for (const scope of ["combined", "commit"]) {
+      const diff = await service.getDiff(target, { scope, path: selectedName, revision: git(directory, "rev-parse", "HEAD") });
+      expect(diff.rows.some((row) => row.newText === "plain modified" || row.newText === "plain base")).toBe(false);
+      expect(diff.rows.length).toBeGreaterThan(0);
+    }
+    const workingDiff = await service.getDiff(target, { scope: "working", path: selectedName });
     expect(workingDiff.rows).toContainEqual(expect.objectContaining({ oldText: "spaced base", newText: "spaced modified" }));
     expect(workingDiff.rows.some((row) => row.newText === "plain modified")).toBe(false);
 
-    expect((await service.stageFiles(target, [" a.txt"], "stage-spaced")).ok).toBe(true);
-    expect(git(directory, "show", ":a.txt")).toBe("plain base");
-    expect(git(directory, "show", ": a.txt")).toBe("spaced modified");
-    const stagedDiff = await service.getDiff(target, { scope: "staged", path: " a.txt" });
+    expect((await service.stageFiles(target, [selectedName], "stage-spaced")).ok).toBe(true);
+    expect(git(directory, "show", `:${otherName}`)).toBe("plain base");
+    expect(git(directory, "show", `:${selectedName}`)).toBe("spaced modified");
+    const stagedDiff = await service.getDiff(target, { scope: "staged", path: selectedName });
     expect(stagedDiff.rows).toContainEqual(expect.objectContaining({ oldText: "spaced base", newText: "spaced modified" }));
 
-    git(directory, "add", "--", "a.txt");
-    expect((await service.unstageFiles(target, [" a.txt"], "unstage-spaced")).ok).toBe(true);
-    expect(git(directory, "show", ":a.txt")).toBe("plain modified");
-    expect(git(directory, "show", ": a.txt")).toBe("spaced base");
+    git(directory, "add", "--", otherName);
+    expect((await service.unstageFiles(target, [selectedName], "unstage-spaced")).ok).toBe(true);
+    expect(git(directory, "show", `:${otherName}`)).toBe("plain modified");
+    expect(git(directory, "show", `:${selectedName}`)).toBe("spaced base");
     expect(fs.readFileSync(spacedPath, "utf-8")).toBe("spaced modified\n");
-    git(directory, "restore", "--staged", "--", "a.txt");
+    git(directory, "restore", "--staged", "--", otherName);
 
-    expect((await service.discardWorkingTree(target, { path: " a.txt", status: "M", indexStatus: "." }, "discard-spaced")).ok).toBe(true);
+    expect((await service.discardWorkingTree(target, { path: selectedName, status: "M", indexStatus: "." }, "discard-spaced")).ok).toBe(true);
     expect(fs.readFileSync(spacedPath, "utf-8")).toBe("spaced base\n");
     expect(fs.readFileSync(plainPath, "utf-8")).toBe("plain modified\n");
-    expect(git(directory, "show", ":a.txt")).toBe("plain base");
+    expect(git(directory, "show", `:${otherName}`)).toBe("plain base");
+    expect((await service.getStatus(target)).files.map((file) => file.path)).toEqual([otherName]);
+  });
+
+  it("isolates unborn unstage, untracked diff, and clean for bracket filenames", async () => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    fs.writeFileSync(path.join(directory, "a[1].txt"), "selected content\n");
+    fs.writeFileSync(path.join(directory, "a1.txt"), "other content\n");
+    git(directory, "add", "-A");
+    expect((await service.unstageFiles(target, ["a[1].txt"], "unstage-unborn")).ok).toBe(true);
+    expect(git(directory, "ls-files")).toBe("a1.txt");
+    for (const scope of ["working", "combined"]) {
+      const diff = await service.getDiff(target, { scope, path: "a[1].txt", status: "?" });
+      expect(diff.rows).toContainEqual(expect.objectContaining({ newText: "selected content" }));
+    }
+    git(directory, "rm", "--cached", "--", "a1.txt");
+    expect((await service.discardWorkingTree(target, { path: "a[1].txt", status: "?" }, "clean-brackets")).ok).toBe(true);
+    expect(fs.existsSync(path.join(directory, "a[1].txt"))).toBe(false);
+    expect(fs.readFileSync(path.join(directory, "a1.txt"), "utf-8")).toBe("other content\n");
   });
 
   it("discovers only the current directory and immediate child working trees", async () => {

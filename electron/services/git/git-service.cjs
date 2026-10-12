@@ -168,6 +168,10 @@ function validateRepoPaths(values) {
   return [...new Set(paths)];
 }
 
+function literalPathspec(repoPath) {
+  return `:(literal)${repoPath}`;
+}
+
 function validateBranchNameInput(value) {
   const branchName = String(value || "").trim();
   if (!branchName || branchName.includes("\0") || branchName.startsWith("-")) {
@@ -646,13 +650,13 @@ function createGitService({
       const isUntracked = request?.indexStatus === "?" || request?.status === "?";
       args = isUntracked
         ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
-        : ["diff", "--no-color", "--find-renames", "--", repoPath];
+        : ["diff", "--no-color", "--find-renames", "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     } else if (scope === "staged") {
-      args = ["diff", "--cached", "--no-color", "--find-renames", "--", repoPath];
+      args = ["diff", "--cached", "--no-color", "--find-renames", "--", literalPathspec(repoPath)];
     } else if (scope === "commit") {
       const oid = validateCommitOid(request?.revision);
-      args = ["show", "--format=", "--no-ext-diff", "--no-color", "--find-renames", oid, ...(repoPath ? ["--", repoPath] : [])];
+      args = ["show", "--format=", "--no-ext-diff", "--no-color", "--find-renames", oid, ...(repoPath ? ["--", literalPathspec(repoPath)] : [])];
     } else if (scope === "stash") {
       args = ["stash", "show", "-p", "--include-untracked", "--no-color", validateStashRef(request?.revision)];
     } else {
@@ -660,7 +664,7 @@ function createGitService({
       const isUntracked = request?.status === "?";
       args = isUntracked
         ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
-        : ["diff", "--no-color", "--find-renames", "HEAD", "--", repoPath];
+        : ["diff", "--no-color", "--find-renames", "HEAD", "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     }
     if ((scope === "working" || scope === "staged") && !repoPath) throw new Error("A repository path is required for this diff.");
@@ -776,7 +780,7 @@ function createGitService({
   }
 
   async function stageFiles(target, paths, operationId) {
-    return runOperation(target, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths)]);
+    return runOperation(target, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths).map(literalPathspec)]);
   }
 
   async function stageAll(target, operationId) {
@@ -785,7 +789,7 @@ function createGitService({
 
   async function unstageFiles(target, paths, operationId) {
     const { session, cwd } = getRepositoryTarget(target);
-    const safePaths = validateRepoPaths(paths);
+    const safePaths = validateRepoPaths(paths).map(literalPathspec);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", "--", ...safePaths]
       : ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...safePaths];
@@ -801,7 +805,7 @@ function createGitService({
   }
 
   async function discardWorkingTree(target, request, operationId) {
-    const paths = validateRepoPaths([request?.path, ...(request?.oldPath ? [request.oldPath] : [])]);
+    const paths = validateRepoPaths([request?.path, ...(request?.oldPath ? [request.oldPath] : [])]).map(literalPathspec);
     const isUntracked = request?.indexStatus === "?" || request?.status === "?";
     const args = isUntracked ? ["clean", "-f", "--", ...paths] : ["restore", "--worktree", "--", ...paths];
     return runOperation(target, operationId, "Git discard working tree changes", args);
