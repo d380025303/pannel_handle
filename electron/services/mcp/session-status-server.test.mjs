@@ -126,6 +126,34 @@ describe("session status MCP server", () => {
     expect(service.status().running).toBe(false);
   });
 
+  it.each(["disable", "stop"])("waits for a pending start before %s and can restart", async operation => {
+    let listeningUrl;
+    const { service, userData } = setup([], { broadcast: (_channel, state) => {
+      if (state.running) listeningUrl = state.url;
+    } });
+    const starting = service.setEnabled(true);
+    const stopping = operation === "disable" ? service.setEnabled(false) : service.stop();
+    await Promise.all([starting, stopping]);
+    expect(service.status()).toMatchObject({ enabled: operation === "stop", running: false });
+    expect(listeningUrl).toBeTruthy();
+    await expect(fetch(listeningUrl)).rejects.toThrow();
+    expect(JSON.parse(readFileSync(path.join(userData, "session-status-mcp.json"), "utf8")).enabled).toBe(operation === "stop");
+
+    await service.setEnabled(true);
+    const response = await rpc(service, service.revealToken(), "tools/list", {});
+    expect(response.status).toBe(200);
+    expect((await result(response)).result.tools.map(item => item.name)).toContain("list_session_instances");
+  });
+
+  it("serializes repeated starts and enable changes in invocation order", async () => {
+    const { service } = setup();
+    await Promise.all([service.setEnabled(true), service.start(), service.setEnabled(false), service.setEnabled(true), service.start()]);
+    expect(service.status()).toMatchObject({ enabled: true, running: true });
+    const response = await rpc(service, service.revealToken(), "tools/list", {});
+    expect(response.status).toBe(200);
+    expect((await result(response)).result.tools).toHaveLength(4);
+  });
+
   it("reports waiting states and trims summaries", async () => {
     const sessions = [{ id: "run-2", title: "Agent", type: "windows", runtimeMode: "app-server", agentProvider: "codex" }];
     const { service } = setup(sessions);

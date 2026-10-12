@@ -36,7 +36,15 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
   let server = null;
   let handler = null;
   let lastError = "";
+  let lifecycleQueue = Promise.resolve();
   const address = () => `http://127.0.0.1:${server?.address()?.port || port}/mcp`;
+
+  function enqueueLifecycle(operation) {
+    const pending = lifecycleQueue.then(operation);
+    // Keep later operations runnable even if an earlier operation rejects.
+    lifecycleQueue = pending.catch(() => {});
+    return pending;
+  }
 
   function load() {
     try {
@@ -179,10 +187,12 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
 
   async function setEnabled(value) {
     if (typeof value !== "boolean") throw new Error("MCP 启用状态无效。");
-    enabled = value;
-    if (enabled && !token) token = randomBytes(32).toString("hex");
-    save();
-    return enabled ? start() : stop();
+    return enqueueLifecycle(() => {
+      enabled = value;
+      if (enabled && !token) token = randomBytes(32).toString("hex");
+      save();
+      return enabled ? start() : stop();
+    });
   }
 
   function handleDesktopEvent(channel, payload) {
@@ -196,7 +206,9 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
   }
 
   load();
-  return { listInstances, getInstanceStatus, status, revealToken: () => token, setEnabled, start: () => enabled ? start() : Promise.resolve(status()), stop, handleDesktopEvent };
+  return { listInstances, getInstanceStatus, status, revealToken: () => token, setEnabled,
+    start: () => enqueueLifecycle(() => enabled ? start() : status()),
+    stop: () => enqueueLifecycle(stop), handleDesktopEvent };
 }
 
 module.exports = { createSessionStatusServer, workState };
