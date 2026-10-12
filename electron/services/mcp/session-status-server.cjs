@@ -21,8 +21,10 @@ function workState(overview, agentStatus) {
   if (agentStatus?.resolution === "provide_input" || agentStatus?.eventName === "AppServerQuestion") return "waiting_for_input";
   if (agentStatus?.eventName === "AppServerPlanPending") return "waiting_for_plan";
   if (agentStatus?.status === "failed") return "failed";
+  if (["e_prompt", "completed"].includes(agentStatus?.status)) return "idle";
+  if (agentStatus?.status === "running") return "running";
   if (overview.status === "错误" || overview.detail === "执行失败") return "failed";
-  if (overview.status === "处理中" || overview.status === "运行中" || agentStatus?.status === "running") return "running";
+  if (overview.status === "处理中" || overview.status === "运行中") return "running";
   if (overview.status === "空闲") return "idle";
   return "unknown";
 }
@@ -70,7 +72,7 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
   function changed() { broadcast("mcp-session-status:changed", status()); }
 
   async function getInstance(session) {
-    const agentStatus = agentStatuses.get(session.id);
+    const agentStatus = agentStatuses.get(session.id) || (session.agentStatus ? { status: session.agentStatus } : null);
     const overview = await sessionOverview(session, graphicalService, stateHub, agentStatus);
     if (!terminalManager.getSession(session.id)) return null;
     return {

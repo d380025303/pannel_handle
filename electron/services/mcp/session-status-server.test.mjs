@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { createSessionStatusServer, workState } = require("./session-status-server.cjs");
+const { createSessionApiService } = require("../session-api/session-api-service.cjs");
 const active = [];
 
 function setup(sessions = [], dependencies = {}) {
@@ -47,6 +48,57 @@ afterEach(async () => {
 });
 
 describe("session status MCP server", () => {
+  it.each(["e_prompt", "completed", "running"])("prioritizes structured %s status while preserving connection and waiting states", status => {
+    const agentStatus = { status };
+    expect(workState({ status: "运行中" }, agentStatus)).toBe(status === "running" ? "running" : "idle");
+    expect(workState({ status: "空闲" }, agentStatus)).toBe(status === "running" ? "running" : "idle");
+    for (const [label, expected] of [["连接中", "connecting"], ["重连中", "reconnecting"], ["已断开", "disconnected"]]) {
+      expect(workState({ status: label }, agentStatus)).toBe(expected);
+    }
+    for (const [detail, expected] of [["等待授权", "waiting_for_permission"], ["需要用户输入", "waiting_for_input"], ["等待确认计划", "waiting_for_plan"]]) {
+      expect(workState({ status: "待确认", detail }, agentStatus)).toBe(expected);
+    }
+    for (const [pending, expected] of [
+      [{ status: "waiting_for_permission" }, "waiting_for_permission"],
+      [{ resolution: "provide_input" }, "waiting_for_input"],
+      [{ eventName: "AppServerQuestion" }, "waiting_for_input"],
+      [{ eventName: "AppServerPlanPending" }, "waiting_for_plan"]
+    ]) {
+      expect(workState({ status: "运行中" }, { ...agentStatus, ...pending })).toBe(expected);
+    }
+  });
+
+  it.each(["cached", "session"])("reports terminal Agent states through HTTP and MCP using %s status", async source => {
+    const session = { id: "terminal", title: "Agent", type: "windows", runtimeMode: "terminal" };
+    const { service } = setup([session]);
+    const userData = mkdtempSync(path.join(tmpdir(), "pannel-status-http-"));
+    const api = createSessionApiService({ userData, defaultPort: 0,
+      listInstances: () => service.listInstances(), getInstanceStatus: id => service.getInstanceStatus(id) });
+    active.push({ service: api, userData });
+    await service.setEnabled(true);
+    await api.configure({ enabled: true });
+    for (const [status, expected] of [["e_prompt", "idle"], ["completed", "idle"], ["running", "running"], ["failed", "failed"], ["waiting_for_permission", "waiting_for_permission"]]) {
+      session.agentStatus = source === "cached" ? (status === "running" ? "completed" : "running") : status;
+      if (source === "cached") service.handleDesktopEvent("agent:status", { id: session.id, status });
+      for (const endpoint of ["/api/v1/session-instances", `/api/v1/session-instances/${session.id}`]) {
+        const response = await fetch(api.status().url + endpoint, { headers: { Authorization: `Bearer ${api.revealToken()}` } });
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect((body.sessions?.[0] || body).workState).toBe(expected);
+      }
+      for (const name of ["list_session_instances", "get_session_instance_status"]) {
+        const response = await result(await rpc(service, service.revealToken(), "tools/call", {
+          name, arguments: name === "get_session_instance_status" ? { sessionId: session.id } : {}
+        }));
+        const body = JSON.parse(response.result.content[0].text);
+        expect((body.sessions?.[0] || body).workState).toBe(expected);
+      }
+    }
+    service.handleDesktopEvent("agent:status", { id: session.id, status: "cleared" });
+    session.agentStatus = "completed";
+    expect(await service.getInstanceStatus(session.id)).toMatchObject({ workState: "idle" });
+  });
+
   it("maps connection and approval states to stable values", () => {
     expect(workState({ status: "重连中" })).toBe("reconnecting");
     expect(workState({ status: "待确认", detail: "等待授权" })).toBe("waiting_for_permission");
