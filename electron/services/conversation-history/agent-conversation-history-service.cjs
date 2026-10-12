@@ -28,6 +28,7 @@ function createAgentConversationHistoryService({
   const codeBuddyMetadataCache = new Map();
   const listCache = new Map();
   const messageCache = new Map();
+  const codexMessageCache = new Map();
   function getSession(panelSessionId) {
     const session = terminalManager.getSession(String(panelSessionId || ""));
     if (!session) throw new Error("Session is not running.");
@@ -134,7 +135,7 @@ function createAgentConversationHistoryService({
       ...pageMessages(cached.messages, request.cursor, request.limit, true) };
     messageCache.delete(cacheKey);
     const messages = reference.provider === "codex"
-      ? getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database })
+      ? await getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database, messageCache: codexMessageCache })
       : reference.provider === "opencode"
         ? getLocalOpenCodeMessages({ homeDir, id: reference.id, fsApi, Database })
       : reference.provider === "gemini"

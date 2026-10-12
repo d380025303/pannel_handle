@@ -35,7 +35,7 @@ function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database 
   }
 }
 
-function getLocalCodexMessages({ homeDir, id, fsApi, Database = DatabaseSync }) {
+async function getLocalCodexMessages({ homeDir, id, fsApi, messageCache, Database = DatabaseSync }) {
   const databaseFile = path.join(homeDir, ".codex", "state_5.sqlite");
   if (!fsApi.existsSync(databaseFile)) throw new Error("Codex history is unavailable.");
   const database = new Database(databaseFile, { readOnly: true });
@@ -45,8 +45,29 @@ function getLocalCodexMessages({ homeDir, id, fsApi, Database = DatabaseSync }) 
   } finally {
     database.close();
   }
-  if (!row?.rollout_path || !fsApi.existsSync(row.rollout_path)) throw new Error("Codex conversation is unavailable.");
-  return parseAgentConversationText("codex", fsApi.readFileSync(row.rollout_path, "utf-8"), { includeUser: true });
+  if (!row?.rollout_path) throw new Error("Codex conversation is unavailable.");
+  const file = row.rollout_path;
+  try {
+    const stat = await fsApi.promises.stat(file);
+    // ctime also catches same-size rewrites with a restored modification time.
+    const signature = JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
+    const cached = messageCache?.get(file);
+    if (cached?.signature === signature) return cached.messages;
+    const text = await fsApi.promises.readFile(file, "utf-8");
+    const messages = parseAgentConversationText("codex", text, { includeUser: true });
+    // Do not cache a snapshot if the file changed while it was being read.
+    const after = await fsApi.promises.stat(file);
+    const afterSignature = JSON.stringify([after.dev, after.ino, after.size, after.mtimeMs, after.ctimeMs]);
+    messageCache?.delete(file);
+    if (signature === afterSignature && messageCache) {
+      messageCache.set(file, { signature, messages });
+      if (messageCache.size > 2) messageCache.delete(messageCache.keys().next().value);
+    }
+    return messages;
+  } catch (error) {
+    messageCache?.delete(file);
+    throw error;
+  }
 }
 
 module.exports = {
