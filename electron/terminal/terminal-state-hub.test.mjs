@@ -2,6 +2,33 @@ import { describe, expect, it } from "vitest";
 import { createTerminalStateHub } from "./terminal-state-hub.cjs";
 
 describe("terminal state hub", () => {
+  it("preserves configured scrollback in the initial snapshot", async () => {
+    const hub = createTerminalStateHub({ scrollback: 20 });
+    const restored = createTerminalStateHub({ scrollback: 20 });
+    try {
+      hub.start("run-1", 40, 3);
+      for (let line = 1; line <= 12; line += 1) {
+        hub.write("run-1", `LINE_${line}\r\n`);
+      }
+
+      const snapshot = await hub.getSnapshot("run-1", "phone");
+      const expectedLines = Array.from({ length: 12 }, (_, index) => `LINE_${index + 1}`);
+      expect(snapshot.ansi.match(/LINE_\d+/g)).toEqual(expectedLines);
+
+      const state = restored.start("run-1", snapshot.cols, snapshot.rows);
+      restored.write("run-1", snapshot.ansi);
+      await restored.getSnapshot("run-1");
+      const buffer = state.terminal.buffer.active;
+      expect(buffer.baseY).toBeGreaterThan(0);
+      expect(Array.from({ length: buffer.length }, (_, index) =>
+        buffer.getLine(index).translateToString(true)
+      ).filter(Boolean)).toEqual(expectedLines);
+    } finally {
+      hub.shutdown();
+      restored.shutdown();
+    }
+  });
+
   it("serializes the current screen and sequences output", async () => {
     const hub = createTerminalStateHub({ scrollback: 20 });
     hub.start("run-1", 40, 8);

@@ -75,7 +75,7 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     await pending;
     return {
       sessionId: id,
-      ansi: state.serializer.serialize({ scrollback: scrollback > 0 }),
+      ansi: state.serializer.serialize({ scrollback }),
       seq,
       cols: state.terminal.cols,
       rows: state.terminal.rows,

@@ -103,6 +103,19 @@ function fixture() {
 }
 
 describe("mobile terminal subscription ordering", () => {
+  it("includes scrollback in the first mobile subscription", async () => {
+    const f = fixture();
+    f.stateHub.start("one", 40, 3);
+    const expectedLines = Array.from({ length: 12 }, (_, index) => `LINE_${index + 1}`);
+    for (const line of expectedLines) f.write(`${line}\r\n`);
+
+    f.subscribe();
+    await vi.waitFor(() => expect(f.messages).toHaveLength(1));
+    expect(f.messages[0]).toMatchObject({ type: "terminal.snapshot", snapshot: { seq: 12 } });
+    expect(f.messages[0].snapshot.ansi.match(/LINE_\d+/g)).toEqual(expectedLines);
+    expect(f.sendError).not.toHaveBeenCalled();
+  });
+
   it("sends the initial snapshot before concurrent output and displays each chunk once", async () => {
     const f = fixture();
     f.write("BEFORE\r\n");
