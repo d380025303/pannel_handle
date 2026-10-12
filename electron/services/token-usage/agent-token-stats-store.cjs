@@ -566,6 +566,13 @@ function createAgentTokenStatsStore({
 
   function clear() {
     ensureLoaded();
+    const baselineRows = database.prepare("SELECT * FROM token_baselines").all();
+    const existingBaselines = baselineRows.map(row => ({
+      provider: row.provider,
+      agentSessionId: row.agent_session_id,
+      tokens: tokensFromRow(row),
+      capabilities: normalizeCapabilityUsage(JSON.parse(row.capabilities_json))
+    }));
     const activeRows = database.prepare("SELECT * FROM token_sessions WHERE status = 'active'").all();
     const activeBaselines = activeRows.map(row => ({
       provider: row.provider,
@@ -575,6 +582,8 @@ function createAgentTokenStatsStore({
     }));
     transaction(() => {
       database.exec("DELETE FROM token_sessions; DELETE FROM token_daily; DELETE FROM token_baselines;");
+      for (const baseline of existingBaselines) writeBaseline(baseline.provider, baseline.agentSessionId, baseline.tokens, baseline.capabilities);
+      // Active snapshots override any existing baseline for the same session.
       for (const baseline of activeBaselines) writeBaseline(baseline.provider, baseline.agentSessionId, baseline.tokens, baseline.capabilities);
     });
     onChanged();

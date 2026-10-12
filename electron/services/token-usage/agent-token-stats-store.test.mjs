@@ -131,6 +131,34 @@ describe("agent token statistics SQLite store", () => {
     store.close();
   });
 
+  it.each([false, true])("preserves resumed-session baselines without usage records after clear (unchanged snapshot: %s)", submitUnchanged => {
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
+    store.load();
+    const update = total => store.update({
+      provider: "claude", agentSessionId: "resumed", panelSessionId: "panel",
+      tokens: { inputTokens: total, totalTokens: total }, capabilities: capabilities(2, 3)
+    });
+    try {
+      store.setBaseline("claude", "resumed", { inputTokens: 500, totalTokens: 500 }, capabilities(2, 3));
+      if (submitUnchanged) expect(update(500)).toBeUndefined();
+      expect(store.getDashboard({ range: "all" }).totalCount).toBe(0);
+      store.clear();
+      store.clear();
+      expect(store.getDashboard({ range: "all" }).summary.tokens.totalTokens).toBe(0);
+      update(510);
+      update(510);
+      const dashboard = store.getDashboard({ range: "all" });
+      expect(dashboard.summary.tokens).toMatchObject({ inputTokens: 10, totalTokens: 10 });
+      expect(dashboard.sessions).toHaveLength(1);
+      expect(dashboard.sessions[0].tokens).toMatchObject({ inputTokens: 10, totalTokens: 10 });
+      expect(dashboard.dailyTrend.map(item => item.tokens.totalTokens)).toEqual([10]);
+      expect(dashboard.summary.skillCalls).toBe(0);
+      expect(dashboard.summary.mcpCalls).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
   it.each([20, 0])("discards the clear checkpoint when cumulative counters reset to %i", resetTotal => {
     const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
     store.load();
