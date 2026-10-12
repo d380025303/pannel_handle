@@ -78,12 +78,27 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploa
       response.end("移动端资源尚未构建，请先在项目根目录执行 corepack pnpm build:mobile。");
       return;
     }
-    response.writeHead(200, {
+    const headers = {
       "Content-Type": contentType(target),
       "Cache-Control": path.basename(target) === "index.html" ? "no-store" : "public, max-age=31536000, immutable"
-    });
-    if (request.method === "HEAD") response.end();
-    else fs.createReadStream(target).pipe(response);
+    };
+    if (request.method === "HEAD") {
+      response.writeHead(200, headers);
+      response.end();
+    }
+    else {
+      for (const [name, value] of Object.entries(headers)) response.setHeader(name, value);
+      const stream = fs.createReadStream(target);
+      stream.on("error", () => {
+        if (response.headersSent) {
+          response.destroy();
+        } else {
+          response.writeHead(503, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+          response.end("移动端资源读取失败，请稍后重试。");
+        }
+      });
+      stream.pipe(response);
+    }
   }
   return { verifyRequestHost, handleHttp };
 }

@@ -49,7 +49,12 @@ function createProtocolTransport(result = rateLimitResult(), options = {}) {
           } else if (options.error) {
             events.emit("stdout", `${JSON.stringify({ id: message.id, error: { message: options.error } })}\n`);
           } else {
-            events.emit("stdout", `${JSON.stringify({ id: message.id, result })}\n`);
+            const response = Buffer.from(`${JSON.stringify({ id: message.id, result })}\n`, "utf8");
+            if (options.responseChunks) {
+              for (const chunk of options.responseChunks(response)) events.emit("stdout", chunk);
+            } else {
+              events.emit("stdout", response);
+            }
           }
         });
       } else if (message.method === "account/rateLimitResetCredit/consume") {
@@ -220,6 +225,32 @@ describe("agent-usage-service", () => {
       "initialize",
       "account/rateLimits/read"
     ]);
+    expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves Chinese limit names at every response byte boundary", async () => {
+    const result = rateLimitResult();
+    result.rateLimits.limitName = "中文额度";
+    const response = Buffer.from(`${JSON.stringify({ id: "pannel-handle-rate-limits", result })}\n`, "utf8");
+
+    for (let boundary = 1; boundary < response.length; boundary += 1) {
+      const transport = createProtocolTransport(result, {
+        responseChunks: buffer => [buffer.subarray(0, boundary), buffer.subarray(boundary)]
+      });
+      const parsed = await runCodexRateLimitRequest(transport);
+      expect(parsed, `byte boundary ${boundary}`).toEqual(result);
+      expect(normalizeRateLimitResponse(parsed).limits[0].name).toBe("中文额度");
+      expect(transport.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("parses a response delivered one byte at a time", async () => {
+    const result = rateLimitResult();
+    result.rateLimits.limitName = "中文额度";
+    const transport = createProtocolTransport(result, {
+      responseChunks: buffer => Array.from(buffer, (_, index) => buffer.subarray(index, index + 1))
+    });
+    await expect(runCodexRateLimitRequest(transport)).resolves.toEqual(result);
     expect(transport.close).toHaveBeenCalledTimes(1);
   });
 

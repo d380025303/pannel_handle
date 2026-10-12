@@ -3,11 +3,70 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { once } from "node:events";
+import { PassThrough } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 import httpModule from "./mobile-http.cjs";
 
 const roots = [];
 afterEach(() => roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true })));
+
+it.each([false, true])("keeps serving health after a static read failure (headers sent: %s)", async headersSent => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-mobile-http-"));
+  roots.push(root);
+  const target = path.join(root, "index.html");
+  fs.writeFileSync(target, "test");
+  let port;
+  const { handleHttp } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port }) }, getAddress: () => "127.0.0.1", getStaticRoot: () => root
+  });
+  const server = http.createServer(handleHttp);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  port = server.address().port;
+  const originalCreateReadStream = fs.createReadStream;
+  const spy = vi.spyOn(fs, "createReadStream").mockImplementationOnce(filePath => {
+    expect(filePath).toBe(target);
+    if (!headersSent) {
+      // Delete after the handler's existence checks, before the real stream opens.
+      fs.unlinkSync(filePath);
+      return originalCreateReadStream(filePath);
+    }
+    const stream = new PassThrough();
+    process.nextTick(() => stream.write("partial"));
+    return stream;
+  });
+  const request = url => new Promise((resolve, reject) => {
+    http.get({ hostname: "127.0.0.1", port, path: url, agent: false }, response => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => {
+        body += chunk;
+        if (headersSent && url === "/") {
+          spy.mock.results[0].value.destroy(new Error("controlled read failure"));
+        }
+      });
+      response.on("end", () => resolve({ status: response.statusCode, body, aborted: false }));
+      response.on("error", error => {
+        if (headersSent && url === "/") resolve({ status: response.statusCode, body, aborted: response.aborted });
+        else reject(error);
+      });
+    }).on("error", reject);
+  });
+  try {
+    const failed = await request("/");
+    if (headersSent) {
+      expect(failed).toEqual({ status: 200, body: "partial", aborted: true });
+    } else {
+      expect(failed).toEqual({ status: 503, body: "移动端资源读取失败，请稍后重试。", aborted: false });
+    }
+    const health = await request("/health");
+    expect(health.status).toBe(200);
+    expect(JSON.parse(health.body)).toMatchObject({ ok: true });
+  } finally {
+    spy.mockRestore();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
 
 it("returns 400 for malformed URLs and encoded paths while keeping the HTTP server available", async () => {
   let port;

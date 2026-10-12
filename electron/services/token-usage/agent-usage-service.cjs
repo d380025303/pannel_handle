@@ -1,5 +1,6 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
+const { StringDecoder } = require("node:string_decoder");
 const { readCodeBuddyUsage } = require("./codebuddy-usage-client.cjs");
 const { sanitizeDiagnostic } = require("../codebuddy-acp/http-transport.cjs");
 const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
@@ -256,6 +257,7 @@ function runCodexAppServerRequest(transport, {
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const stdoutDecoder = new StringDecoder("utf8");
     let stdoutBuffer = "";
     let stderr = "";
     let outputBytes = 0;
@@ -304,7 +306,7 @@ function runCodexAppServerRequest(transport, {
         finish(new Error("Codex usage response exceeded the allowed size."));
         return;
       }
-      stdoutBuffer += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk || "");
+      stdoutBuffer += Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk || "");
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = lines.pop() || "";
       for (const line of lines) {
