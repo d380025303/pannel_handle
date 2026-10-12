@@ -45,6 +45,24 @@ function sourceOfRuntimeSkill(skill, projectPath) {
 function createSkillsService({ homeDir, terminalManager, codexAppServerSessionService, environmentService, sshFileSystem, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
   const home = path.resolve(homeDir);
+  const catalogs = new Map();
+
+  function context(provider, sessionId) {
+    if (!PROVIDERS.has(provider)) throw new Error("Unsupported Skills provider.");
+    const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
+    if (sessionId && !session) throw new Error("Skills session does not exist.");
+    const key = JSON.stringify([provider, sessionId ? String(sessionId) : null]);
+    const directories = JSON.stringify([session?.cwd, session?.localAgentCwd, session?.type,
+      session?.agentLocation, session?.runtimeMode, session?.agentProvider, session?.wslDistro,
+      provider === "codex" ? (session ? environmentService?.resolve?.(session)?.CODEX_HOME : null) || process.env.CODEX_HOME : null,
+      provider === "codex" && session?.runtimeMode === "app-server"
+        ? codexAppServerSessionService?.getWorkspaceCwd?.(session.id) : null]);
+    return { key, session, directories };
+  }
+
+  function sameContext(left, right) {
+    return left.session === right.session && left.directories === right.directories;
+  }
 
   async function discover(root, provider, source, excluded = new Set()) {
     let entries;
@@ -88,7 +106,7 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
     return repositoryFound ? roots : roots.slice(0, 1);
   }
 
-  async function list(provider, sessionId) {
+  async function discoverCatalog(provider, sessionId) {
     if (!PROVIDERS.has(provider)) throw new Error("Unsupported Skills provider.");
     const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
     if (sessionId && !session) throw new Error("Skills session does not exist.");
@@ -134,11 +152,28 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
       ...(session ? { projectPath: localCwd } : {}) };
   }
 
+  async function list(provider, sessionId) {
+    const initial = context(provider, sessionId);
+    const catalog = await discoverCatalog(provider, sessionId);
+    if (!sameContext(initial, context(provider, sessionId))) throw new Error("会话已切换，请刷新列表。");
+    catalogs.delete(initial.key);
+    catalogs.set(initial.key, { ...initial, skills: new Map(catalog.skills.map(skill => [skill.id, { ...skill }])) });
+    // Keep the cache bounded when many terminal sessions are opened over time.
+    if (catalogs.size > 100) catalogs.delete(catalogs.keys().next().value);
+    return catalog;
+  }
+
   async function read(provider, id, sessionId) {
-    const catalog = await list(provider, sessionId);
-    const skill = catalog.skills.find(item => item.id === id);
+    const initial = context(provider, sessionId);
+    let cached = catalogs.get(initial.key);
+    if (!cached || !sameContext(initial, cached) || !cached.skills.has(id)) {
+      await list(provider, sessionId);
+      cached = catalogs.get(initial.key);
+    }
+    if (!sameContext(initial, context(provider, sessionId))) throw new Error("会话已切换，请重新查看详情。");
+    const skill = cached?.skills.get(id);
     if (!skill) throw new Error("Skill 已不存在，请刷新列表。");
-    const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
+    const session = initial.session;
     let buffer;
     if (provider === "codex" && session?.type === "ssh" && session.agentLocation !== "local") {
       if (!sshFileSystem) throw new Error("SSH 文件读取不可用。");
@@ -149,12 +184,18 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
         { encoding: "utf8", timeout: 15000, maxBuffer: 2 * 1024 * 1024, windowsHide: true });
       buffer = result.stdout;
     } else {
-      const stat = await fsApi.promises.stat(skill.path);
-      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error("Skill 文件不可读取或超过 2 MB。");
-      buffer = await fsApi.promises.readFile(skill.path);
+      try {
+        const stat = await fsApi.promises.stat(skill.path);
+        if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error("Skill 文件不可读取或超过 2 MB。");
+        buffer = await fsApi.promises.readFile(skill.path);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+        cached.skills.delete(id);
+        throw new Error("Skill 已不存在，请刷新列表。");
+      }
     }
     if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) throw new Error("Skill 文件超过 2 MB。");
-    if (sessionId && terminalManager?.getSession?.(String(sessionId)) !== session) throw new Error("会话已切换，请重新查看详情。");
+    if (!sameContext(initial, context(provider, sessionId))) throw new Error("会话已切换，请重新查看详情。");
     return { ...skill, content: buffer.toString("utf8").replace(/^\uFEFF/, "") };
   }
 

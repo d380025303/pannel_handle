@@ -166,3 +166,88 @@ it("reads only catalogued Skills and returns the full source", async () => {
   fs.unlinkSync(skills[0].path);
   await expect(service.read("codex", skills[0].id)).rejects.toThrow(/Skill/);
 });
+
+it.each(["codex", "codebuddy"])("reads one 128 KiB document after listing 100 real %s Skills", async provider => {
+  const home = createHome();
+  const content = "x".repeat(128 * 1024);
+  for (let index = 0; index < 100; index++) writeSkill(home, `.${provider}/skills/skill-${index}`, content);
+  let reads = 0;
+  let bytes = 0;
+  const fsApi = { promises: { ...fs.promises, readFile: async (...args) => {
+    const buffer = await fs.promises.readFile(...args);
+    reads++;
+    bytes += buffer.length;
+    return buffer;
+  } } };
+  const service = createSkillsService({ homeDir: home, fsApi });
+  const { skills } = await service.list(provider);
+  expect(reads).toBe(100);
+  reads = bytes = 0;
+  expect((await service.read(provider, skills[0].id)).content).toBe(content);
+  expect({ reads, bytes }).toEqual({ reads: 1, bytes: 128 * 1024 });
+  reads = bytes = 0;
+  await service.read(provider, skills[0].id);
+  expect({ reads, bytes }).toEqual({ reads: 1, bytes: 128 * 1024 });
+});
+
+it("rediscovers cache misses and replaces metadata and membership on refresh", async () => {
+  const home = createHome();
+  writeSkill(home, ".codebuddy/skills/first", "old");
+  const service = createSkillsService({ homeDir: home });
+  const { skills: [first] } = await service.list("codebuddy");
+  writeSkill(home, ".codebuddy/skills/first", "---\nname: updated\n---\nnew");
+  await service.list("codebuddy");
+  expect(await service.read("codebuddy", first.id)).toMatchObject({ name: "updated", content: expect.stringContaining("new") });
+  writeSkill(home, ".codebuddy/skills/added", "added");
+  const { skills } = await createSkillsService({ homeDir: home }).list("codebuddy");
+  const added = skills.find(skill => skill.name === "added");
+  expect((await service.read("codebuddy", added.id)).content).toBe("added");
+  fs.unlinkSync(first.path);
+  await service.list("codebuddy");
+  await expect(service.read("codebuddy", first.id)).rejects.toThrow("Skill 已不存在");
+  await expect(service.read("codex", added.id)).rejects.toThrow("Skill 已不存在");
+});
+
+it("isolates sessions, replaced sessions, working directories and CODEX_HOME", async () => {
+  const home = createHome();
+  writeSkill(home, "one/.agents/skills/one", "one");
+  writeSkill(home, "two/.agents/skills/two", "two");
+  let session = { id: "one", type: "windows", cwd: path.join(home, "one") };
+  const other = { id: "two", type: "windows", cwd: path.join(home, "two") };
+  let codexHome = path.join(home, "codex-one");
+  const service = createSkillsService({ homeDir: home,
+    terminalManager: { getSession: id => id === "one" ? session : other },
+    environmentService: { resolve: () => ({ CODEX_HOME: codexHome }) } });
+  const { skills: [first] } = await service.list("codex", "one");
+  await expect(service.read("codex", first.id, "two")).rejects.toThrow("Skill 已不存在");
+  session = { ...session, cwd: other.cwd };
+  await expect(service.read("codex", first.id, "one")).rejects.toThrow("Skill 已不存在");
+  session.cwd = path.join(home, "one");
+  expect((await service.read("codex", first.id, "one")).content).toBe("one");
+  writeSkill(home, "codex-one/skills/personal", "personal");
+  const { skills } = await service.list("codex", "one");
+  const personal = skills.find(skill => skill.name === "personal");
+  codexHome = path.join(home, "codex-two");
+  await expect(service.read("codex", personal.id, "one")).rejects.toThrow("Skill 已不存在");
+  session = null;
+  await expect(service.read("codex", first.id, "one")).rejects.toThrow("Skills session does not exist");
+});
+
+it("checks cached file size and rejects a session switch during a read", async () => {
+  const home = createHome();
+  writeSkill(home, ".codebuddy/skills/first", "first");
+  let session = { id: "one", type: "windows", cwd: home };
+  let switchDuringRead = false;
+  const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session },
+    fsApi: { promises: { ...fs.promises, readFile: async (...args) => {
+      const result = await fs.promises.readFile(...args);
+      if (switchDuringRead) session = { ...session };
+      return result;
+    } } } });
+  const { skills: [first] } = await service.list("codebuddy", "one");
+  fs.writeFileSync(first.path, "x".repeat(2 * 1024 * 1024 + 1));
+  await expect(service.read("codebuddy", first.id, "one")).rejects.toThrow("2 MB");
+  fs.writeFileSync(first.path, "first");
+  switchDuringRead = true;
+  await expect(service.read("codebuddy", first.id, "one")).rejects.toThrow("会话已切换");
+});
