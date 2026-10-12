@@ -111,7 +111,9 @@ function createTranscriptSource({
       }
       lineStart = index + 1;
     }
-    tracker.pendingBytes = combined.subarray(lineStart);
+    tracker.pendingBytes = lineStart < combined.length
+      ? Buffer.from(combined.subarray(lineStart))
+      : Buffer.alloc(0);
     return parsedUsage;
   }
 
@@ -134,7 +136,9 @@ function createTranscriptSource({
       if (line.length) tracker.parser.pushLine(line.toString("utf-8"));
       lineStart = index + 1;
     }
-    reader.pendingBytes = combined.subarray(lineStart);
+    reader.pendingBytes = lineStart < combined.length
+      ? Buffer.from(combined.subarray(lineStart))
+      : Buffer.alloc(0);
   }
 
   function ensureRemoteClient(tracker) {
