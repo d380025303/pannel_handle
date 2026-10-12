@@ -45,6 +45,52 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps templates and related data after a read-only deletion, then persists a successful retry", () => {
+    const sessionsFile = createTempSessionsFile();
+    let database;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    }).open();
+    const onChanged = vi.fn();
+    const templateUsageStore = { remove: vi.fn(), getSummary: vi.fn(() => ({})) };
+    const launchTemplateStore = { removeSessionTemplate: vi.fn() };
+    const openSessions = () => createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe",
+      onChanged, templateUsageStore, launchTemplateStore });
+    try {
+      const store = openSessions();
+      store.addToLibrary({ id: "1", title: "Saved", type: "windows" });
+      store.loadLibrary();
+      const before = store.getLibrary();
+      const persisted = dataStore.read(sessionsFile);
+      onChanged.mockClear();
+      database.exec("PRAGMA query_only=ON");
+      expect(() => store.removeFromLibrary("1")).toThrow(/readonly|read-only/i);
+      expect(store.getLibrary()).toEqual(before);
+      expect(dataStore.read(sessionsFile)).toEqual(persisted);
+      expect(openSessions().loadLibrary()).toEqual(persisted);
+      expect(templateUsageStore.remove).not.toHaveBeenCalled();
+      expect(launchTemplateStore.removeSessionTemplate).not.toHaveBeenCalled();
+      expect(onChanged).not.toHaveBeenCalled();
+
+      database.exec("PRAGMA query_only=OFF");
+      store.removeFromLibrary("1");
+      expect(store.getLibrary()).toEqual([]);
+      expect(dataStore.read(sessionsFile)).toEqual([]);
+      expect(templateUsageStore.remove).toHaveBeenCalledExactlyOnceWith("1");
+      expect(launchTemplateStore.removeSessionTemplate).toHaveBeenCalledExactlyOnceWith("1");
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      dataStore.close();
+      dataStore.open();
+      expect(openSessions().loadLibrary()).toEqual([]);
+    } finally {
+      dataStore.close();
+    }
+  });
+
   it("keeps memory and SQLite unchanged after a read-only duplicate, then persists a successful retry", () => {
     const sessionsFile = createTempSessionsFile();
     let database;

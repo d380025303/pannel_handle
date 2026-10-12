@@ -304,10 +304,13 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   }
 
   function removeFromLibrary(id) {
-    librarySessions = librarySessions.filter(s => s.id !== id);
+    const updated = librarySessions.filter(s => s.id !== id);
+    writeJson(dataStore, sessionsFile, updated);
+    librarySessions = updated;
     templateUsageStore?.remove(id);
-    saveLibrary();
     launchTemplateStore?.removeSessionTemplate(id);
+    try { onChanged(); }
+    catch (err) { console.error("Failed to notify library change:", err); }
   }
 
   function duplicateInLibrary(id) {
