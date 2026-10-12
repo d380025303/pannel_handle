@@ -27,7 +27,7 @@ function parseCron(expression) {
       if (step < 1 || start < min || end > max || start > end) throw new Error("Cron 数值超出范围。");
       for (let value = start; value <= end; value += step) values.add(index === 4 && value === 7 ? 0 : value);
     }
-    return { values, wildcard: field === "*" };
+    return { values, wildcard: /^\*(?:\/\d+)?$/.test(field) };
   });
 }
 
@@ -40,7 +40,7 @@ function nextRun(schedule, now) {
   while (date.getFullYear() < limit) {
     if (!fields[3].values.has(date.getMonth() + 1)) { date.setDate(1); date.setMonth(date.getMonth() + 1); date.setHours(0, 0, 0, 0); continue; }
     const dom = fields[2].values.has(date.getDate()); const dow = fields[4].values.has(date.getDay());
-    const day = fields[2].wildcard ? dow : fields[4].wildcard ? dom : dom || dow;
+    const day = fields[2].wildcard || fields[4].wildcard ? dom && dow : dom || dow;
     if (!day) { date.setDate(date.getDate() + 1); date.setHours(0, 0, 0, 0); continue; }
     if (!fields[1].values.has(date.getHours())) { date.setHours(date.getHours() + 1, 0, 0, 0); continue; }
     if (!fields[0].values.has(date.getMinutes())) { date.setMinutes(date.getMinutes() + 1); continue; }
