@@ -89,6 +89,7 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploa
     else {
       for (const [name, value] of Object.entries(headers)) response.setHeader(name, value);
       const stream = fs.createReadStream(target);
+      response.once("close", () => stream.destroy());
       stream.on("error", () => {
         if (response.headersSent) {
           response.destroy();

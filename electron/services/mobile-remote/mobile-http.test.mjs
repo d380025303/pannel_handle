@@ -10,6 +10,63 @@ import httpModule from "./mobile-http.cjs";
 const roots = [];
 afterEach(() => roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true })));
 
+it("closes static file streams after repeated interrupted downloads and preserves complete downloads", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-mobile-http-"));
+  roots.push(root);
+  const content = Buffer.alloc(8 * 1024 * 1024, "x");
+  fs.writeFileSync(path.join(root, "asset.js"), content);
+  let port;
+  const { handleHttp } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port }) }, getAddress: () => "127.0.0.1", getStaticRoot: () => root
+  });
+  const server = http.createServer(handleHttp);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  port = server.address().port;
+  const streams = [];
+  const originalCreateReadStream = fs.createReadStream;
+  const spy = vi.spyOn(fs, "createReadStream").mockImplementation(filePath => {
+    const stream = originalCreateReadStream(filePath);
+    streams.push(stream);
+    return stream;
+  });
+  const request = interrupt => new Promise((resolve, reject) => {
+    http.get({ hostname: "127.0.0.1", port, path: "/asset.js", agent: false }, response => {
+      const chunks = [];
+      response.on("error", reject);
+      if (interrupt) {
+        response.once("data", () => {
+          response.destroy();
+          resolve();
+        });
+      } else {
+        response.on("data", chunk => chunks.push(chunk));
+        response.on("end", () => resolve({ status: response.statusCode, body: Buffer.concat(chunks) }));
+      }
+    }).on("error", reject);
+  });
+  try {
+    for (let index = 0; index < 10; index += 1) await request(true);
+    await vi.waitFor(() => {
+      expect(streams).toHaveLength(10);
+      for (const stream of streams) {
+        expect(stream.destroyed).toBe(true);
+        expect(stream.closed).toBe(true);
+        expect(stream.fd).toBe(null);
+      }
+    });
+    const complete = await request(false);
+    expect(complete.status).toBe(200);
+    expect(complete.body.equals(content)).toBe(true);
+    await vi.waitFor(() => expect(streams.every(stream => stream.closed && stream.destroyed)).toBe(true));
+  } finally {
+    streams.forEach(stream => stream.destroy());
+    await Promise.all(streams.filter(stream => !stream.closed).map(stream => once(stream, "close")));
+    spy.mockRestore();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 it.each([false, true])("keeps serving health after a static read failure (headers sent: %s)", async headersSent => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-mobile-http-"));
   roots.push(root);
