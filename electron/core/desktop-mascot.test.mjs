@@ -46,6 +46,7 @@ describe("desktop mascot window", () => {
     service = createDesktopMascot({ app, BrowserWindow: Window, ipcMain: ipc, screen, random, now: () => performance.now() + clockOffset,
       terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
     service.open({ getBounds: () => area });
+    window.emit("ready-to-show");
   });
   afterEach(() => { service.close(); fs.rmSync(directory, { recursive: true, force: true }); vi.useRealTimers(); });
   function command(payload, sender = window.webContents) {
@@ -59,6 +60,7 @@ describe("desktop mascot window", () => {
     service.close();
     const host = Object.assign(new EventEmitter(), { getBounds: () => area, isFocused: () => focused });
     service.open(host);
+    window.emit("ready-to-show");
     return host;
   }
   function pendingPlan() {
@@ -66,6 +68,47 @@ describe("desktop mascot window", () => {
     snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
     service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
   }
+  it("retains results while closed and loading, then expires each after visible presentation", async () => {
+    const BrowserWindow = window.constructor;
+    service.shutdown();
+    ipc.handle.mockClear();
+    ipc.removeAllListeners("desktop-mascot:command");
+    service = createDesktopMascot({ app, BrowserWindow, ipcMain: ipc, screen, random,
+      terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
+    for (const id of ["one", "two"]) {
+      service.handleDesktopEvent("agent:status", { id, status: "running", timestamp: 1 });
+      service.handleDesktopEvent("agent:status", { id, status: "completed", timestamp: 2, activitySummary: id });
+    }
+    await vi.advanceTimersByTimeAsync(120000);
+    service.open({ getBounds: () => area });
+    expect(hostState().notifications).toMatchObject({ pendingCount: 2, notification: { summary: "one" } });
+    command({ type: "notification-presentation", id: hostState().notifications.notification.id, paused: false });
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(hostState().notifications.pendingCount).toBe(2);
+    window.emit("ready-to-show");
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(hostState().notifications.notification.summary).toBe("one");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(hostState().notifications).toMatchObject({ pendingCount: 1, notification: { summary: "two" } });
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(hostState().notifications.pendingCount).toBe(0);
+  });
+  it("preserves remaining presentation time across close and subsequent notification updates", async () => {
+    service.handleDesktopEvent("agent:status", { id: "one", status: "running", timestamp: 1 });
+    service.handleDesktopEvent("agent:status", { id: "one", status: "completed", timestamp: 2 });
+    await vi.advanceTimersByTimeAsync(10200);
+    const id = hostState().notifications.notification.id;
+    service.close();
+    service.handleDesktopEvent("agent:status", { id: "two", status: "running", timestamp: 3 });
+    service.handleDesktopEvent("agent:status", { id: "two", status: "completed", timestamp: 4 });
+    await vi.advanceTimersByTimeAsync(120000);
+    service.open({ getBounds: () => area });
+    window.emit("ready-to-show");
+    await vi.advanceTimersByTimeAsync(49999);
+    expect(hostState().notifications.notification.id).toBe(id);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(hostState().notifications.notification.id).not.toBe(id);
+  });
   it("only updates mouse passthrough on transitions and resets it on reopen", async () => {
     command({ type: "preferences", moving: false });
     await vi.advanceTimersByTimeAsync(330);

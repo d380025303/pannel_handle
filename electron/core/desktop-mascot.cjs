@@ -86,15 +86,18 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   let hasMessage = false;
   let expandedId = null, presentationPaused = false;
   let mainWindow, mainFocused = false, presentationRevision = 0;
+  let presentationReady = false;
   const presentationSnapshot = () => ({ ...notifications.snapshot(), revision: presentationRevision,
     notification: mainFocused ? null : notifications.snapshot().notification });
+  function setPresentation(id, paused) {
+    if (!alive() || !presentationReady) notifications.suspend();
+    else notifications.setPresentation(id, paused);
+  }
   function updateNotifications() {
     presentationRevision++;
     const snapshot = presentationSnapshot();
     if (mainFocused) {
       presentationPaused = false;
-      const current = notifications.snapshot().notification;
-      if (current) notifications.setPresentation(current.id, true);
     }
     if (snapshot.notification?.id !== openedId) openedId = null;
     const showing = Boolean(snapshot.notification && openedId === snapshot.notification.id);
@@ -107,7 +110,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       showingNotification = showing; showingRequest = Boolean(showing && snapshot.notification?.action); regions = []; correct(true, messageChanged ? (hasMessage ? 40 : -40) : 0);
     }
     const current = notifications.snapshot().notification;
-    if (current) notifications.setPresentation(current.id, mainFocused || showing || presentationPaused);
+    setPresentation(current?.id, mainFocused || showing || presentationPaused);
     if (alive()) win.webContents.send("desktop-mascot:notifications", snapshot);
   }
   function setMainFocused(value) {
@@ -225,7 +228,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       case "notification-presentation":
         if (typeof command.paused === "boolean" && command.id === notifications.snapshot().notification?.id) {
           presentationPaused = !mainFocused && command.paused;
-          notifications.setPresentation(command.id, mainFocused || openedId === command.id || presentationPaused || expandedId === command.id);
+          setPresentation(command.id, mainFocused || openedId === command.id || presentationPaused || expandedId === command.id);
         }
         break;
       case "notification-expanded": {
@@ -241,7 +244,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
         const next = command.expanded ? current.id : null;
         if (next === expandedId) break;
         expandedId = next;
-        notifications.setPresentation(current.id, openedId === current.id || presentationPaused || expandedId === current.id);
+        setPresentation(current.id, openedId === current.id || presentationPaused || expandedId === current.id);
         regions = []; correct(true); break;
       }
       case "preferences":
@@ -298,10 +301,16 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     setIgnoringMouse(true);
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", event => event.preventDefault());
-    win.once("ready-to-show", () => { if (alive()) win.showInactive(); });
+    win.once("ready-to-show", () => {
+      if (!alive()) return;
+      win.showInactive();
+      presentationReady = true;
+      updateNotifications();
+    });
     win.on("blur", () => { drag = undefined; interaction = false; persist(); schedule(); });
     win.on("closed", () => {
       removeMainListeners();
+      presentationReady = false;
       openedId = null; expandedId = null; presentationPaused = false;
       removeFrameRefresh();
       win = undefined; stop(); clearInterval(poll); notifications.suspend();
