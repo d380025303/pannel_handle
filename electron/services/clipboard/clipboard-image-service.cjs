@@ -3,6 +3,24 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const IMAGE_DIR_NAME = ".pannel-handle-images";
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+
+function validateImageFile(name, size) {
+  const ext = path.extname(name).toLowerCase();
+  if (!IMAGE_EXTENSIONS.includes(ext)) throw new Error("不支持的图片格式。");
+  if (!size) throw new Error("图片文件为空或无法读取。");
+  if (size > MAX_IMAGE_SIZE) throw new Error("图片文件不能超过 10 MiB。");
+  return ext;
+}
+
+function validateImageBytes(image) {
+  if (!image || typeof image.name !== "string" || !(image.bytes instanceof Uint8Array)) {
+    throw new Error("无效的图片文件。");
+  }
+  const ext = validateImageFile(image.name, image.bytes.byteLength);
+  return { ext, buffer: Buffer.from(image.bytes) };
+}
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -72,16 +90,9 @@ function createClipboardImageService({
     let ext = ".png";
     let imageBuffer;
     if (fileImage !== undefined) {
-      if (!fileImage || typeof fileImage.name !== "string" || !(fileImage.bytes instanceof Uint8Array)) {
-        throw new Error("无效的图片文件。");
-      }
-      ext = path.extname(fileImage.name).toLowerCase();
-      if (![".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext)) {
-        throw new Error("不支持的图片格式。");
-      }
-      if (!fileImage.bytes.byteLength) throw new Error("图片文件为空或无法读取。");
-      if (fileImage.bytes.byteLength > 10 * 1024 * 1024) throw new Error("图片文件不能超过 10 MiB。");
-      imageBuffer = Buffer.from(fileImage.bytes);
+      const validated = validateImageBytes(fileImage);
+      ext = validated.ext;
+      imageBuffer = validated.buffer;
     } else {
       imageBuffer = getPngBuffer(clipboard.readImage());
     }
@@ -89,6 +100,10 @@ function createClipboardImageService({
       return { status: "no_image" };
     }
 
+    return saveImageToSession(sessionId, imageBuffer, ext, localCwd);
+  }
+
+  async function saveImageToSession(sessionId, imageBuffer, ext, localCwd) {
     const session = terminalManager.getSession(sessionId);
     if (!session) {
       throw new Error("Session is not running.");
@@ -120,26 +135,22 @@ function createClipboardImageService({
       throw new Error("Session is not running.");
     }
 
-    let buffer;
+    let file;
     try {
-      buffer = fs.readFileSync(localPath);
+      file = await fs.promises.stat(localPath);
     } catch (error) {
       throw new Error(`无法读取图片文件：${error instanceof Error ? error.message : String(error)}`);
     }
-    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-      throw new Error("图片文件为空或无法读取。");
-    }
+    validateImageFile(localPath, file.size);
 
-    const ext = path.extname(localPath).toLowerCase() || ".png";
-    const fileName = createImageFileName(now(), randomBytes, ext);
-    const basePath = await resolveSessionWorkingDirectory(session, remoteFileService, sessionId);
-    const remotePath = joinSessionPath(session, basePath, fileName);
-    const saved = await remoteFileService.writeBinaryFile(sessionId, remotePath, buffer);
-    return {
-      status: "saved",
-      path: saved.remotePath,
-      size: buffer.length
-    };
+    let bytes;
+    try {
+      bytes = await fs.promises.readFile(localPath);
+    } catch (error) {
+      throw new Error(`无法读取图片文件：${error instanceof Error ? error.message : String(error)}`);
+    }
+    const { buffer, ext } = validateImageBytes({ name: localPath, bytes });
+    return saveImageToSession(sessionId, buffer, ext);
   }
 
   return {

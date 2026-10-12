@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +12,63 @@ function createNativeImageMock(buffer) {
 }
 
 describe("clipboard-image-service", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    ["x.svg", 1, "不支持的图片格式"],
+    ["x", 1, "不支持的图片格式"],
+    ["x.png", 0, "图片文件为空"],
+    ["x.png", 10 * 1024 * 1024 + 1, "10 MiB"]
+  ])("rejects invalid uploads before reading %s (%s bytes)", async (name, size, error) => {
+    vi.spyOn(fs.promises, "stat").mockResolvedValue({ size });
+    const readFile = vi.spyOn(fs.promises, "readFile").mockResolvedValue(Buffer.from([1]));
+    const writeBinaryFile = vi.fn();
+    const writeFile = vi.spyOn(fs.promises, "writeFile").mockResolvedValue();
+    const service = createClipboardImageService({
+      clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: () => ({ type: "ssh", cwd: "/work" }) },
+      remoteFileService: { writeBinaryFile }
+    });
+    await expect(service.uploadImageToSession("run-1", name)).rejects.toThrow(error);
+    expect(readFile).not.toHaveBeenCalled();
+    expect(writeBinaryFile).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 10 * 1024 * 1024 + 1])("revalidates %s bytes after upload reading", async size => {
+    vi.spyOn(fs.promises, "stat").mockResolvedValue({ size: 1 });
+    vi.spyOn(fs.promises, "readFile").mockResolvedValue(Buffer.alloc(size));
+    const writeBinaryFile = vi.fn();
+    const service = createClipboardImageService({
+      clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: () => ({ type: "ssh", cwd: "/work" }) },
+      remoteFileService: { writeBinaryFile }
+    });
+    await expect(service.uploadImageToSession("run-1", "x.png")).rejects.toThrow(size ? "10 MiB" : "图片文件为空");
+    expect(writeBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it.each(["paste", "upload"])("accepts the exact 10 MiB limit through %s", async entry => {
+    const bytes = Buffer.alloc(10 * 1024 * 1024);
+    vi.spyOn(fs.promises, "stat").mockResolvedValue({ size: bytes.length });
+    vi.spyOn(fs.promises, "readFile").mockResolvedValue(bytes);
+    const writeBinaryFile = vi.fn(async (_id, remotePath) => ({ remotePath }));
+    const service = createClipboardImageService({
+      clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: () => ({ type: "ssh", cwd: "/work" }) },
+      remoteFileService: { writeBinaryFile }
+    });
+    const result = await (entry === "paste"
+      ? service.pasteImageToSession("run-1", { image: { name: "x.WEBP", bytes } })
+      : service.uploadImageToSession("run-1", "x.WEBP"));
+    expect(result).toEqual({ status: "saved", path: expect.stringMatching(/^\/work\/\.pannel-handle-images\/.*\.webp$/), size: bytes.length });
+    expect(writeBinaryFile).toHaveBeenCalledOnce();
+    const [sessionId, savedPath, savedBytes] = writeBinaryFile.mock.calls[0];
+    expect([sessionId, savedPath]).toEqual(["run-1", result.path]);
+    expect(Buffer.isBuffer(savedBytes)).toBe(true);
+    expect(savedBytes.equals(bytes)).toBe(true);
+  });
+
   it("builds deterministic PNG file names", () => {
     const fileName = createImageFileName(
       new Date(2026, 5, 17, 15, 30, 0),
@@ -57,10 +114,12 @@ describe("clipboard-image-service", () => {
     [{ name: "x.png", bytes: [1] }, "无效的图片文件"]
   ])("rejects invalid copied image payloads", async (image, error) => {
     const writeBinaryFile = vi.fn();
+    const writeFile = vi.spyOn(fs.promises, "writeFile").mockResolvedValue();
     const service = createClipboardImageService({ clipboard: { readImage: vi.fn() },
       terminalManager: { getSession: vi.fn() }, remoteFileService: { writeBinaryFile } });
-    await expect(service.pasteImageToSession("run-1", { image })).rejects.toThrow(error);
+    await expect(service.pasteImageToSession("run-1", { image, localCwd: "C:\\work" })).rejects.toThrow(error);
     expect(writeBinaryFile).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
   });
 
   it("saves a Windows clipboard image under the session image directory", async () => {
