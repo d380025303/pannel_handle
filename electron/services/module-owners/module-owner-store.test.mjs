@@ -89,6 +89,33 @@ describe("module owner persistence and history", () => {
     expect(f.broadcast).not.toHaveBeenCalled();
     expect(createModuleOwnerStore({ userData: f.userData }).get("one")).toEqual(before);
   });
+  it("normalizes POSIX separators before checking boundaries on add and update", () => {
+    const f = fixture();
+    const cwd = "/home/project";
+    const before = f.store.mutate("one", { operation: "add", ...fields,
+      directories: ["src\\components", "src/components", "/home/project/electron", "src/../mobile\\ui", "."] }, { cwd });
+    expect(before.records[0].directories).toEqual(["src/components", "electron", "mobile/ui", "."]);
+    const record = before.records[0];
+    const file = path.join(f.userData, "module-owners.json");
+    const saved = readFileSync(file, "utf8");
+    f.broadcast.mockClear();
+    for (const directory of ["..\\outside", "../outside", "src\\../../outside", "src/..\\..\\outside", "/home/project/..\\outside", "..\\", "\\home\\outside"]) {
+      for (const operation of ["add", "update"]) {
+        const input = operation === "add"
+          ? { operation, ...fields, name: "其他", directories: [directory] }
+          : { operation, ...fields, id: record.id, version: record.version, directories: [directory] };
+        expect(() => f.store.mutate("one", input, { cwd })).toThrow("负责目录必须位于项目工作目录内");
+        expect(f.store.get("one")).toEqual(before);
+        expect(readFileSync(file, "utf8")).toBe(saved);
+      }
+    }
+    expect(f.broadcast).not.toHaveBeenCalled();
+    expect(createModuleOwnerStore({ userData: f.userData }).get("one")).toEqual(before);
+    const updated = f.store.mutate("one", { operation: "update", ...fields, id: record.id,
+      version: record.version, directories: ["electron\\services", "/home/project/src\\components"] }, { cwd });
+    expect(updated.records[0].directories).toEqual(["electron/services", "src/components"]);
+    expect(createModuleOwnerStore({ userData: f.userData }).get("one")).toEqual(updated);
+  });
   it("preserves unreadable saved data instead of overwriting it", () => {
     const f = fixture(); const file = path.join(f.userData, "module-owners.json");
     writeFileSync(file, "broken");
