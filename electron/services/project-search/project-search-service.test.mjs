@@ -490,6 +490,47 @@ describe("project-search-service", () => {
     ]));
   });
 
+  it.each([
+    [false, false, "foo", [1, 2, 3]],
+    [false, true, "foo", [2]],
+    [true, false, "foo", [1, 2, 3]],
+    [true, true, "foo", [2]],
+    [true, true, "foo|food", [2, 3]],
+    [true, true, "(f)\\1|foo", [2]]
+  ])("respects regex=%s and wholeWord=%s for WSL non-Git fallback query %s", async (regex, wholeWord, query, lineNumbers) => {
+    const spawnProcess = vi.fn((_command, args) => {
+      const child = args.includes("rg")
+        ? createChildProcess({ stderr: "execvpe(rg) failed: No such file or directory", code: 127 })
+        : createChildProcess({ stderr: "fatal: not a git repository", code: 128 });
+      child.start();
+      return child;
+    });
+    const service = createProjectSearchService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "wsl",
+        cwd: "/home/me/project",
+        wslDistro: "Ubuntu-24.04"
+      }),
+      spawnProcess,
+      fsApi: createDirectoryFsApi({
+        readdir: vi.fn(async () => [{ name: "app.txt", isDirectory: () => false, isFile: () => true }]),
+        readFile: vi.fn(async () => Buffer.from("foobar\nfoo\nfood", "utf-8"))
+      })
+    });
+
+    const result = await service.searchText("run-1", query, "request-1", undefined, { regex, wholeWord });
+    expect(result.engine).toBe("fallback");
+    expect(result.results.map((match) => match.lineNumber)).toEqual(lineNumbers);
+    if (wholeWord) {
+      for (const match of result.results) {
+        expect(match.matchStart).toBe(0);
+        expect(match.matchLength).toBe(match.line.length);
+      }
+    }
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+  });
+
   it("cancels the active ripgrep process for the matching request", async () => {
     const child = createChildProcess({ autoClose: false });
     const service = createProjectSearchService({

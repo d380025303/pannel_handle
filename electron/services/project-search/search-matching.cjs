@@ -25,7 +25,8 @@ function isLikelyBinary(buffer) {
 
 function getLineMatches(content, query, limit, options = {}) {
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matcher = new RegExp(options.regex ? query : options.wholeWord ? `\\b${escaped}\\b` : escaped, options.caseSensitive ? "g" : "gi");
+  const pattern = options.regex ? query : escaped;
+  const matcher = new RegExp(options.wholeWord ? `\\b(?:${pattern})\\b` : pattern, options.caseSensitive ? "g" : "gi");
   const lines = content.split(/\r?\n/);
   const matches = [];
   for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
