@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { DEFAULT_WINDOW_MS, createTemplateUsageStore } = require("./template-usage-store.cjs");
@@ -12,6 +12,35 @@ function createUsageFile() {
 }
 
 describe("template usage store", () => {
+  it("cleans only requested templates, deletes empty histories, and preserves the single summary API", () => {
+    let currentTime = 1000;
+    let persisted = { a: [500, 900], b: [500], untouched: [500] };
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn((_file, value) => { persisted = structuredClone(value); })
+    };
+    const now = vi.fn(() => currentTime);
+    const store = createTemplateUsageStore({ usageFile: "template-usage.json", dataStore, now, windowMs: 500 });
+    store.load();
+    currentTime++;
+    now.mockClear();
+
+    expect(store.getSummaries([" a ", "b", "a", "missing"])).toEqual(new Map([
+      ["a", { recentLaunchCount: 1, lastLaunchedAt: 900 }],
+      ["b", { recentLaunchCount: 0, lastLaunchedAt: undefined }],
+      ["missing", { recentLaunchCount: 0, lastLaunchedAt: undefined }]
+    ]));
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(dataStore.write).toHaveBeenCalledTimes(1);
+    expect(persisted).toEqual({ a: [900], untouched: [500] });
+    store.getSummaries([]);
+    store.getSummaries(["a", "b", "missing"]);
+    expect(dataStore.write).toHaveBeenCalledTimes(1);
+    expect(store.getSummary("untouched")).toEqual({ recentLaunchCount: 0, lastLaunchedAt: undefined });
+    expect(dataStore.write).toHaveBeenCalledTimes(2);
+    expect(persisted).toEqual({ a: [900] });
+  });
+
   it("loads only launches inside the rolling window", () => {
     const usageFile = createUsageFile();
     const currentTime = 2_000_000_000_000;

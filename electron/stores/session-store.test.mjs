@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createSessionStore, inferWorkingDirectory, normalizeTags } = require("./session-store.cjs");
+const { DEFAULT_WINDOW_MS, createTemplateUsageStore } = require("./template-usage-store.cjs");
 const { createBusinessDataStore } = require("./business-data-store.cjs");
 
 let tempDirs = [];
@@ -45,6 +46,61 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each([500, 1000])("prunes %i template summaries with one SQLite write and no repeat write", (count) => {
+    const sessionsFile = createTempSessionsFile();
+    const usageFile = path.join(path.dirname(sessionsFile), "template-usage.json");
+    let inserts = 0;
+    let transactions = 0;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile), databaseFile: ":memory:",
+      Database: class extends DatabaseSync {
+        exec(sql) {
+          if (sql === "BEGIN IMMEDIATE") transactions++;
+          return super.exec(sql);
+        }
+        prepare(sql) {
+          const statement = super.prepare(sql);
+          if (sql.startsWith("INSERT INTO app_template_usage(")) {
+            const run = statement.run.bind(statement);
+            statement.run = (...args) => { inserts++; return run(...args); };
+          }
+          return statement;
+        }
+      }
+    }).open();
+    try {
+      let currentTime = 2_000_000_000_000;
+      const old = currentTime - DEFAULT_WINDOW_MS;
+      const recent = currentTime - 1000;
+      const templates = Array.from({ length: count }, (_, index) => ({ id: String(index + 1), title: `Template ${index}`, type: "windows" }));
+      dataStore.write(sessionsFile, templates);
+      dataStore.write(usageFile, Object.fromEntries(templates.map(template => [template.id, [old, recent]])));
+      const usage = createTemplateUsageStore({ usageFile, dataStore, now: () => currentTime });
+      usage.load();
+      const store = createSessionStore({ sessionsFile, dataStore, templateUsageStore: usage, getDefaultShell: () => "powershell.exe" });
+      store.loadLibrary();
+      const write = vi.spyOn(dataStore, "write");
+      transactions = 0;
+      inserts = 0;
+      currentTime++;
+
+      const library = store.getLibrary();
+
+      expect(library).toHaveLength(count);
+      expect(library.every(template => template.recentLaunchCount === 1 && template.lastLaunchedAt === recent)).toBe(true);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(transactions).toBe(1);
+      expect(inserts).toBe(count);
+      expect(dataStore.read(usageFile)).toEqual(Object.fromEntries(templates.map(template => [template.id, [recent]])));
+      expect(store.getLibrary()).toEqual(library);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(transactions).toBe(1);
+      expect(inserts).toBe(count);
+    } finally {
+      dataStore.close();
+    }
+  });
+
   it.each(["add", "replace"])("keeps memory and SQLite unchanged after a read-only %s, then persists a successful retry", (operation) => {
     const sessionsFile = createTempSessionsFile();
     let database;
@@ -102,7 +158,7 @@ describe("session-store", () => {
       }
     }).open();
     const onChanged = vi.fn();
-    const templateUsageStore = { remove: vi.fn(), getSummary: vi.fn(() => ({})) };
+    const templateUsageStore = { remove: vi.fn(), getSummaries: vi.fn(() => new Map()) };
     const launchTemplateStore = { removeSessionTemplate: vi.fn() };
     const openSessions = () => createSessionStore({ sessionsFile, dataStore,
       getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe",
@@ -1089,9 +1145,9 @@ describe("session-store", () => {
   it("exposes local usage summaries without exporting or importing usage history", () => {
     const sessionsFile = createTempSessionsFile();
     const templateUsageStore = {
-      getSummary: vi.fn((id) => id === "1"
+      getSummaries: vi.fn((ids) => new Map(ids.map(id => [id, id === "1"
         ? { recentLaunchCount: 3, lastLaunchedAt: 500 }
-        : { recentLaunchCount: 0, lastLaunchedAt: undefined }),
+        : { recentLaunchCount: 0, lastLaunchedAt: undefined }]))),
       remove: vi.fn()
     };
     const launchTemplateStore = { removeSessionTemplate: vi.fn() };

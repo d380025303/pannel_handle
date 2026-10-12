@@ -59,20 +59,32 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
     save();
   }
 
-  function getSummary(templateId) {
-    const id = String(templateId || "").trim();
-    const previous = launchesByTemplateId[id];
-    const recent = pruneTimestamps(previous);
-    launchesByTemplateId[id] = recent;
-    if (recent.length === 0) delete launchesByTemplateId[id];
-    if (Array.isArray(previous) && recent.length !== previous.length) save();
-    return {
-      recentLaunchCount: recent.length,
-      lastLaunchedAt: recent.length > 0 ? Math.max(...recent) : undefined
-    };
+  function getSummaries(templateIds) {
+    const summaries = new Map();
+    const currentTime = now();
+    let changed = false;
+    for (const templateId of templateIds) {
+      const id = String(templateId || "").trim();
+      if (summaries.has(id)) continue;
+      const previous = launchesByTemplateId[id];
+      const recent = pruneTimestamps(previous, currentTime);
+      if (recent.length > 0) launchesByTemplateId[id] = recent;
+      else delete launchesByTemplateId[id];
+      if (Array.isArray(previous) && recent.length !== previous.length) changed = true;
+      summaries.set(id, {
+        recentLaunchCount: recent.length,
+        lastLaunchedAt: recent.length > 0 ? Math.max(...recent) : undefined
+      });
+    }
+    if (changed) save();
+    return summaries;
   }
 
-  return { load, record, remove, getSummary };
+  function getSummary(templateId) {
+    return getSummaries([templateId]).get(String(templateId || "").trim());
+  }
+
+  return { load, record, remove, getSummary, getSummaries };
 }
 
 module.exports = {

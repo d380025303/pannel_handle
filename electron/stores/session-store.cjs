@@ -402,9 +402,10 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   }
 
   function getLibrary() {
+    const summaries = templateUsageStore?.getSummaries(librarySessions.map(session => session.id));
     return librarySessions.map((session) => ({
       ...sanitizeTemplate(session),
-      ...(templateUsageStore?.getSummary(session.id) || { recentLaunchCount: 0, lastLaunchedAt: undefined })
+      ...(summaries?.get(String(session.id).trim()) || { recentLaunchCount: 0, lastLaunchedAt: undefined })
     }));
   }
 
