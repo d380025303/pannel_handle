@@ -81,11 +81,11 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     }
     return status;
   }
-  function syncPending(id) {
+  function syncPending(id, suppliedSnapshot) {
     const session = terminalManager.getSession(id);
     if (session?.runtimeMode !== "app-server") return;
     let value;
-    try { value = graphicalService.snapshot(id); }
+    try { value = suppliedSnapshot ?? graphicalService.snapshot(id); }
     catch { removeSession(id); return; }
     const requests = pendingRequests(value);
     const keys = new Set(requests.map(request => request.key));
@@ -179,7 +179,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
       for (const id of new Set([...runs.keys(), ...seen.keys()])) if (!ids.has(id)) removeSession(id);
       return;
     }
-    if (channel === "codex-app-server:changed" && payload?.id) { syncPending(payload.id); return; }
+    if (channel === "codex-app-server:changed" && payload?.id) { syncPending(payload.id, payload.snapshot); return; }
     if (channel !== "agent:status" || !payload?.id) return;
     if (["cleared", "ended", "exited"].includes(payload.status)) { removeSession(payload.id); return; }
     const session = terminalManager.getSession(payload.id);

@@ -19,6 +19,48 @@ describe("mascot task notifications", () => {
   const status = (id, value, extra = {}) => manager.handleDesktopEvent("agent:status", { id, status: value, provider: "codex", timestamp: Date.now(), ...extra });
   const settle = () => vi.advanceTimersByTimeAsync(200);
   const head = () => manager.snapshot().notification;
+  it("reuses full event snapshots without copying long history again", () => {
+    const history = Array.from({ length: 10000 }, (_, index) => ({ id: String(index), type: "agentMessage", text: "history" }));
+    graphical.snapshot = vi.fn(() => ({ items: [...history], provider: "codex", threadId: "thread-1" }));
+    const snapshot = { items: history, provider: "codex", threadId: "thread-1" };
+    for (let index = 0; index < 100; index++) manager.handleDesktopEvent("codex-app-server:changed", { id: "a", snapshot });
+    expect(graphical.snapshot).not.toHaveBeenCalled();
+    expect(manager.snapshot().pendingCount).toBe(0);
+  });
+  it.each(["approval", "question", "plan"])("adds, updates and removes %s notifications using event snapshots", kind => {
+    graphical.snapshot = vi.fn(() => { throw new Error("event must supply snapshot"); });
+    const snapshotFor = text => ({ provider: "codex", threadId: "thread-1",
+      items: [{ id: "item", type: kind === "plan" ? "plan" : "commandExecution", text }],
+      ...(kind === "plan" ? { pendingPlan: { itemId: "item" } }
+        : kind === "approval" ? { approvals: [{ requestId: 7, params: { itemId: "item", title: text } }] }
+          : { questions: [{ requestId: 8, params: { questions: [{ id: "q", question: text }] } }] }) });
+    const send = snapshot => manager.handleDesktopEvent("codex-app-server:changed", { id: "a", snapshot });
+    send(snapshotFor("initial"));
+    const id = head().id;
+    expect(manager.snapshot().pendingCount).toBe(1);
+    expect(head().action.kind).toBe(kind);
+    send(snapshotFor("updated"));
+    expect(manager.snapshot().pendingCount).toBe(1);
+    expect(head().id).toBe(id);
+    if (kind === "plan") expect(head().action.text).toBe("updated");
+    else if (kind === "approval") {
+      expect(head().action.request.params.title).toBe("updated");
+      expect(head().action.items[0].text).toBe("updated");
+    } else expect(head().action.request.params.questions[0].question).toBe("updated");
+    send({ provider: "codex", threadId: "thread-1", items: [] });
+    expect(head()).toBeNull();
+    expect(manager.snapshot().pendingCount).toBe(0);
+    send(snapshotFor("new request"));
+    expect(head().action.kind).toBe(kind);
+    expect(head().id).not.toBe(id);
+    expect(graphical.snapshot).not.toHaveBeenCalled();
+  });
+  it("reads a fresh snapshot when the event does not supply one", () => {
+    graphical.snapshot = vi.fn(() => ({ items: [], threadId: "thread-1", questions: [{ requestId: 8, params: { questions: [] } }] }));
+    manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
+    expect(graphical.snapshot).toHaveBeenCalledExactlyOnceWith("a");
+    expect(head().action.kind).toBe("question");
+  });
   it("ignores initial historical completion and non-result statuses", async () => {
     status("a", "completed"); status("b", "failed"); status("a", "e_prompt"); status("a", "exited");
     await settle(); expect(head()).toBeNull();
