@@ -65,6 +65,13 @@ function createWindowManager({ onMainWindowClosed } = {}) {
       closeListenerReady = false;
       closeRequestSent = false;
     });
+    mainWindow.webContents.on("did-fail-load", (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) return; // ERR_ABORTED is navigation cancellation.
+      rendererUnavailable = true;
+      closeListenerReady = false;
+      closeRequestSent = false;
+      sendPendingCloseRequest();
+    });
 
     mainWindow.maximize();
     mainWindow.show();
@@ -135,7 +142,12 @@ function createWindowManager({ onMainWindowClosed } = {}) {
   }
 
   function sendPendingCloseRequest() {
-    if (hasWindow() && !rendererUnavailable && closeListenerReady && closeRequestPending && !closeRequestSent) {
+    if (!hasWindow() || !closeRequestPending) return;
+    if (rendererUnavailable) {
+      mainWindow.close();
+      return;
+    }
+    if (closeListenerReady && !closeRequestSent) {
       closeRequestSent = true;
       broadcast("window:close-requested");
     }

@@ -44,6 +44,61 @@ describe("window close listener handshake", () => {
   function navigate(isInPlace = false, isMainFrame = true) {
     window.webContents.emit("did-start-navigation", {}, "http://localhost", isInPlace, isMainFrame);
   }
+  function failLoad(errorCode = -102, isMainFrame = true) {
+    window.webContents.emit("did-fail-load", {}, errorCode, "load failed", "http://localhost", isMainFrame);
+  }
+
+  it.each(["native", "API"])("allows %s close after main-frame load failure before readiness", method => {
+    failLoad();
+    if (method === "native") {
+      expect(window.close().preventDefault).not.toHaveBeenCalled();
+    } else {
+      manager.requestClose();
+    }
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    expect(manager.getMainWindow()).toBeNull();
+    expect(onMainWindowClosed).toHaveBeenCalledOnce();
+  });
+
+  it.each(["native", "API"])("completes a pending %s close immediately when main-frame loading fails", method => {
+    if (method === "native") window.close();
+    else manager.requestClose();
+    failLoad();
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    expect(manager.getMainWindow()).toBeNull();
+    expect(onMainWindowClosed).toHaveBeenCalledOnce();
+  });
+
+  it.each([[-3, true], [-102, false]])("preserves confirmation for ignored load failure %s in main frame %s", (code, mainFrame) => {
+    ready();
+    failLoad(code, mainFrame);
+    expect(window.close().preventDefault).toHaveBeenCalledOnce();
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith("window:close-requested", undefined);
+    manager.resolveClose(false);
+    expect(manager.getMainWindow()).toBe(window);
+  });
+
+  it("keeps an early close queued when navigation is cancelled", () => {
+    manager.requestClose();
+    failLoad(-3);
+    expect(manager.getMainWindow()).toBe(window);
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    ready();
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith("window:close-requested", undefined);
+  });
+
+  it("restores confirmation after a failed page recovers and completes the handshake", () => {
+    failLoad();
+    navigate();
+    ready();
+    expect(window.close().preventDefault).toHaveBeenCalledOnce();
+    manager.resolveClose(false);
+    expect(manager.getMainWindow()).toBe(window);
+    manager.requestClose();
+    expect(window.webContents.send).toHaveBeenCalledTimes(2);
+    manager.resolveClose(true);
+    expect(onMainWindowClosed).toHaveBeenCalledOnce();
+  });
 
   it("delivers an early native close once after readiness, then allows cancellation and retry", () => {
     expect(window.close().preventDefault).toHaveBeenCalledOnce();
