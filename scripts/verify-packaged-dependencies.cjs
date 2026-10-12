@@ -45,21 +45,33 @@ function inspect(appOutDir, repair) {
   }
   const seen = new Set();
   const missing = [];
+  const incompatible = [];
   const copied = new Set();
 
-  function packagedPackage(from, name) {
+  function packagedPackage(from, name, versionRange) {
+    function checkVersion(manifest) {
+      if (!semver.satisfies(manifest.version, versionRange)) {
+        incompatible.push(`${from}: ${name} requires ${versionRange}, actual ${manifest.version}`);
+      }
+      // An incompatible resolved package must fail, even if a compatible fallback exists.
+      return true;
+    }
+    function fallbackPackage() {
+      const manifest = path.join(fallbackRoot, name, "package.json");
+      return fs.existsSync(manifest) && checkVersion(JSON.parse(fs.readFileSync(manifest, "utf8")));
+    }
     // Modules outside app.asar cannot resolve dependencies inside the archive.
     if (from.startsWith("/node_modules/__fallback__/")) {
-      return fs.existsSync(path.join(fallbackRoot, name, "package.json"));
+      return fallbackPackage();
     }
     let directory = path.posix.dirname(from);
     while (true) {
       const candidate = `${directory}/node_modules/${name}/package.json`.replace(/^\/\//, "/");
-      if (files.has(candidate)) return true;
+      if (files.has(candidate)) return checkVersion(JSON.parse(asar.extractFile(archive, candidate.slice(1).replaceAll("/", "\\")).toString()));
       if (directory === "/") break;
       directory = path.posix.dirname(directory);
     }
-    return fs.existsSync(path.join(fallbackRoot, name, "package.json"));
+    return fallbackPackage();
   }
 
   while (queue.length) {
@@ -70,7 +82,7 @@ function inspect(appOutDir, repair) {
       ? JSON.parse(fs.readFileSync(path.join(fallbackRoot, file.slice("/node_modules/__fallback__/".length)), "utf8"))
       : JSON.parse(asar.extractFile(archive, file.slice(1).replaceAll("/", "\\")).toString());
     for (const [name, versionRange] of Object.entries(metadata.dependencies || {})) {
-      if (packagedPackage(file, name)) continue;
+      if (packagedPackage(file, name, versionRange)) continue;
       const source = installedPackage(name, versionRange);
       if (!repair || !source) {
         missing.push(`${file}: ${name}`);
@@ -81,7 +93,10 @@ function inspect(appOutDir, repair) {
       queue.push(`/node_modules/__fallback__/${name}/package.json`);
     }
   }
-  if (missing.length) throw new Error(`Missing packaged dependencies (${missing.length}):\n${missing.join("\n")}`);
+  const errors = [];
+  if (missing.length) errors.push(`Missing packaged dependencies (${missing.length}):\n${missing.join("\n")}`);
+  if (incompatible.length) errors.push(`Incompatible packaged dependencies (${incompatible.length}):\n${incompatible.join("\n")}`);
+  if (errors.length) throw new Error(errors.join("\n"));
   console.log(`Packaged dependency graph is complete${copied.size ? `; copied ${copied.size} omitted modules` : ""}.`);
 }
 
