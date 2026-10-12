@@ -1,10 +1,73 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
+import fs from "node:fs";
 
 const { registerIpcHandlers, updateSessionFromIpc } = await import("./ipc-handlers.cjs");
 const { createGraphicalSessionRouter } = createRequire(import.meta.url)("../services/codebuddy-acp/session-router.cjs");
 
 describe("session IPC handlers", () => {
+  function registerExportHandler() {
+    const handlers = new Map();
+    const sessions = [{ id: "saved-1" }];
+    const sessionStore = { exportLibrary: vi.fn(() => sessions) };
+    registerIpcHandlers({
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager: { listSessions: () => sessions },
+      sessionStore,
+      windowManager: { getWindowFromEvent: () => undefined },
+      dialog: { showSaveDialog: async () => ({ canceled: false, filePath: "export.json" }) }
+    });
+    return { handlers, sessions, sessionStore };
+  }
+
+  it("keeps timers and other IPC responsive while awaiting a delayed library export", async () => {
+    const { handlers, sessions, sessionStore } = registerExportHandler();
+    let writeFinished = false;
+    let exportFinished = false;
+    const write = vi.spyOn(fs.promises, "writeFile").mockImplementation(() => new Promise(resolve => {
+      setTimeout(() => { writeFinished = true; resolve(); }, 200);
+    }));
+    try {
+      const exporting = handlers.get("sessions:export-library")({}).then(result => {
+        exportFinished = true;
+        return result;
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(write).toHaveBeenCalledOnce();
+      expect(writeFinished).toBe(false);
+      expect(exportFinished).toBe(false);
+      expect(await handlers.get("sessions:list")({})).toEqual(sessions);
+      expect(writeFinished).toBe(false);
+      await expect(exporting).resolves.toEqual({ canceled: false, ok: true, filePath: "export.json", exportedCount: 1 });
+      expect(writeFinished).toBe(true);
+      expect(sessionStore.exportLibrary).toHaveBeenCalledWith({ includeEncryptedSecrets: true });
+      const [filePath, content, encoding] = write.mock.calls[0];
+      expect(filePath).toBe("export.json");
+      expect(encoding).toBe("utf-8");
+      const payload = JSON.parse(content);
+      expect(payload).toEqual({ schemaVersion: 1, exportedAt: expect.any(Number), source: "pannel-handle", sessions });
+      expect(content).toBe(JSON.stringify(payload, null, 2));
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("returns the existing error result when asynchronous library writing fails", async () => {
+    const { handlers } = registerExportHandler();
+    const error = new Error("Storage unavailable");
+    const write = vi.spyOn(fs.promises, "writeFile").mockRejectedValue(error);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(handlers.get("sessions:export-library")({})).resolves.toEqual({
+        canceled: false, ok: false, error: "Storage unavailable"
+      });
+      expect(log).toHaveBeenCalledWith("Failed to export session library:", error);
+    } finally {
+      write.mockRestore();
+      log.mockRestore();
+    }
+  });
+
   it("forwards file sorting unchanged through sessions:update", async () => {
     const handlers = new Map();
     const sessions = [{ id: "run-1" }];

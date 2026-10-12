@@ -218,7 +218,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
         source: "pannel-handle",
         sessions: sessionStore.exportLibrary({ includeEncryptedSecrets: true })
       };
-      fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), "utf-8");
+      await fs.promises.writeFile(result.filePath, JSON.stringify(payload, null, 2), "utf-8");
       return {
         canceled: false,
         ok: true,
