@@ -38,12 +38,22 @@ function createSshHookTunnelService({
     return new Promise((resolve, reject) => {
       let settled = false;
 
-      function fail(err) {
-        tunnels.delete(sessionId);
-        if (!settled) {
-          settled = true;
-          reject(err);
+      function removeCurrentTunnel() {
+        if (tunnels.get(sessionId)?.client === client) {
+          tunnels.delete(sessionId);
         }
+      }
+
+      function fail(err) {
+        if (settled) return;
+        settled = true;
+        removeCurrentTunnel();
+        try {
+          client.end();
+        } catch {
+          // Preserve the original failure if closing the connection fails.
+        }
+        reject(err);
       }
 
       client.on("tcp connection", (_info, accept, rejectConnection) => {
@@ -77,7 +87,7 @@ function createSshHookTunnelService({
         });
       }).catch(fail);
       client.on("close", () => {
-        tunnels.delete(sessionId);
+        removeCurrentTunnel();
         if (!settled) fail(new Error("SSH hook tunnel connection closed."));
       });
     });

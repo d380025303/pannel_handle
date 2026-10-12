@@ -15,6 +15,65 @@ function createClient() {
 }
 
 describe("ssh-hook-tunnel-service", () => {
+  it("closes every rejected forwarding connection and preserves a successful retry after old close events", async () => {
+    const clients = Array.from({ length: 4 }, () => createClient());
+    const forwardingError = new Error("Remote port forwarding denied.");
+    for (const client of clients.slice(0, 3)) {
+      client.forwardIn.mockImplementation((_host, _port, callback) => callback(forwardingError));
+    }
+    // Exercise reentrant close events and best-effort cleanup.
+    clients[0].end.mockImplementation(() => clients[0].emit("close"));
+    clients[1].end.mockImplementation(() => { throw new Error("Close failed."); });
+    const clientFactory = vi.fn();
+    for (const client of clients) clientFactory.mockReturnValueOnce(client);
+    const service = createSshHookTunnelService({
+      terminalManager: { getSession: () => ({ type: "ssh" }) },
+      sshSessionRuntime: { connectClient: vi.fn(() => Promise.resolve()) },
+      getLocalHookPort: () => 4567,
+      clientFactory
+    });
+
+    for (const client of clients.slice(0, 3)) {
+      await expect(service.ensureTunnel("run-1")).rejects.toBe(forwardingError);
+      expect(client.end).toHaveBeenCalledTimes(1);
+    }
+    await service.disconnect("run-1");
+    await service.shutdown();
+    for (const client of clients.slice(0, 3)) expect(client.end).toHaveBeenCalledTimes(1);
+
+    const tunnel = await service.ensureTunnel("run-1");
+    for (const client of clients.slice(0, 3)) client.emit("close");
+    await expect(service.ensureTunnel("run-1")).resolves.toBe(tunnel);
+    expect(clientFactory).toHaveBeenCalledTimes(4);
+    expect(clients[3].forwardIn).toHaveBeenCalledTimes(1);
+    expect(clients[3].end).not.toHaveBeenCalled();
+
+    await service.shutdown();
+    expect(clients[3].unforwardIn).toHaveBeenCalledTimes(1);
+    expect(clients[3].end).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a replacement tunnel when the disconnected client closes later", async () => {
+    const oldClient = createClient();
+    const newClient = createClient();
+    const clientFactory = vi.fn().mockReturnValueOnce(oldClient).mockReturnValueOnce(newClient);
+    const service = createSshHookTunnelService({
+      terminalManager: { getSession: () => ({ type: "ssh" }) },
+      sshSessionRuntime: { connectClient: vi.fn(() => Promise.resolve()) },
+      getLocalHookPort: () => 4567,
+      clientFactory
+    });
+
+    await service.ensureTunnel("run-1");
+    await service.disconnect("run-1");
+    const tunnel = await service.ensureTunnel("run-1");
+    oldClient.emit("close");
+    await expect(service.ensureTunnel("run-1")).resolves.toBe(tunnel);
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+    await service.disconnect("run-1");
+    expect(newClient.end).toHaveBeenCalledTimes(1);
+  });
+
   it("opens a reverse tunnel and reuses it for a session", async () => {
     const client = createClient();
     const service = createSshHookTunnelService({
