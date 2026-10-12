@@ -230,6 +230,7 @@
 .work-items-quick-manager,
 .work-items-quick-form,
 .work-items-quick-form label {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -243,4 +244,178 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
+}
+
+/* Execution dialog: keep the prompt central and scroll with the body. */
+.work-items-execute-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.work-items-execute-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.work-items-execute-meta > strong {
+  flex: 1;
+  min-width: 0;
+}
+.work-items-execute-source {
+  flex-basis: 100%;
+  color: #a9b8cf;
+  font-size: 13px;
+}
+.work-items-execute-hint {
+  margin: 0;
+  color: #a9b8cf;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.work-items-execute-body .work-items-quick-prompts > strong {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.work-items-prompt {
+  flex-shrink: 0;
+  min-width: 0;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #101827;
+}
+.work-items-prompt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #334155;
+  font-size: 14px;
+}
+.work-items-prompt-toolbar > div {
+  display: flex;
+  gap: 4px;
+}
+.work-items-prompt-toolbar button[aria-pressed="true"] {
+  border-color: #579ad8;
+  color: #a6d5ff;
+  background: #203b58;
+}
+.work-items-prompt-preview {
+  min-height: min(240px, 35dvh);
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.work-items-prompt-preview > :first-child {
+  margin-top: 0;
+}
+.work-items-prompt-preview > :last-child {
+  margin-bottom: 0;
+}
+.work-items-prompt-preview h1,
+.work-items-prompt-preview h2,
+.work-items-prompt-preview h3 {
+  margin: 16px 0 8px;
+  font-size: 1.15em;
+  line-height: 1.4;
+}
+.work-items-prompt-preview p,
+.work-items-prompt-preview ul,
+.work-items-prompt-preview ol {
+  margin: 8px 0;
+}
+.work-items-prompt-preview ul,
+.work-items-prompt-preview ol {
+  padding-left: 24px;
+}
+.work-items-prompt-preview blockquote {
+  margin: 12px 0;
+  padding-left: 12px;
+  border-left: 3px solid #579ad8;
+  color: #a9b8cf;
+}
+.work-items-prompt-preview pre,
+.work-items-prompt-preview table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.work-items-prompt-preview pre {
+  padding: 12px;
+  border-radius: 8px;
+  background: #172235;
+  white-space: pre;
+  overflow-wrap: normal;
+  font-size: 13px;
+}
+.work-items-prompt-preview code {
+  font-size: 0.9em;
+}
+.work-items-prompt-preview th,
+.work-items-prompt-preview td {
+  padding: 8px;
+  border: 1px solid #334155;
+}
+.mobile-work-items-dialog-body .work-items-prompt-editor {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: min(300px, 40dvh);
+  padding: 16px;
+  border: 0;
+  border-radius: 0 0 12px 12px;
+  font-size: 16px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.work-items-execute-config {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #a9b8cf;
+  font-size: 13px;
+}
+.work-items-execute-config summary {
+  min-height: 44px;
+  padding: 12px 0;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.work-items-execute-footer {
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid #334155;
+}
+.work-items-execute-footer > button {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+.work-items-execute-footer .work-items-confirm-execute {
+  flex-basis: 100%;
+  min-height: 44px;
+  border-color: #579ad8;
+  color: #a6d5ff;
+  background: #203b58;
+  font-size: 16px;
+  font-weight: 700;
+}
+.mobile-work-items-overlay button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mobile-work-items-overlay button:focus-visible,
+.mobile-work-items-overlay textarea:focus-visible,
+.work-items-execute-config summary:focus-visible {
+  outline: 2px solid #80bfff;
+  outline-offset: 2px;
+}
+.mobile-work-items-overlay button:not(:disabled):hover {
+  border-color: #579ad8;
 }

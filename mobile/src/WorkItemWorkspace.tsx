@@ -20,6 +20,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   const submitting = useRef(false);
   const promptInitialized = useRef(false);
   const [prompt, setPrompt] = useState("");
+  const [promptMode, setPromptMode] = useState<"preview" | "edit">("preview");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
   const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
   const [statuses, setStatuses] = useState<WorkItemStatus[]>(defaultStatuses); const [keyword, setKeyword] = useState("");
@@ -84,7 +85,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   }, [dialog, visible, reload, attemptPage, selectedAttemptId]);
 
   function open(id: string, kind: Dialog["kind"]) {
-    promptInitialized.current = false; setPrompt("");
+    promptInitialized.current = false; setPrompt(""); setPromptMode("preview");
     setItem(null); setPreview(null); setAttempts(null); setAttempt(null); setSelectedAttemptId(""); setAttemptPage(0);
     setDialogError(""); setReason(""); setDialog({ id, kind });
   }
@@ -165,12 +166,11 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       <footer className="work-items-pagination work-items-list-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
     </section>
     {dialog && <OwnerDialog title={titles[dialog.kind]} busy={busy} onClose={() => setDialog(null)} wide>
-      <div className="mobile-work-items-dialog-body work-items-dialog-body">
+      <div className={`mobile-work-items-dialog-body work-items-dialog-body${dialog.kind === "execute" ? " work-items-execute-body" : ""}`}>
         {dialogError && <div><p className="mobile-work-items-error" role="alert">{dialogError}</p><button type="button" disabled={busy || dialogLoading} onClick={() => { setDialogError(""); setReload(value => value + 1); }}>重新查询</button></div>}
         {dialogLoading && <p role="status">正在加载…</p>}
         {item && <>
-          <p>{item.taskName} · {item.owner.name} · {item.template.title} · {WORK_ITEM_STATUS[item.status]}</p>
-          <p>后续处理：{item.needsFollowUp ? "需要" : "不需要"}</p>
+          {dialog.kind === "execute" ? <div className="work-items-execute-meta"><strong>{item.taskName}</strong><span className="work-items-status" data-status={item.status}>{WORK_ITEM_STATUS[item.status]}</span><span className="work-items-execute-source">{item.owner.name} · {item.template.title}</span><span className="work-items-follow-up" data-needed={item.needsFollowUp}>后续处理：{item.needsFollowUp ? "需要" : "不需要"}</span></div> : <><p>{item.taskName} · {item.owner.name} · {item.template.title} · {WORK_ITEM_STATUS[item.status]}</p><p>后续处理：{item.needsFollowUp ? "需要" : "不需要"}</p></>}
           {item.unavailable && <p className="mobile-work-items-error">{item.unavailable}</p>}
           {dialog.kind === "detail" && <>
             <h3>原始最终回复</h3><pre className="work-items-content">{item.output}</pre>
@@ -179,9 +179,16 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
             {item.voidedAt && <p>作废时间：{time(item.voidedAt)} · 原因：{item.voidReason || "未填写"}</p>}
           </>}
           {dialog.kind === "execute" && <>
-            <p>确认后使用普通模式创建新会话。提示词默认使用原始最终回复，编辑仅用于本次执行，并保留在执行记录中。</p>
-            {preview && <><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p><WorkItemQuickPrompts api={api} disabled={busy || dialogLoading} Dialog={OwnerDialog} onAppend={text => setPrompt(value => value ? `${value}\n\n${text}` : text)} />
-              <label>实际提示词<textarea aria-label="实际提示词" rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} /></label></>}
+            <p className="work-items-execute-hint">普通模式创建新会话，提示词修改仅用于本次执行并保留在执行记录中。</p>
+            {preview && <>
+              <WorkItemQuickPrompts api={api} disabled={busy || dialogLoading} Dialog={OwnerDialog} onAppend={text => setPrompt(value => value ? `${value}\n\n${text}` : text)} />
+              <section className="work-items-prompt" aria-label="实际提示词">
+                <div className="work-items-prompt-toolbar"><strong>实际提示词</strong><div role="group" aria-label="提示词显示模式"><button type="button" aria-pressed={promptMode === "preview"} disabled={busy} onClick={() => setPromptMode("preview")}>预览</button><button type="button" aria-pressed={promptMode === "edit"} disabled={busy} onClick={() => setPromptMode("edit")}>编辑</button></div></div>
+                {promptMode === "preview" ? <div className="work-items-prompt-preview"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{prompt || "提示词为空，请切换到编辑填写。"}</ReactMarkdown></div>
+                  : <textarea className="work-items-prompt-editor" aria-label="实际提示词" autoFocus rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} />}
+              </section>
+              <details className="work-items-execute-config" key={dialog.id}><summary>执行配置</summary><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p></details>
+            </>}
           </>}
           {dialog.kind === "void" && <><p>作废后保留回复和执行记录，恢复后才能执行。</p><label>作废原因（可选）<textarea aria-label="作废原因" value={reason} maxLength={2000} onChange={event => setReason(event.target.value)} /></label></>}
           {dialog.kind === "restore" && <p>恢复为待执行，保留原始回复及全部执行记录。</p>}
@@ -194,10 +201,10 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
           </>}
         </>}
       </div>
-      <footer className="mobile-work-items-dialog-footer work-items-dialog-footer"><button type="button" disabled={busy} onClick={() => setDialog(null)}>关闭</button>
+      <footer className={`mobile-work-items-dialog-footer work-items-dialog-footer${dialog.kind === "execute" ? " work-items-execute-footer" : ""}`}><button type="button" disabled={busy} onClick={() => setDialog(null)}>关闭</button>
         {dialog.kind === "execute" && item && <button type="button" disabled={busy || dialogLoading} onClick={() => void toggleFollowUp(item)}>{followUpAction(item.needsFollowUp)}</button>}
         {dialog.kind === "execute" && item && ["pending", "failed", "stopped"].includes(item.status) && <button type="button" disabled={busy || dialogLoading} onClick={() => void perform("markCompleted")}>标记完成</button>}
-        {dialog.kind === "execute" && <button type="button" disabled={busy || dialogLoading || !item || !preview || !prompt.trim() || active(item.status) || item.status === "void" || Boolean(item.unavailable)} onClick={() => void perform("execute")}>{busy ? "创建中…" : "确认执行"}</button>}
+        {dialog.kind === "execute" && <button type="button" className="work-items-confirm-execute" disabled={busy || dialogLoading || !item || !preview || !prompt.trim() || active(item.status) || item.status === "void" || Boolean(item.unavailable)} onClick={() => void perform("execute")}>{busy ? "创建中…" : "确认执行"}</button>}
         {dialog.kind === "void" && <button type="button" disabled={busy || dialogLoading || !item || active(item.status) || item.status === "void"} onClick={() => void perform("void")}>确认作废</button>}
         {dialog.kind === "restore" && <button type="button" disabled={busy || dialogLoading || item?.status !== "void"} onClick={() => void perform("restore")}>确认恢复</button>}
         {dialog.kind === "resolve" && <button type="button" disabled={busy || dialogLoading || item?.status !== "uncertain"} onClick={() => void perform("resolveUncertain")}>确认已结束，标记中断</button>}

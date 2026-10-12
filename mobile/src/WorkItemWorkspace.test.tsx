@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { WorkItemWorkspace } from "./WorkItemWorkspace";
 import type { WorkItem, WorkItemApi } from "../../src/vite-env";
@@ -32,6 +32,7 @@ it("keeps active tasks locked and offers result verification for uncertain tasks
 });
 
 it("supports follow-up changes, execution records and confirmed voiding", async () => {
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   const f = fixture(); await screen.findByText("检查代码");
   const menu = () => fireEvent.click(screen.getByRole("button", { name: "检查代码：更多操作" }));
   menu(); fireEvent.click(screen.getByRole("menuitem", { name: "标记为不需要后续处理" }));
@@ -78,6 +79,7 @@ it.each(["pending", "failed", "stopped"] as const)("manually completes %s withou
   const f = fixture(status);
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
   const button = await screen.findByRole("button", { name: "标记完成" });
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button); fireEvent.click(button);
   await waitFor(() => expect(f.api.markCompleted).toHaveBeenCalledExactlyOnceWith({ id: "task", version: 2 }));
@@ -86,6 +88,8 @@ it.each(["pending", "failed", "stopped"] as const)("manually completes %s withou
 });
 it("allows manual completion when execution preview fails", async () => {
   const status = "pending" as const; const f = fixture(status);
+  expect(screen.queryByRole("textbox", { name: "实际提示词" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   vi.mocked(f.api.preview).mockRejectedValueOnce(new Error("来源模板已删除"));
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
   await screen.findByText("Error: 来源模板已删除");
@@ -114,4 +118,39 @@ it("keeps edited prompt on manual completion conflict", async () => {
   await screen.findByText("Error: 任务已变更，请刷新后重试。");
   expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("保留编辑");
   expect(screen.getByRole("dialog", { name: "执行任务" })).toBeTruthy();
+});
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+
+it("previews markdown, folds configuration and preserves edits across modes", async () => {
+  const f = fixture();
+  const item = await f.api.get({ id: "task" });
+  vi.mocked(f.api.get).mockResolvedValue({ ...item, output: "## 执行建议\n\n**验证结果**\n\n- 运行测试" });
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "执行任务" }));
+  expect(await dialog.findByRole("heading", { name: "执行建议" })).toBeTruthy();
+  expect(dialog.queryByRole("textbox", { name: "实际提示词" })).toBeNull();
+  const config = dialog.getByText("执行配置").closest("details")!;
+  expect(config.open).toBe(false);
+  fireEvent.click(dialog.getByRole("button", { name: "编辑" }));
+  fireEvent.change(dialog.getByRole("textbox", { name: "实际提示词" }), { target: { value: "## 修改后" } });
+  fireEvent.click(dialog.getByRole("button", { name: "预览" }));
+  expect(dialog.getByRole("heading", { name: "修改后" })).toBeTruthy();
+  fireEvent.click(dialog.getByRole("button", { name: "编辑" }));
+  expect((dialog.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("## 修改后");
+  fireEvent.change(dialog.getByRole("textbox", { name: "实际提示词" }), { target: { value: "   " } });
+  expect((dialog.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("appends quick prompts in preview and preserves input after execution failure", async () => {
+  const f = fixture();
+  vi.mocked(f.api.listQuickPrompts).mockResolvedValue([{ id: "quick", version: 1, name: "补充验证", prompt: "## 运行测试" }]);
+  vi.mocked(f.api.execute).mockRejectedValueOnce(new Error("创建失败"));
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  fireEvent.click(await screen.findByRole("button", { name: "补充验证" }));
+  expect(screen.getByRole("heading", { name: "运行测试" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+  await screen.findByText("Error: 创建失败");
+  await waitFor(() => expect((screen.getByRole("button", { name: "编辑" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("修复问题\n\n## 运行测试");
 });
