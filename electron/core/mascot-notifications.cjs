@@ -1,3 +1,5 @@
+const MAX_RESULT_NOTIFICATIONS = 20;
+
 function cleanSummary(value) {
   return String(value || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
@@ -29,7 +31,26 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
   }
   function setPresentation(id, isPaused) {
     if (!id || queue[0]?.notification.id !== id || !queue[0].ready) return;
+    if (!isPaused) queue[0].presented = true;
     ready = true; paused = isPaused === true; schedule();
+  }
+  function enqueueResult(entry) {
+    const oldHead = queue[0];
+    function remove(index) {
+      const [removed] = queue.splice(index, 1);
+      clearTimeout(removed.settle);
+      settleTimers.delete(removed.settle);
+    }
+    // Focus can pause consumption indefinitely; retain only the latest unseen result.
+    for (let index = queue.length - 1; index >= 0; index--) {
+      const previous = queue[index];
+      if (!previous.notification.action && !previous.presented && previous.notification.sessionId === entry.notification.sessionId) remove(index);
+    }
+    queue.push(entry);
+    while (queue.filter(value => !value.notification.action).length > MAX_RESULT_NOTIFICATIONS) {
+      remove(queue.findIndex(value => !value.notification.action));
+    }
+    if (oldHead !== queue[0]) { stopTimer(); ready = false; remaining = 60000; }
   }
   function suspend() { stopTimer(); ready = false; paused = false; }
   function source(id) {
@@ -191,12 +212,12 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     const completedSource = source(payload.id);
     const entry = { ready: false, notification: { id: String(++serial), sessionId: session.id, sessionTitle: cleanSummary(session.title) || payload.provider,
       status: payload.status, agentStatus: { ...payload }, summary: "", timestamp: payload.timestamp } };
-    queue.push(entry);
+    enqueueResult(entry);
     changed();
     // Let final-output events in the same completion burst settle before reading.
-    run.settle = setTimeout(() => {
-      settleTimers.delete(run.settle);
-      run.settle = undefined;
+    entry.settle = setTimeout(() => {
+      settleTimers.delete(entry.settle);
+      entry.settle = undefined;
       if (!queue.includes(entry)) return;
       const currentGraphical = syncPending(payload.id);
       if (!queue.includes(entry)) return;
@@ -214,7 +235,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
       entry.notification.summary = known || "暂无摘要";
       entry.ready = true; changed(); schedule();
     }, 200);
-    settleTimers.add(run.settle);
+    settleTimers.add(entry.settle);
   }
   function shutdown() {
     disposed = true;
@@ -226,4 +247,4 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
   return { snapshot, handleDesktopEvent, processAction, dismiss, setPresentation, suspend, shutdown };
 }
 
-module.exports = { createMascotNotifications, cleanSummary };
+module.exports = { createMascotNotifications, cleanSummary, MAX_RESULT_NOTIFICATIONS };

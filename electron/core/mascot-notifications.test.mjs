@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
-const { createMascotNotifications, cleanSummary } = require("./mascot-notifications.cjs");
+const { createMascotNotifications, cleanSummary, MAX_RESULT_NOTIFICATIONS } = require("./mascot-notifications.cjs");
 
 describe("mascot task notifications", () => {
   let manager, sessions, items, turn, readText, graphical, pending;
@@ -64,6 +64,7 @@ describe("mascot task notifications", () => {
     status("a", "running"); status("a", "completed", { activitySummary: "第一轮完成" });
     status("a", "running"); items.push({ id: "next", type: "agentMessage", text: "下一轮内容" });
     await settle(); expect(head().summary).toBe("第一轮完成");
+    manager.setPresentation(head().id, false);
     status("a", "failed", { message: "第二轮失败" }); await settle();
     manager.dismiss(head().id); expect(head().summary).toBe("第二轮失败");
   });
@@ -124,6 +125,42 @@ describe("mascot task notifications", () => {
       expect(graphical.resolveApproval).toHaveBeenCalledWith("a", 7, decision);
       expect(head()).toBeNull();
     }
+  });
+  it("retains only the latest unseen result across 1,000 paused turns", async () => {
+    for (let index = 0; index < 1000; index++) {
+      status("a", "running");
+      status("a", index % 2 ? "failed" : "completed", { activitySummary: `${index}:` + "x".repeat(10240) });
+      await settle();
+      manager.setPresentation(head().id, true);
+      expect(manager.snapshot().pendingCount).toBe(1);
+    }
+    expect(head().summary).toBe("999:" + "x".repeat(10240));
+    manager.setPresentation(head().id, false);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(head()).toBeNull();
+  });
+  it("bounds results across sessions and keeps authorization and questions actionable", async () => {
+    pending.approvals = [{ requestId: 7, params: {} }];
+    pending.questions = [{ requestId: 8, params: { questions: [] } }];
+    // Other sessions have no pending requests.
+    graphical.snapshot = id => ({ items, provider: "codex", threadId: id, ...(id === "a" ? pending : {}) });
+    manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
+    for (let index = 0; index < 1000; index++) {
+      const id = `session-${index}`;
+      sessions.set(id, { id, runtimeMode: "app-server" });
+      status(id, "running"); status(id, "completed", { activitySummary: `${index}:` + "x".repeat(10240) });
+      expect(manager.snapshot().pendingCount).toBeLessThanOrEqual(MAX_RESULT_NOTIFICATIONS + 2);
+    }
+    expect(vi.getTimerCount()).toBe(MAX_RESULT_NOTIFICATIONS);
+    await settle();
+    graphical.resolveApproval = vi.fn(async () => { pending.approvals = []; });
+    await manager.processAction(head().id, { type: "approve", decision: "accept" });
+    graphical.answerQuestion = vi.fn(async () => { pending.questions = []; });
+    await manager.processAction(head().id, { type: "answer", answers: {} });
+    const summaries = [];
+    while (head()) { summaries.push(head().summary); manager.dismiss(head().id); }
+    expect(summaries).toEqual(Array.from({ length: MAX_RESULT_NOTIFICATIONS }, (_, index) => `${1000 - MAX_RESULT_NOTIFICATIONS + index}:` + "x".repeat(10240)));
+    expect(summaries.join("").length).toBeLessThan(MAX_RESULT_NOTIFICATIONS * 10250);
   });
   it.each([[true, "decline"], [false, "accept"], ["accept", "decline"], ["decline", "accept"]])(
     "rejects approval %s when only %s is allowed", async (decision, allowed) => {
