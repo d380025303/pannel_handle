@@ -343,6 +343,11 @@ function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
       truncated = true;
       break;
     }
+    if (rawLine.startsWith("diff --git ")) {
+      pushChangedRows(rows, deletedRows, addedRows);
+      inHunk = false;
+      continue;
+    }
     if (rawLine.startsWith("@@ ")) {
       pushChangedRows(rows, deletedRows, addedRows);
       const hunk = parseHunkHeader(rawLine);

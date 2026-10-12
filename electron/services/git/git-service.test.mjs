@@ -303,6 +303,37 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it.each(["commit", "stash"])("excludes file headers from multi-file %s previews", async (scope) => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    for (const name of ["a.txt", "b.txt"]) {
+      fs.writeFileSync(path.join(directory, name), "old\n");
+    }
+    git(directory, "add", "-A");
+    git(directory, "commit", "-m", "Base");
+    for (const name of ["a.txt", "b.txt"]) {
+      fs.writeFileSync(path.join(directory, name), "new\n");
+    }
+    let revision;
+    if (scope === "commit") {
+      git(directory, "add", "-A");
+      git(directory, "commit", "-m", "Change both files");
+      revision = git(directory, "rev-parse", "HEAD");
+    } else {
+      git(directory, "stash", "push", "-m", "Change both files");
+      revision = "stash@{0}";
+    }
+
+    const diff = await service.getDiff(target, { scope, revision });
+    expect(diff.kind).toBe("text");
+    expect(diff.truncated).toBe(false);
+    expect(diff.rows).toEqual([
+      { type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "old", newText: "new" },
+      { type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "old", newText: "new" }
+    ]);
+  });
+
   it.each([ [" a.txt", "a.txt"], ["a[1].txt", "a1.txt"] ])("isolates diff, stage, unstage, and discard for %s", async (selectedName, otherName) => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");
