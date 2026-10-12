@@ -58,6 +58,50 @@ function downgradeProviderConstraints(databaseFile) {
 }
 
 describe("agent token statistics SQLite store", () => {
+  it.each(["all", "codex", "claude"])("aggregates daily deltas across time ranges for provider %s", provider => {
+    let time = Date.UTC(2026, 8, 1, 12);
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:", now: () => time });
+    store.load();
+    const update = total => {
+      for (const id of ["codex", "claude"]) {
+        store.update({ provider: id, agentSessionId: id, panelSessionId: id, tokens: tokens(total, total, total) });
+      }
+    };
+    try {
+      update(500);
+      time = Date.UTC(2026, 9, 1, 12);
+      update(1000);
+      time = Date.UTC(2026, 9, 12, 12);
+      update(1010);
+      for (const [range, expected] of [["7d", 10], ["30d", 510], ["all", 1010]]) {
+        const dashboard = store.getDashboard({ range, provider, limit: 1 });
+        const providerCount = provider === "all" ? 2 : 1;
+        const expectedTokens = tokens(expected, expected, expected);
+        expectedTokens.cachedInputTokens = range === "all" ? 5 : 0;
+        expectedTokens.reasoningOutputTokens = range === "all" ? 2 : 0;
+        for (const [field, value] of Object.entries(expectedTokens)) {
+          expect(dashboard.summary.tokens[field]).toBe(value * providerCount);
+          expect(dashboard.dailyTrend.reduce((sum, item) => sum + item.tokens[field], 0)).toBe(value * providerCount);
+        }
+        expect(dashboard.summary.sessionCount).toBe(providerCount);
+        expect(dashboard.summary.averageTokens).toBe(expected);
+        expect(dashboard.totalCount).toBe(providerCount);
+        expect(dashboard.sessions).toHaveLength(1);
+        expect(dashboard.sessions[0].tokens.totalTokens).toBe(1010);
+        for (const entry of dashboard.providerBreakdown) {
+          if (["codex", "claude"].includes(entry.provider)) {
+            expect(entry).toMatchObject({ sessionCount: 1, tokens: expectedTokens });
+          } else {
+            expect(entry.sessionCount).toBe(0);
+            expect(entry.tokens.totalTokens).toBe(0);
+          }
+        }
+      }
+    } finally {
+      store.close();
+    }
+  });
+
   it("stores idempotent cumulative snapshots and aggregates their deltas", () => {
     let time = Date.UTC(2026, 7, 15, 12);
     const changed = vi.fn();

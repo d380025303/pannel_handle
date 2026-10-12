@@ -502,11 +502,14 @@ function createAgentTokenStatsStore({
     const days = range === "7d" ? 7 : range === "30d" ? 30 : null;
     const startAt = days ? now() - days * 86400000 : 0;
     const filter = queryFilter(provider, startAt);
+    const dailyFilter = `date >= ? AND provider <> 'qwen'${provider === "all" ? "" : " AND provider = ?"}`;
+    const dailyParameters = [dayKey(startAt), ...(provider === "all" ? [] : [provider])];
+    const tokenSums = TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ");
 
-    const totals = database.prepare(`SELECT COUNT(*) AS session_count, ${TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ")} FROM token_sessions s WHERE ${filter.sql}`).get(...filter.parameters);
+    const totals = database.prepare(`SELECT ${tokenSums} FROM token_daily WHERE ${dailyFilter}`).get(...dailyParameters);
     const skillCalls = database.prepare(`SELECT COALESCE(SUM(k.count), 0) AS total FROM token_session_skills k JOIN token_sessions s ON s.id = k.session_id WHERE ${filter.sql}`).get(...filter.parameters).total;
     const mcpCalls = database.prepare(`SELECT COALESCE(SUM(m.count), 0) AS total FROM token_session_mcp_tools m JOIN token_sessions s ON s.id = m.session_id WHERE ${filter.sql}`).get(...filter.parameters).total;
-    const sessionCount = safeInteger(totals.session_count);
+    const sessionCount = safeInteger(database.prepare(`SELECT COUNT(*) AS session_count FROM token_sessions s WHERE ${filter.sql}`).get(...filter.parameters).session_count);
     const summaryTokens = tokensFromRow(totals);
     const summary = {
       sessionCount,
@@ -516,14 +519,15 @@ function createAgentTokenStatsStore({
       tokens: summaryTokens
     };
 
-    const breakdownRows = database.prepare(`SELECT provider, COUNT(*) AS session_count, ${TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ")} FROM token_sessions s WHERE ${filter.sql} GROUP BY provider`).all(...filter.parameters);
+    const breakdownRows = database.prepare(`SELECT provider, ${tokenSums} FROM token_daily WHERE ${dailyFilter} GROUP BY provider`).all(...dailyParameters);
     const breakdownByProvider = new Map(breakdownRows.map(row => [row.provider, row]));
+    const sessionCountRows = database.prepare(`SELECT provider, COUNT(*) AS session_count FROM token_sessions s WHERE ${filter.sql} GROUP BY provider`).all(...filter.parameters);
+    const sessionCountsByProvider = new Map(sessionCountRows.map(row => [row.provider, row.session_count]));
     const providerBreakdown = TOKEN_STATS_PROVIDERS
       .filter(id => provider === "all" || id === provider)
-      .map(id => ({ provider: id, sessionCount: safeInteger(breakdownByProvider.get(id)?.session_count), tokens: tokensFromRow(breakdownByProvider.get(id)) }));
+      .map(id => ({ provider: id, sessionCount: safeInteger(sessionCountsByProvider.get(id)), tokens: tokensFromRow(breakdownByProvider.get(id)) }));
 
-    const dailyParameters = [dayKey(startAt), ...(provider === "all" ? [] : [provider])];
-    const dailyRows = database.prepare(`SELECT date, ${TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ")} FROM token_daily WHERE date >= ? AND provider <> 'qwen'${provider === "all" ? "" : " AND provider = ?"} GROUP BY date ORDER BY date`).all(...dailyParameters);
+    const dailyRows = database.prepare(`SELECT date, ${tokenSums} FROM token_daily WHERE ${dailyFilter} GROUP BY date ORDER BY date`).all(...dailyParameters);
     const dailyTrend = dailyRows.map(row => ({ date: row.date, tokens: tokensFromRow(row) }));
 
     const topSkills = database.prepare(`SELECT k.name, SUM(k.count) AS count FROM token_session_skills k JOIN token_sessions s ON s.id = k.session_id WHERE ${filter.sql} GROUP BY k.name ORDER BY count DESC, k.name`).all(...filter.parameters).map(row => ({ name: row.name, count: safeInteger(row.count) }));
