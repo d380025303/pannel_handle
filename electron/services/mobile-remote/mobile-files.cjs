@@ -92,10 +92,27 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
     }
     tickets.delete(id);
+    let stream;
+    let cancelled = false;
+    let responses = active.get(entry.socket);
+    if (!responses) { responses = new Set(); active.set(entry.socket, responses); }
+    const transfer = { cancel() { cancelled = true; stream?.destroy?.(); response.destroy(); } };
+    responses.add(transfer);
+    response.on("close", () => {
+      cancelled = true;
+      stream?.destroy?.();
+      responses.delete(transfer);
+      if (!responses.size && active.get(entry.socket) === responses) active.delete(entry.socket);
+    });
+    const isCancelled = () => cancelled || response.destroyed || !entry.socket.authenticated;
     let target;
     let info;
     try { ({ target, info } = await safePath(entry.path)); }
-    catch (error) { response.writeHead(404, { "Cache-Control": "no-store" }); response.end(error.message); return; }
+    catch (error) {
+      if (isCancelled()) { transfer.cancel(); return; }
+      response.writeHead(404, { "Cache-Control": "no-store" }); response.end(error.message); return;
+    }
+    if (isCancelled()) { transfer.cancel(); return; }
     const filename = `${pathApi.basename(target) || "drive"}${info.isDirectory() ? ".zip" : ""}`;
     const fallback = filename.replace(/[^\x20-\x7e]|["\\]/g, "_");
     response.writeHead(200, {
@@ -104,11 +121,6 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
       ...(info.isFile() ? { "Content-Length": info.size } : {})
     });
-    let stream;
-    let responses = active.get(entry.socket);
-    if (!responses) { responses = new Set(); active.set(entry.socket, responses); }
-    responses.add(response);
-    response.on("close", () => { stream?.destroy?.(); responses.delete(response); if (!responses.size) active.delete(entry.socket); });
     if (info.isDirectory()) {
       stream = archiver("zip", { zlib: { level: 6 }, forceZip64: true });
       stream.on("error", () => response.destroy());
@@ -124,7 +136,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
 
   function releaseSocket(socket) {
     for (const [id, entry] of tickets) if (entry.socket === socket) tickets.delete(id);
-    for (const response of active.get(socket) || []) response.destroy();
+    for (const transfer of active.get(socket) || []) transfer.cancel();
     active.delete(socket);
   }
   function stop() { tickets.clear(); for (const socket of active.keys()) releaseSocket(socket); }

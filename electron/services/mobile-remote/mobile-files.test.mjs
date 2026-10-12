@@ -8,10 +8,10 @@ import filesModule from "./mobile-files.cjs";
 const roots = [];
 afterEach(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); roots.length = 0; });
 
-function fixture(now = () => Date.now()) {
+function fixture(now = () => Date.now(), fsApi = fs) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-mobile-files-"));
   roots.push(root);
-  const files = filesModule.createMobileFiles({ pathApi: path, getRoots: () => [root], now });
+  const files = filesModule.createMobileFiles({ fsApi, pathApi: path, getRoots: () => [root], now });
   const socket = { authenticated: true, remoteAddress: "192.168.1.2" };
   return { root, files, socket };
 }
@@ -109,6 +109,47 @@ it("downloads nested folders as a ZIP and invalidates tickets on disconnect", as
   files.releaseSocket(socket);
   expect((await receive(files, socket, next.url)).status).toBe(403);
 });
+
+it.each(["disconnect", "reauthenticate", "authentication", "close", "stop", "validation error"])(
+  "cancels a download during path validation on %s", async reason => {
+    const fsApi = { ...fs, promises: { ...fs.promises }, createReadStream: vi.fn(fs.createReadStream) };
+    const { root, files, socket } = fixture(undefined, fsApi);
+    const target = path.join(root, "note.txt");
+    fs.writeFileSync(target, "private content");
+    const { url } = await files.prepare(socket, target);
+    let resume;
+    let entered;
+    const paused = new Promise(resolve => { entered = resolve; });
+    fsApi.promises.lstat = async value => {
+      entered();
+      await new Promise(resolve => { resume = resolve; });
+      if (reason === "validation error") throw new Error("validation failed");
+      return fs.promises.lstat(value);
+    };
+    const parsed = new URL(url, "http://localhost");
+    const output = new PassThrough();
+    output.writeHead = vi.fn();
+    const chunks = [];
+    output.on("data", chunk => chunks.push(chunk));
+    const closed = new Promise(resolve => output.on("close", resolve));
+    const downloading = files.download({ socket: { remoteAddress: socket.remoteAddress } }, output,
+      path.basename(parsed.pathname), parsed.searchParams.get("ticket"));
+    await paused;
+    if (reason === "close") output.destroy();
+    else if (reason === "stop") files.stop();
+    else {
+      socket.authenticated = false;
+      if (reason !== "authentication") files.releaseSocket(socket);
+      if (reason === "reauthenticate") socket.authenticated = true;
+    }
+    resume();
+    await downloading;
+    await closed;
+    expect(output.writeHead).not.toHaveBeenCalled();
+    expect(chunks).toEqual([]);
+    expect(fsApi.createReadStream).not.toHaveBeenCalled();
+  }
+);
 
 it("rejects expired tickets and files removed after preparation", async () => {
   let at = 1000;
