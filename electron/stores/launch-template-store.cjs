@@ -38,12 +38,13 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
     };
   }
 
-  function save() {
+  function save(next) {
     const payload = {
       schemaVersion: 1,
-      launchTemplates
+      launchTemplates: next
     };
     writeJson(dataStore, templatesFile, payload);
+    launchTemplates = next;
   }
 
   function load() {
@@ -99,8 +100,7 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
       createdAt: timestamp,
       updatedAt: timestamp
     };
-    launchTemplates.push(template);
-    save();
+    save([...launchTemplates, template]);
     return clone(template);
   }
 
@@ -108,21 +108,22 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
     const index = launchTemplates.findIndex(item => item.id === id);
     if (index < 0) throw new Error("Launch template not found.");
     const current = launchTemplates[index];
-    launchTemplates[index] = {
+    const template = {
       ...current,
       name: validateName(input.name, id),
       sessionTemplateIds: normalizeSessionTemplateIds(input.sessionTemplateIds),
       updatedAt: now()
     };
-    save();
-    return clone(launchTemplates[index]);
+    const next = [...launchTemplates];
+    next[index] = template;
+    save(next);
+    return clone(template);
   }
 
   function remove(id) {
     const next = launchTemplates.filter(item => item.id !== id);
     if (next.length === launchTemplates.length) return getAll();
-    launchTemplates = next;
-    save();
+    save(next);
     return getAll();
   }
 
@@ -130,13 +131,13 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
     const id = String(sessionTemplateId || "").trim();
     if (!id) return getAll();
     let changed = false;
-    launchTemplates = launchTemplates.map((template) => {
+    const next = launchTemplates.map((template) => {
       const sessionTemplateIds = template.sessionTemplateIds.filter(item => item !== id);
       if (sessionTemplateIds.length === template.sessionTemplateIds.length) return template;
       changed = true;
       return { ...template, sessionTemplateIds, updatedAt: now() };
     });
-    if (changed) save();
+    if (changed) save(next);
     return getAll();
   }
 
