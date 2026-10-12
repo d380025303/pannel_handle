@@ -70,7 +70,7 @@ function isOrderedSubsequence(candidate, query, caseSensitive = false) {
 
 function matchesFileQuery(candidate, query, options = {}) {
   const value = String(candidate || "");
-  if (options.regex) return new RegExp(query, options.caseSensitive ? "" : "i").test(value);
+  if (options.regex) throw new Error("File regex queries must run in the file search worker.");
   const haystack = options.caseSensitive ? value : value.toLowerCase();
   const needle = options.caseSensitive ? query : query.toLowerCase();
   if (options.wholeWord) return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, options.caseSensitive ? "" : "i").test(value);

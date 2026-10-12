@@ -1,8 +1,9 @@
+const { runFileQuerySearch } = require("./file-query-search.cjs");
 const { runFallbackTextSearch } = require("./fallback-text-search.cjs");
 const { parseRipgrepMatch, resolveBundledRipgrepPath, createRipgrepInvocation, runRipgrepSearch } = require("./ripgrep-search.cjs");
 const { walkProject } = require("./project-walker.cjs");
 const { throwIfCancelled, normalizeRequestId } = require("./search-task.cjs");
-const { isExcludedDirectory, normalizeQuery, matchesFileQuery } = require("./search-matching.cjs");
+const { isExcludedDirectory, normalizeQuery } = require("./search-matching.cjs");
 const { getSession, resolveSearchRoot, toDisplayPath, toDisplayRelativePath } = require("./search-paths.cjs");
 const { MAX_FILE_RESULTS, MAX_TEXT_RESULTS, MAX_TEXT_FILE_SIZE, MAX_FILE_VISITED_ENTRIES } = require("./search-limits.cjs");
 const fs = require("node:fs");
@@ -15,7 +16,8 @@ function createProjectSearchService({
   fsApi = fs,
   spawnProcess = spawn,
   resolveRipgrepPath = resolveBundledRipgrepPath,
-  forceTextFallback = false
+  forceTextFallback = false,
+  fileRegexTimeoutMs
 }) {
   const activeTextSearches = new Map();
 
@@ -52,7 +54,7 @@ function createProjectSearchService({
     };
   }
 
-  async function searchFiles(sessionId, query, rootPath, options = {}) {
+  async function searchFilesImpl(sessionId, query, rootPath, options, matchesQuery) {
     const normalizedQuery = normalizeQuery(query);
     if (!normalizedQuery) {
       return { root: "", results: [] };
@@ -70,8 +72,7 @@ function createProjectSearchService({
       onFile: async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(session, relativePath);
         if (
-          matchesFileQuery(name, normalizedQuery, options)
-          || matchesFileQuery(displayRelativePath, normalizedQuery, options)
+          await matchesQuery(name, displayRelativePath)
         ) {
           results.push({
             path: toDisplayPath(session, displayRoot, relativePath),
@@ -86,16 +87,12 @@ function createProjectSearchService({
     return { root: displayRoot, results };
   }
 
-  async function searchWorkspaceEntries(sessionId, query, rootPath, options = {}) {
-    const normalizedQuery = normalizeQuery(query);
+  async function searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matchesQuery) {
     const session = terminalManager.getSession(sessionId);
     if (!session) {
       throw new Error("Session is not running.");
     }
 
-    const matchesQuery = (name, relativePath) => !normalizedQuery
-      || matchesFileQuery(name, normalizedQuery, options)
-      || matchesFileQuery(relativePath, normalizedQuery, options);
     const results = [];
 
     if (session.type !== "ssh") {
@@ -112,7 +109,7 @@ function createProjectSearchService({
       const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, localSession, configuredRoot);
       const addResult = (type) => async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(localSession, relativePath);
-        if (matchesQuery(name, displayRelativePath)) {
+        if (await matchesQuery(name, displayRelativePath)) {
           results.push({
             path: toDisplayPath(localSession, displayRoot, relativePath),
             relativePath: displayRelativePath,
@@ -163,17 +160,27 @@ function createProjectSearchService({
           ? path.posix.join(current.relativePath, entry.name)
           : entry.name;
         if (entry.type === "directory" && (!isExcludedDirectory(entry.name) || (options.includeIgnored && ![".git", ".hg", ".svn"].includes(entry.name)))) {
-          if (matchesQuery(entry.name, relativePath)) {
+          if (await matchesQuery(entry.name, relativePath)) {
             results.push({ path: entry.path, relativePath, name: entry.name, type: "directory" });
           }
           queue.push({ path: entry.path, relativePath });
-        } else if (entry.type === "file" && matchesQuery(entry.name, relativePath)) {
+        } else if (entry.type === "file" && await matchesQuery(entry.name, relativePath)) {
           results.push({ path: entry.path, relativePath, name: entry.name, type: "file" });
         }
       }
     }
 
     return { root, results };
+  }
+
+  function searchFiles(sessionId, query, rootPath, options = {}) {
+    return runFileQuerySearch(normalizeQuery(query), options,
+      (matches) => searchFilesImpl(sessionId, query, rootPath, options, matches), fileRegexTimeoutMs);
+  }
+
+  function searchWorkspaceEntries(sessionId, query, rootPath, options = {}) {
+    return runFileQuerySearch(normalizeQuery(query), options,
+      (matches) => searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matches), fileRegexTimeoutMs);
   }
 
   async function searchText(sessionId, query, requestId, rootPath, options = {}) {
