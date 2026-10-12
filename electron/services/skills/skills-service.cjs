@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const PROVIDERS = new Set(["codex", "codebuddy"]);
+const MAX_SKILL_BYTES = 2 * 1024 * 1024;
 
 function unquote(value) {
   const trimmed = String(value || "").trim();
@@ -79,7 +80,7 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
       let stat;
       try { stat = await fsApi.promises.stat(filePath); }
       catch (error) { if (error?.code === "ENOENT") continue; throw error; }
-      if (!stat.isFile()) continue;
+      if (!stat.isFile() || stat.size > MAX_SKILL_BYTES) continue;
       const buffer = await fsApi.promises.readFile(filePath);
       const hasBom = buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
       const metadata = parseFrontmatter(buffer.subarray(hasBom ? 3 : 0).toString("utf-8"), entry.name);
@@ -181,12 +182,12 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
     } else if (provider === "codex" && session?.type === "wsl") {
       const execFile = require("node:util").promisify(require("node:child_process").execFile);
       const result = await execFile("wsl.exe", ["-d", session.wslDistro, "--", "cat", "--", skill.path],
-        { encoding: "utf8", timeout: 15000, maxBuffer: 2 * 1024 * 1024, windowsHide: true });
+        { encoding: "utf8", timeout: 15000, maxBuffer: MAX_SKILL_BYTES, windowsHide: true });
       buffer = result.stdout;
     } else {
       try {
         const stat = await fsApi.promises.stat(skill.path);
-        if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error("Skill 文件不可读取或超过 2 MB。");
+        if (!stat.isFile() || stat.size > MAX_SKILL_BYTES) throw new Error("Skill 文件不可读取或超过 2 MB。");
         buffer = await fsApi.promises.readFile(skill.path);
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
@@ -194,7 +195,7 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
         throw new Error("Skill 已不存在，请刷新列表。");
       }
     }
-    if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) throw new Error("Skill 文件超过 2 MB。");
+    if (Buffer.byteLength(buffer) > MAX_SKILL_BYTES) throw new Error("Skill 文件超过 2 MB。");
     if (!sameContext(initial, context(provider, sessionId))) throw new Error("会话已切换，请重新查看详情。");
     return { ...skill, content: buffer.toString("utf8").replace(/^\uFEFF/, "") };
   }

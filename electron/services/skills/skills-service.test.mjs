@@ -190,6 +190,53 @@ it.each(["codex", "codebuddy"])("reads one 128 KiB document after listing 100 re
   expect({ reads, bytes }).toEqual({ reads: 1, bytes: 128 * 1024 });
 });
 
+it.each(["codex", "codebuddy"])("skips oversized %s Skills before reading on every refresh", async provider => {
+  const home = createHome();
+  const root = `.${provider}/skills`;
+  const content = "---\nname: normal\n---\nInstructions";
+  writeSkill(home, `${root}/normal`, content);
+  const boundary = "x".repeat(2 * 1024 * 1024);
+  writeSkill(home, `${root}/boundary`, boundary);
+  const oversizedPaths = new Map([
+    [path.join(writeSkill(home, `${root}/over-limit`, "unused"), "SKILL.md"), 2 * 1024 * 1024 + 1],
+    [path.join(writeSkill(home, `${root}/huge`, "unused"), "SKILL.md"), 32 * 1024 * 1024]
+  ]);
+  const reads = [];
+  let bytes = 0;
+  const fsApi = { promises: { ...fs.promises,
+    stat: async filePath => {
+      const stat = await fs.promises.stat(filePath);
+      if (oversizedPaths.has(filePath)) stat.size = oversizedPaths.get(filePath);
+      return stat;
+    },
+    readFile: async filePath => {
+      reads.push(filePath);
+      const buffer = oversizedPaths.has(filePath)
+        ? Buffer.alloc(oversizedPaths.get(filePath)) : await fs.promises.readFile(filePath);
+      bytes += buffer.length;
+      return buffer;
+    }
+  } };
+  const service = createSkillsService({ homeDir: home, fsApi });
+  for (let refresh = 0; refresh < 2; refresh++) {
+    reads.length = 0;
+    bytes = 0;
+    const { skills } = await service.list(provider);
+    expect(skills.map(skill => skill.name)).toEqual(["boundary", "normal"]);
+    expect(reads).toHaveLength(2);
+    expect(reads.some(filePath => oversizedPaths.has(filePath))).toBe(false);
+    expect(bytes).toBe(Buffer.byteLength(content) + boundary.length);
+    for (const skill of skills) {
+      reads.length = 0;
+      bytes = 0;
+      const expected = skill.name === "normal" ? content : boundary;
+      expect((await service.read(provider, skill.id)).content).toBe(expected);
+      expect(reads).toEqual([skill.path]);
+      expect(bytes).toBe(Buffer.byteLength(expected));
+    }
+  }
+});
+
 it("rediscovers cache misses and replaces metadata and membership on refresh", async () => {
   const home = createHome();
   writeSkill(home, ".codebuddy/skills/first", "old");
