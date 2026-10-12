@@ -1,4 +1,5 @@
 const { EventEmitter } = require("node:events");
+const { StringDecoder } = require("node:string_decoder");
 const { Client } = require("ssh2");
 const { answerKeyboardInteractive } = require("./ssh-session-runtime.cjs");
 
@@ -17,9 +18,20 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   let killed = false;
   let shellExited = false;
   const pendingWrites = [];
+  const stdoutDecoder = new StringDecoder("utf8");
+  const stderrDecoder = new StringDecoder("utf8");
 
   function emitData(data) {
-    emitter.emit("data", Buffer.isBuffer(data) ? data.toString("utf-8") : String(data || ""));
+    const text = String(data || "");
+    if (text) emitter.emit("data", text);
+  }
+
+  function decodeData(decoder, data) {
+    emitData(Buffer.isBuffer(data) ? decoder.write(data) : data);
+  }
+
+  function flushDecoder(decoder) {
+    emitData(decoder.end());
   }
 
   function emitStatus(status) {
@@ -28,6 +40,8 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
 
   function emitExit(code, details = {}) {
     if (closed) return;
+    flushDecoder(stdoutDecoder);
+    flushDecoder(stderrDecoder);
     closed = true;
     emitter.emit("exit", {
       exitCode: Number.isInteger(code) ? code : exitCode,
@@ -55,8 +69,11 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
       }
 
       stream = nextStream;
-      stream.on("data", emitData);
-      stream.stderr?.on("data", emitData);
+      stream.on("data", (data) => decodeData(stdoutDecoder, data));
+      stream.stderr?.on("data", (data) => decodeData(stderrDecoder, data));
+      stream.on("end", () => flushDecoder(stdoutDecoder));
+      stream.stderr?.on("end", () => flushDecoder(stderrDecoder));
+      stream.stderr?.on("close", () => flushDecoder(stderrDecoder));
       stream.on("error", (err) => {
         exitCode = 1;
         emitData(`\r\nSSH stream error: ${err.message}\r\n`);

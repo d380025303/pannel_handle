@@ -34,6 +34,76 @@ function createFakeClient(stream = createFakeStream()) {
 }
 
 describe("ssh2 terminal", () => {
+  function captureOutput() {
+    const { client, stream } = createFakeClient();
+    const term = createSsh2Terminal({
+      connectionConfig: { host: "example.com" },
+      clientFactory: () => client
+    });
+    const data = [];
+    term.onData((chunk) => data.push(chunk));
+    client.emit("ready");
+    return { client, stream, term, data };
+  }
+
+  it.each(["stdout", "stderr"])("preserves Chinese and emoji across every byte partition on %s", (channel) => {
+    const original = "中文😀";
+    const bytes = Buffer.from(original);
+    for (let partition = 0; partition < 2 ** (bytes.length - 1); partition++) {
+      const { stream, data } = captureOutput();
+      const output = channel === "stdout" ? stream : stream.stderr;
+      let start = 0;
+      for (let boundary = 1; boundary < bytes.length; boundary++) {
+        if (partition & (1 << (boundary - 1))) {
+          output.emit("data", bytes.subarray(start, boundary));
+          start = boundary;
+        }
+      }
+      output.emit("data", bytes.subarray(start));
+      output.emit("end");
+      stream.emit("close");
+      expect(data.join(""), `partition ${partition}`).toBe(original);
+    }
+  });
+
+  it("keeps decoding state independent when stdout and stderr interleave", () => {
+    const { stream, data } = captureOutput();
+    const stdout = Buffer.from("中文😀");
+    const stderr = Buffer.from("错误🚀");
+    for (let index = 0; index < stdout.length; index++) {
+      stream.emit("data", stdout.subarray(index, index + 1));
+      stream.stderr.emit("data", stderr.subarray(index, index + 1));
+    }
+    stream.emit("end");
+    stream.stderr.emit("end");
+    expect(data).toEqual(["中", "错", "文", "误", "😀", "🚀"]);
+  });
+
+  it.each(["stdout", "stderr"])("flushes incomplete %s bytes once at end before exit", (channel) => {
+    const { client, stream, term, data } = captureOutput();
+    const output = channel === "stdout" ? stream : stream.stderr;
+    term.onExit(() => data.push("exit"));
+    output.emit("data", Buffer.from("😀").subarray(0, 2));
+    expect(data).toEqual([]);
+    output.emit("end");
+    expect(data).toEqual(["�"]);
+    output.emit("close");
+    stream.emit("close");
+    client.emit("close");
+    expect(data).toEqual(["�", "exit"]);
+  });
+
+  it.each(["stream", "client"])("flushes both channels before exit on %s close without end", (source) => {
+    const { client, stream, term, data } = captureOutput();
+    term.onExit(() => data.push("exit"));
+    stream.emit("data", Buffer.from("中").subarray(0, 1));
+    stream.stderr.emit("data", Buffer.from("😀").subarray(0, 2));
+    (source === "stream" ? stream : client).emit("close");
+    stream.emit("close");
+    client.emit("close");
+    expect(data).toEqual(["�", "�", "exit"]);
+  });
+
   it("opens an interactive shell and forwards data, writes, and resizes", () => {
     const { client, stream } = createFakeClient();
     const term = createSsh2Terminal({
