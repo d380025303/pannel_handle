@@ -398,11 +398,11 @@ function replaceCodexServer(text, originalName, name, config) {
   const boundaries = new Set();
   let stringState = "";
   for (let index = 0; index < lines.length; index += 1) {
-    const header = !stringState && lines[index].match(/^\s*\[((?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|[^\[\]"'\r\n])+)\]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
+    const header = !stringState && lines[index].match(/^\s*(\[\[?)((?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|[^\[\]"'\r\n])+)(\]\]?)\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
     if (!stringState && /^\s*\[[^\r\n]+]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/.test(lines[index])) boundaries.add(index);
     stringState = scanTomlStringState(lines[index], stringState);
-    if (!header) continue;
-    const parts = parseTomlHeaderPath(header[1]);
+    if (!header || header[1].length !== header[3].length) continue;
+    const parts = parseTomlHeaderPath(header[2]);
     if (parts[0] === "mcp_servers" && parts[1] === originalName) matches.push(index);
   }
   if (!matches.length && originalName) {

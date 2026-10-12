@@ -98,6 +98,37 @@ describe("mcp-config-service", () => {
     expect(readFileSync(`${filePath}.pannel-handle.bak`, "utf-8")).toBe(text);
   });
 
+  it.each(["demo", "tools[prod].path"])("removes all Codex array subtables for %s while preserving other servers", (name) => {
+    const { homeDir, service } = setup();
+    const filePath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const serverPath = `mcp_servers.${JSON.stringify(name)}`;
+    const unrelated = '[mcp_servers.other]\ncommand = "other"\n'
+      + '[[mcp_servers.other.env_vars]]\nname = "KEEP"\nvalue = "unchanged"\n';
+    const text = 'model = "keep"\n'
+      + `[${serverPath}]\ncommand = "node"\n`
+      + `[[${serverPath}.env_vars]] # first entry\nname = "FIRST"\n`
+      + `[${serverPath}.env_vars.metadata]\nvalue = "nested"\n`
+      + unrelated
+      + `[[${serverPath}.env_vars]]\nname = "SECOND"\n`
+      + '[[unrelated.items]]\nname = "keep"\n';
+    const expected = parseToml(text);
+    delete expected.mcp_servers[name];
+    writeFileSync(filePath, text, "utf-8");
+    const target = { provider: "codex", scope: "user" };
+    const before = service.list(target);
+    expect(before.servers.map((server) => server.name)).toContain(name);
+
+    const result = service.remove({ ...target, name, expectedVersion: before.version });
+
+    expect(result.status).toBe("removed");
+    const content = readFileSync(filePath, "utf-8");
+    expect(parseToml(content)).toEqual(expected);
+    expect(content).toContain(unrelated);
+    expect(result.document.servers.map((server) => server.name)).toEqual(["other"]);
+    expect(service.list(target).servers.map((server) => server.name)).toEqual(["other"]);
+  });
+
   it("handles escaped quotes and closing quote runs in multiline basic strings", () => {
     const text = '[mcp_servers.demo]\ncommand = "node"\nCONFIG = """\n\\"""\n[section]\nkey=value\n"""""\n'
       + '[mcp_servers.other]\ncommand = "keep"\n';
