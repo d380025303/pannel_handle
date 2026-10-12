@@ -438,6 +438,11 @@ function createAgentTokenStatsService({
           capabilities: result.capabilities,
           startedAt: startedAtBySession.get(key)
         });
+        if (record && sessionLifetimes.get(session.id) !== lifetime) {
+          // A delayed final read must not revive its ended session or end a newer one.
+          statsStore.markEnded(session.id, undefined, record.id);
+          return record;
+        }
         if (session.type === "ssh" && !isLocalSshBridge(session) && record && sessionLifetimes.get(session.id) === lifetime) {
           liveModule.setCompletedSnapshot(session.id, record);
         }

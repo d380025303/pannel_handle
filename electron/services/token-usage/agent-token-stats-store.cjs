@@ -477,9 +477,11 @@ function createAgentTokenStatsStore({
     return nextRecord;
   }
 
-  function markEnded(panelSessionId, timestamp = now()) {
+  function markEnded(panelSessionId, timestamp = now(), recordId) {
     if (loadError || !database) return;
-    const result = database.prepare("UPDATE token_sessions SET status = 'ended', ended_at = ?, updated_at = ? WHERE panel_session_id = ? AND status <> 'ended'").run(timestamp, timestamp, panelSessionId);
+    const recordFilter = recordId === undefined ? "" : " AND id = ?";
+    const parameters = [timestamp, timestamp, panelSessionId, ...(recordId === undefined ? [] : [recordId])];
+    const result = database.prepare(`UPDATE token_sessions SET status = 'ended', ended_at = ?, updated_at = ? WHERE panel_session_id = ? AND status <> 'ended'${recordFilter}`).run(...parameters);
     if (Number(result.changes) > 0) onChanged();
   }
 

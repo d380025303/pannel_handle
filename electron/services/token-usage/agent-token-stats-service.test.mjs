@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -9,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createAgentTokenStatsService: createAgentTokenStatsServiceImpl, REMOTE_DELTA_SCRIPT } = require("./agent-token-stats-service.cjs");
 const { createSshAgentTransport } = require("../../ssh/ssh-agent-transport.cjs");
+const { createAgentTokenStatsStore } = require("./agent-token-stats-store.cjs");
 
 function createAgentTokenStatsService(options) {
   const { sshSessionRuntime, ...serviceOptions } = options;
@@ -134,6 +136,58 @@ async function flush() {
 }
 
 describe("agent token live statistics", () => {
+  it.each([false, true])("keeps delayed SSH final usage ended when the panel is reused: %s", async reusePanel => {
+    let database;
+    const statsStore = createAgentTokenStatsStore({
+      databaseFile: ":memory:", now: () => 1_000,
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    });
+    statsStore.load();
+    const readRecord = id => database.prepare("SELECT status, ended_at, total_tokens FROM token_sessions WHERE agent_session_id = ?").get(id);
+    let resolveRead;
+    const sshAgentTransport = { exec: vi.fn(() => new Promise(resolve => { resolveRead = resolve; })) };
+    const broadcast = vi.fn();
+    const service = createAgentTokenStatsService({
+      terminalManager: {}, statsStore, sshAgentTransport, broadcast, retryDelaysMs: [0],
+      setIntervalFn: vi.fn(), clearIntervalFn: vi.fn()
+    });
+    const session = { id: "panel-delayed", type: "ssh", agentLocation: "remote", title: "Remote", cwd: "/srv/app" };
+    const initial = { provider: "codex", agentSessionId: "old-agent", panelSessionId: session.id, tokens: { totalTokens: 10, inputTokens: 10 } };
+    try {
+      statsStore.update(initial);
+      service.handleHook({ provider: "codex", session, input: {
+        hook_event_name: "SessionEnd", session_id: "old-agent", transcript_path: "/srv/old.jsonl"
+      } });
+      await vi.waitFor(() => expect(sshAgentTransport.exec).toHaveBeenCalledTimes(1));
+      service.markEnded(session.id);
+      expect(readRecord("old-agent").status).toBe("ended");
+      if (reusePanel) {
+        service.handleHook({ provider: "codex", session, input: { hook_event_name: "SessionStart", session_id: "new-agent" } });
+        statsStore.update({ ...initial, agentSessionId: "new-agent", tokens: { totalTokens: 5, inputTokens: 5 } });
+      }
+      broadcast.mockClear();
+      resolveRead(JSON.stringify([codexLine(20, 0).trim()]));
+      await vi.waitFor(() => {
+        const record = readRecord("old-agent");
+        expect(record.total_tokens).toBe(20);
+        expect(record.status).toBe("ended");
+        expect(record.ended_at).toBeTruthy();
+      });
+      expect(broadcast).not.toHaveBeenCalled();
+      if (reusePanel) expect(readRecord("new-agent").status).toBe("active");
+      statsStore.clear();
+      expect(database.prepare("SELECT COUNT(*) AS count FROM token_baselines WHERE agent_session_id = 'old-agent'").get().count).toBe(0);
+      // An ended session must not acquire a reset baseline from clear().
+      expect(statsStore.update({ ...initial, tokens: { totalTokens: 20, inputTokens: 20 } }).tokens.totalTokens).toBe(20);
+      if (reusePanel) expect(statsStore.update({ ...initial, agentSessionId: "new-agent", tokens: { totalTokens: 8, inputTokens: 8 } }).tokens.totalTokens).toBe(3);
+    } finally {
+      service.shutdown();
+      statsStore.close();
+    }
+  });
+
   it("reads main and CodeBuddy subagent deltas with the remote Python helper", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "pannel-remote-token-"));
     try {
