@@ -153,6 +153,8 @@ function createMobileRemoteService({
     return new Promise((resolve) => {
       if (!httpServer?.listening) return resolve();
       httpServer.close(() => resolve());
+      // Stop accepting connections before destroying HTTP requests that may never finish.
+      httpServer.closeAllConnections?.();
     });
   }
 

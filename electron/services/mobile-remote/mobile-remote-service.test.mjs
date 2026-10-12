@@ -1,9 +1,106 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
-import { getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
+import http from "node:http";
+import net from "node:net";
+import { once } from "node:events";
+import { createMobileRemoteService, getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, PROTOCOL_VERSION, sanitizeHostLabel } from "./mobile-remote-service.cjs";
 import sessionValues from "./mobile-session-values.cjs";
 
 const { toRuntimeSession, toSavedTemplates } = sessionValues;
+
+function httpFixture() {
+  let config = { enabled: true, interfaceName: "", port: 0 };
+  const servers = [];
+  const service = createMobileRemoteService({
+    terminalManager: { listSessions: () => [] },
+    sessionStore: {}, stateHub: {},
+    accessStore: {
+      getConfig: () => config,
+      updateConfig: partial => (config = { ...config, ...partial }),
+      listAudit: () => []
+    },
+    getStaticRoot: () => ".", desktopBroadcast: () => {},
+    networkInterfaces: () => ({}),
+    createHttpServer: handler => {
+      const server = http.createServer(handler);
+      servers.push(server);
+      return server;
+    }
+  });
+  return { service, servers, setPort: port => { config.port = port; } };
+}
+
+async function incompleteRequest(server) {
+  const accepted = once(server, "connection");
+  const client = net.createConnection({ host: "127.0.0.1", port: server.address().port });
+  client.on("error", () => {});
+  await once(client, "connect");
+  const [connection] = await accepted;
+  const received = once(connection, "data");
+  client.write("GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Incomplete: ");
+  await received;
+  return client;
+}
+
+async function withinOneSecond(operation) {
+  let timer;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("shutdown exceeded one second")), 1000); })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+describe("mobile remote HTTP shutdown", () => {
+  it("stops within one second and disconnects an incomplete HTTP request", async () => {
+    const { service, servers } = httpFixture();
+    let client;
+    try {
+      await service.start();
+      client = await incompleteRequest(servers[0]);
+      const disconnected = once(client, "close");
+      await withinOneSecond(Promise.all([service.stop(), disconnected]));
+      expect(client.destroyed).toBe(true);
+      expect(service.getState().running).toBe(false);
+    } finally {
+      client?.destroy();
+      await service.stop();
+    }
+  });
+
+  it("switches ports with an incomplete request and serves health on the new port", async () => {
+    const { service, servers, setPort } = httpFixture();
+    let client;
+    try {
+      await service.start();
+      const oldPort = servers[0].address().port;
+      setPort(oldPort);
+      client = await incompleteRequest(servers[0]);
+      const disconnected = once(client, "close");
+      await withinOneSecond(Promise.all([service.updateConfig({ port: 0 }), disconnected]));
+      const newPort = servers[1].address().port;
+      setPort(newPort);
+      expect(newPort).not.toBe(oldPort);
+      expect(client.destroyed).toBe(true);
+      const result = await new Promise((resolve, reject) => {
+        http.get(`http://127.0.0.1:${newPort}/health`, response => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", chunk => { body += chunk; });
+          response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(body) }));
+          response.on("error", reject);
+        }).on("error", reject);
+      });
+      expect(result).toEqual({ status: 200, body: { ok: true, protocolVersion: PROTOCOL_VERSION } });
+    } finally {
+      client?.destroy();
+      await service.stop();
+    }
+  });
+});
 
 describe("mobile session mode values", () => {
   it("uses the actual runtime mode for running sessions and the saved preference for templates", () => {
