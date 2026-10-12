@@ -342,9 +342,21 @@ describe("statistics snapshot synchronization", () => {
       token_session_mcp_tools: [{ session_id: "codex:session", server_name: "server", tool_name: "tool", count: 2 }],
       token_daily: [{ date: "2026-10-12", provider: "codex", total_tokens: 10 }]
     };
-    class FakeDatabase {
-      prepare(sql) { return { all: () => structuredClone(local[sql.split(" ").at(-1)]) }; }
-      close() {}
+    const { DatabaseSync } = require("node:sqlite");
+    const { readStatsBatches } = require("./stats-reader.cjs");
+    const columns = Object.fromEntries(Object.entries(local).map(([table, rows]) => [table, Object.keys(rows[0])]));
+    async function* statsReader(options) {
+      const db = new DatabaseSync(options.statsFile);
+      try {
+        db.exec("BEGIN");
+        for (const [table, fields] of Object.entries(columns)) {
+          db.exec(`CREATE TABLE IF NOT EXISTS ${table} (${fields.map(field => `${field}`).join(",")}); DELETE FROM ${table}`);
+          const insert = db.prepare(`INSERT INTO ${table} VALUES (${fields.map(() => "?").join(",")})`);
+          for (const row of local[table]) insert.run(...fields.map(field => row[field] ?? null));
+        }
+        db.exec("COMMIT");
+      } finally { db.close(); }
+      yield* readStatsBatches(options);
     }
     let remote = [];
     let beforeTransaction;
@@ -354,7 +366,7 @@ describe("statistics snapshot synchronization", () => {
     const statsQueries = [];
     let uploadingStats = false;
     const client = { release() {}, async query(sql, params = []) {
-      if (sql.includes("DELETE FROM ph_stat_rows")) uploadingStats = true;
+      if (sql.includes("DELETE FROM ph_stat_rows") || sql.includes("INSERT INTO ph_stat_rows")) uploadingStats = true;
       if (uploadingStats) statsQueries.push(sql);
       if (sql === "COMMIT" || sql === "ROLLBACK") uploadingStats = false;
       if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
@@ -388,7 +400,7 @@ describe("statistics snapshot synchronization", () => {
       safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value),
         decryptString: value => value.toString("utf8") },
       sessionStore: { exportLibrary: () => [] }, statsFile: path.join(root, "stats.sqlite3"),
-      fsApi: { existsSync: () => hasStatsFile }, Database: FakeDatabase, PoolClass: FakePool,
+      fsApi: { existsSync: () => hasStatsFile }, statsReader, PoolClass: FakePool,
       terminalManager: { listSessions: () => [] }, historyService: {},
       dataStore: { read: () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); }, write() {} }
     });
@@ -471,5 +483,5 @@ describe("statistics snapshot synchronization", () => {
         rmSync(root, { recursive: true, force: true });
       }
     }
-  });
+  }, 20000);
 });

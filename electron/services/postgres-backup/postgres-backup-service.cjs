@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { DatabaseSync } = require("node:sqlite");
+const { readStatsBatches } = require("./stats-reader.cjs");
 const { Pool } = require("pg");
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
 const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
@@ -20,7 +20,7 @@ function localIdentity() { return `${os.hostname()} (${process.env.USERNAME || o
 
 function createPostgresBackupService({ userData, safeStorage, sessionStore, statsFile, dataStore,
   terminalManager, historyService, onChanged = () => {}, now = () => Date.now(),
-  PoolClass = Pool, Database = DatabaseSync, fsApi = fs }) {
+  PoolClass = Pool, statsReader = readStatsBatches, fsApi = fs }) {
   const configFile = path.join(userData, "postgres-backup.json");
   let state = { deviceId: crypto.randomUUID(), deviceName: localIdentity(), enabled: false,
     host: "", port: 5432, database: "", user: "", ssl: true, password: "", passphrase: "",
@@ -235,40 +235,25 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     await client.query("INSERT INTO ph_session_snapshots(id,device_id,data) VALUES($1,$2,$3)",
       [crypto.randomUUID(), state.deviceId, { hash, sessionCount: data.length, archive }]);
   }
-  function statRows() {
-    if (!fsApi.existsSync(statsFile)) return [];
-    const db = new Database(statsFile, { readOnly: true });
-    try {
-      return TABLES.flatMap(table => db.prepare(`SELECT * FROM ${table}`).all().map(row => {
-        const key = table === "token_sessions" ? row.id
-          : table === "token_daily" ? JSON.stringify([row.date, row.provider])
-            : table === "token_session_mcp_tools" ? JSON.stringify([row.session_id, row.server_name, row.tool_name])
-              : table === "token_session_models" ? JSON.stringify([row.session_id, row.model]) : JSON.stringify([row.session_id, row.name]);
-        return { table, key: `${state.statsEpoch}:${key}`, row: { ...row, backup_epoch: state.statsEpoch } };
-      }));
-    } finally { db.close(); }
-  }
   async function uploadStats(client) {
     if (!fsApi.existsSync(statsFile)) return;
     const epoch = state.statsEpoch;
-    const rows = statRows();
+    const keysByTable = new Map(TABLES.map(table => [table, []]));
     await client.query("BEGIN");
     try {
-      for (const table of TABLES) {
-        const keys = rows.filter(row => row.table === table).map(row => row.key);
-        await client.query(`DELETE FROM ph_stat_rows
-          WHERE device_id=$1 AND table_name=$2 AND split_part(row_key, ':', 1)=$3
-            AND NOT (row_key = ANY($4::text[]))`, [state.deviceId, table, String(epoch), keys]);
-      }
-      for (let offset = 0; offset < rows.length; offset += STATS_BATCH_SIZE) {
-        const batch = rows.slice(offset, offset + STATS_BATCH_SIZE)
-          .map(({ table, key, row }) => ({ table_name: table, row_key: key, data: row }));
+      for await (const batch of statsReader({ statsFile, epoch, tables: TABLES, batchSize: STATS_BATCH_SIZE })) {
+        for (const row of batch) keysByTable.get(row.table_name).push(row.row_key);
         await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data)
           SELECT $1, batch.table_name, batch.row_key, batch.data
           FROM jsonb_to_recordset($2::jsonb) AS batch(table_name TEXT, row_key TEXT, data JSONB)
           ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data
           WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data`,
         [state.deviceId, JSON.stringify(batch)]);
+      }
+      for (const table of TABLES) {
+        await client.query(`DELETE FROM ph_stat_rows
+          WHERE device_id=$1 AND table_name=$2 AND split_part(row_key, ':', 1)=$3
+            AND NOT (row_key = ANY($4::text[]))`, [state.deviceId, table, String(epoch), keysByTable.get(table)]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }
