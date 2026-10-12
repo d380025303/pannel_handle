@@ -1,3 +1,4 @@
+import { useWorkItemActions } from "../../src/components/work-items/useWorkItemActions";
 import { WorkItemQuickPrompts } from "../../src/components/work-items/WorkItemQuickPrompts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -33,7 +34,6 @@ const titles = { detail: "任务详情", execute: "执行任务", attempts: "执
 
 export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { api: import("../../src/vite-env").WorkItemApi; visible: boolean; onOpenSession: (id: string) => void; sessions: import("./types").RuntimeSession[] }) {
   const ref = useRef<HTMLElement>(null);
-  const submitting = useRef(false);
   const promptInitialized = useRef(false);
   const [prompt, setPrompt] = useState("");
   const [promptMode, setPromptMode] = useState<"preview" | "edit">("preview");
@@ -48,9 +48,18 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof api.preview>> | null>(null);
   const [dialogLoading, setDialogLoading] = useState(false); const [dialogError, setDialogError] = useState("");
-  const [busy, setBusy] = useState(false); const [reason, setReason] = useState("");
+  const [reason, setReason] = useState("");
   const [attemptPage, setAttemptPage] = useState(0); const [attempts, setAttempts] = useState<Awaited<ReturnType<typeof api.listAttempts>> | null>(null);
   const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
+
+  const { busy, perform, toggleFollowUp } = useWorkItemActions({
+    api, item, dialog, prompt, reason, setItem, setError, setDialogError,
+    refresh: () => setReload(value => value + 1),
+    onSuccess: (result, operation) => {
+      setDialog(null);
+      if (operation === "execute" && result.sessionId) onOpenSession(result.sessionId);
+    },
+  });
 
   useEffect(() => {
     try {
@@ -124,27 +133,6 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       if (!sessions.some(session => session.id === id)) throw new Error("会话已关闭或不存在，执行记录仍保留。");
       setDialog(null); onOpenSession(id);
     } catch (err) { if (dialog) setDialogError(String(err)); else setError(String(err)); }
-  }
-  async function perform(operation: "execute" | "markCompleted" | "void" | "restore" | "resolveUncertain") {
-    if (!item || submitting.current || (operation === "execute" && !prompt.trim())) return;
-    submitting.current = true; setBusy(true); setDialogError("");
-    try {
-      const result = await api[operation]({ id: item.id, version: item.version, ...(operation === "void" ? { reason } : {}), ...(operation === "execute" ? { prompt } : {}) });
-      setDialog(null);
-      if (operation === "execute" && result.sessionId) onOpenSession(result.sessionId);
-    } catch (err) { setDialogError(String(err)); }
-    finally { submitting.current = false; setBusy(false); setReload(value => value + 1); }
-  }
-  async function toggleFollowUp(value: WorkItem | WorkItemPage["records"][number]) {
-    if (submitting.current) return;
-    submitting.current = true; setBusy(true);
-    if (dialog) setDialogError(""); else setError("");
-    try {
-      const updated = await api.setFollowUp({ id: value.id, version: value.version, needsFollowUp: !value.needsFollowUp });
-      if (dialog?.id === updated.id) setItem(updated);
-      setReload(value => value + 1);
-    } catch (err) { if (dialog) setDialogError(String(err)); else setError(String(err)); }
-    finally { submitting.current = false; setBusy(false); }
   }
   const followUpAction = (needed: boolean) => needed ? "标记为不需要后续处理" : "标记为需要后续处理";
   const filterCount = [Boolean(templateId), Boolean(ownerId), Boolean(followUp), statuses.length !== 7 || statuses.includes("void")].filter(Boolean).length;
