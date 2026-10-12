@@ -45,6 +45,53 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each(["add", "replace"])("keeps memory and SQLite unchanged after a read-only %s, then persists a successful retry", (operation) => {
+    const sessionsFile = createTempSessionsFile();
+    let database;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    }).open();
+    const onChanged = vi.fn();
+    const openSessions = () => createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe", onChanged });
+    try {
+      const store = openSessions();
+      store.addToLibrary({ id: "1", title: "Original", type: "windows", ignoredCodexConfigWarnings: ["warning"] });
+      const before = store.getLibrary();
+      const original = store.getTemplate("1");
+      const persisted = dataStore.read(sessionsFile);
+      const candidate = { id: operation === "add" ? "2" : "1", title: "New", type: "windows" };
+      onChanged.mockClear();
+      database.exec("PRAGMA query_only=ON");
+      expect(() => store.addToLibrary(candidate)).toThrow(/readonly|read-only/i);
+      expect(store.getLibrary()).toEqual(before);
+      expect(store.getTemplate("1")).toBe(original);
+      expect(dataStore.read(sessionsFile)).toEqual(persisted);
+      expect(openSessions().loadLibrary()).toEqual(persisted);
+      expect(onChanged).not.toHaveBeenCalled();
+      expect(() => store.saveLibrary()).toThrow(/readonly|read-only/i);
+      expect(onChanged).not.toHaveBeenCalled();
+
+      database.exec("PRAGMA query_only=OFF");
+      store.addToLibrary(candidate);
+      expect(store.getLibrary()).toHaveLength(operation === "add" ? 2 : 1);
+      expect(store.getTemplate(candidate.id).title).toBe("New");
+      expect(store.getTemplate("1").ignoredCodexConfigWarnings).toEqual(["warning"]);
+      expect(dataStore.read(sessionsFile)).toEqual(store.exportLibrary());
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      dataStore.close();
+      dataStore.open();
+      const reopened = openSessions();
+      reopened.loadLibrary();
+      expect(reopened.getLibrary()).toEqual(store.getLibrary());
+    } finally {
+      dataStore.close();
+    }
+  });
+
   it("keeps templates and related data after a read-only deletion, then persists a successful retry", () => {
     const sessionsFile = createTempSessionsFile();
     let database;
@@ -391,7 +438,7 @@ describe("session-store", () => {
 
   it("keeps the previous permission when template persistence fails", () => {
     const sessionsFile = createTempSessionsFile();
-    const dataStore = { read: () => [{ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex" }],
+    const dataStore = { read: () => [{ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: true }],
       write: () => { throw new Error("disk full"); } };
     const store = createSessionStore({ sessionsFile, dataStore,
       getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe" });

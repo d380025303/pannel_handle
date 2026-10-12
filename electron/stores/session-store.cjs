@@ -281,13 +281,11 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     return librarySessions;
   }
 
-  function saveLibrary() {
-    try {
-      writeJson(dataStore, sessionsFile, librarySessions);
-      onChanged();
-    } catch (err) {
-      console.error("Failed to save library:", err);
-    }
+  function saveLibrary(updated = librarySessions) {
+    writeJson(dataStore, sessionsFile, updated);
+    librarySessions = updated;
+    try { onChanged(); }
+    catch (err) { console.error("Failed to notify library change:", err); }
   }
 
   function addToLibrary(sessionMeta) {
@@ -295,12 +293,13 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       ? { ...sessionMeta, geminiGraphicalConfigured: true }
       : sessionMeta.agentProvider === "grok" ? { ...sessionMeta, grokGraphicalConfigured: true } : sessionMeta);
     const idx = librarySessions.findIndex(s => s.id === template.id);
+    const updated = [...librarySessions];
     if (idx >= 0) {
-      librarySessions[idx] = { ...template, ignoredCodexConfigWarnings: librarySessions[idx].ignoredCodexConfigWarnings };
+      updated[idx] = { ...template, ignoredCodexConfigWarnings: librarySessions[idx].ignoredCodexConfigWarnings };
     } else {
-      librarySessions.push(template);
+      updated.push(template);
     }
-    saveLibrary();
+    saveLibrary(updated);
   }
 
   function removeFromLibrary(id) {
