@@ -14,12 +14,12 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   }
   function list(id) {
     template(id);
-    return (store.get(id).tasks || []).map(task => ({ ...task, lastRun: visibleRun(task) }));
+    return (store.getSchedulerState(id).tasks || []).map(task => ({ ...task, lastRun: visibleRun(task) }));
   }
   function write(id, tasks) { store.tasks(id, tasks); return list(id); }
   function save(id, input) {
     const parsed = taskSchema.parse(input);
-    if (!store.get(id).records.some(record => record.id === parsed.ownerId)) throw new Error("负责人不存在。");
+    if (!store.getSchedulerState(id).records.some(record => record.id === parsed.ownerId)) throw new Error("负责人不存在。");
     const tasks = list(id); const old = tasks.find(task => task.id === parsed.id);
     if (parsed.id && (!old || old.ownerId !== parsed.ownerId)) throw new Error("任务不存在或不属于此负责人。");
     if (parsed.enabled && !supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
@@ -44,7 +44,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   function copy(id, input) {
     const parsed = z.object({ taskId: z.string().min(1), targetOwnerIds: z.array(z.string().min(1)).min(1) }).strict().parse(input);
     template(id);
-    const state = store.get(id);
+    const state = store.getSchedulerState(id);
     const tasks = state.tasks || [];
     const source = tasks.find(task => task.id === parsed.taskId);
     if (!source || !state.records.some(record => record.id === source.ownerId)) throw new Error("源任务或负责人不存在，请刷新后重试。");
@@ -68,7 +68,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   async function runTask(id, input) {
     const parsed = z.object({ id: z.string().min(1) }).strict().parse(input);
     const task = list(id).find(value => value.id === parsed.id);
-    if (!task || !store.get(id).records.some(record => record.id === task.ownerId)) throw new Error("任务或负责人不存在，请刷新后重试。");
+    if (!task || !store.getSchedulerState(id).records.some(record => record.id === task.ownerId)) throw new Error("任务或负责人不存在，请刷新后重试。");
     if (!supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
     if (stopped || suspended) throw new Error("调度服务当前不可执行。");
     const key = `${id}:${task.ownerId}`;
@@ -82,7 +82,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
       try {
         const run = job(task.id);
         if (run && run.startedAt !== previous?.startedAt) {
-          const tasks = store.get(id).tasks || [];
+          const tasks = store.getSchedulerState(id).tasks || [];
           store.tasks(id, tasks.map(value => value.id === task.id ? { ...value, lastRun: run, countedRunAt: run.startedAt } : value));
         }
       } finally { pending.delete(key); manualPending.delete(task.id); }
@@ -90,7 +90,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     return list(id);
   }
   function reconcile(id) {
-    const state = store.get(id); let changed = false;
+    const state = store.getSchedulerState(id); let changed = false;
     const tasks = (state.tasks || []).map(task => {
       if (state.records.some(record => record.id === task.ownerId)) return task;
       revoke(task.ownerId);
@@ -106,7 +106,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     try {
       for (const id of store.templateIds()) {
         reconcile(id);
-        const saved = store.get(id).tasks || [];
+        const saved = store.getSchedulerState(id).tasks || [];
         let lifecycleChanged = false;
         const synced = saved.map(task => {
           const run = job(task.id);
@@ -122,11 +122,11 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
         if (lifecycleChanged) store.tasks(id, synced);
         let value;
         try { value = template(id); } catch { value = null; }
-        for (const task of store.get(id).tasks || []) {
+        for (const task of store.getSchedulerState(id).tasks || []) {
           if (!task.enabled) continue;
           const update = patch => {
             if (stopped) return;
-            const current = store.get(id).tasks || [];
+            const current = store.getSchedulerState(id).tasks || [];
             if (current.some(t => t.id === task.id)) store.tasks(id, current.map(t => t.id === task.id ? { ...t, ...patch } : t));
           };
           if (!value || !supported(value)) { revoke(task.ownerId); update({ enabled: false, nextRunAt: null, lastRun: { status: "stopped", error: "模板不存在或不支持。", startedAt: at } }); continue; }
@@ -149,7 +149,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           void launch(id, { ...task, trigger: "scheduled" }).then(() => {
             if (stopped) return;
             const run = job(task.id);
-            const current = (store.get(id).tasks || []).find(t => t.id === task.id);
+            const current = (store.getSchedulerState(id).tasks || []).find(t => t.id === task.id);
             if (!current) return;
             const counted = submitted(task.id) && current.countedRunAt !== run?.startedAt;
             const count = current.executedCount + (counted ? 1 : 0);
@@ -165,7 +165,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     if (timer) return;
     stopped = false; lastTick = now();
     for (const id of store.templateIds()) {
-      const tasks = store.get(id).tasks || [];
+      const tasks = store.getSchedulerState(id).tasks || [];
       if (tasks.length) store.tasks(id, tasks.map(task => ({ ...task, nextRunAt: task.enabled ? nextRun(task.schedule, now()) : null,
         lastRun: active(task.lastRun) ? { ...task.lastRun, status: "stopped", error: "应用重启，上一轮状态不再跟踪。" } : task.lastRun })));
     }

@@ -39,6 +39,11 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     if (loadError) throw loadError;
     return structuredClone(Object.hasOwn(state.templates, templateId) ? state.templates[templateId] : empty());
   }
+  function getSchedulerState(templateId) {
+    if (loadError) throw loadError;
+    const value = Object.hasOwn(state.templates, templateId) ? state.templates[templateId] : empty();
+    return { records: value.records.map(record => ({ id: record.id })), tasks: structuredClone(value.tasks || []) };
+  }
   function listHistory(templateId, input) {
     const { ownerId } = z.object({ ownerId: z.string().trim().min(1) }).strict().parse(input);
     if (loadError) throw loadError;
@@ -136,6 +141,6 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     for (const update of updates) Object.assign(next.templates[update.templateId].tasks.find(value => value.id === update.taskId), update.fields);
     commit(next, [...new Set(updates.map(value => value.templateId))]);
   }
-  return { promptTemplates, replacePromptTemplates, publishPrompts, get, listHistory, mutate, restore, configure, tasks, templateIds: () => Object.keys(state.templates) };
+  return { promptTemplates, replacePromptTemplates, publishPrompts, get, getSchedulerState, listHistory, mutate, restore, configure, tasks, templateIds: () => Object.keys(state.templates) };
 }
 module.exports = { createModuleOwnerStore, DEFAULT_PROMPT };

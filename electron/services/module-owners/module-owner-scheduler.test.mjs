@@ -8,7 +8,7 @@ function fixture(taskUnprocessed = () => false) {
   let run; let submitted = false;
   const launch = vi.fn(async () => { run = { status: "running", startedAt: at, sessionId: "session", error: "" }; submitted = true; return { result: { status: 201 } }; });
   const service = createModuleOwnerScheduler({
-    store: { get: () => structuredClone(state), tasks: (_id, tasks) => { state.tasks = structuredClone(tasks); }, templateIds: () => ["one"] },
+    store: { getSchedulerState: () => structuredClone({ records: state.records.map(({ id }) => ({ id })), tasks: state.tasks }), tasks: (_id, tasks) => { state.tasks = structuredClone(tasks); }, templateIds: () => ["one"] },
     template: () => ({}), supported: () => true, now: () => at, taskUnprocessed,
     launch, job: () => run, submitted: () => submitted, ownerBusy: () => Boolean(run && ["running", "uncertain"].includes(run.status)), revoke: vi.fn(), revokeTask: vi.fn()
   });
