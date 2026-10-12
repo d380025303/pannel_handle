@@ -51,7 +51,7 @@ describe("ssh-session-runtime", () => {
   const bytes = Buffer.from(text);
   const splits = Array.from({ length: bytes.length - 1 }, (_, index) => index + 1);
 
-  function createOutputRuntime(stdoutChunks, stderrChunks, exitCode = 0) {
+  function createOutputRuntime(stdoutChunks, stderrChunks, exitCode = 0, signal) {
     const client = createClient();
     client.exec = vi.fn((_command, callback) => {
       const stream = new EventEmitter();
@@ -63,11 +63,40 @@ describe("ssh-session-runtime", () => {
           if (stdoutChunks[index]) stream.emit("data", stdoutChunks[index]);
           if (stderrChunks[index]) stream.stderr.emit("data", stderrChunks[index]);
         }
-        stream.emit("close", exitCode);
+        stream.emit("close", exitCode, signal);
       });
     });
     return createRuntime({ type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
   }
+
+  it.each([null, 0, 1])("fails signal-terminated commands even with exit code %s", async code => {
+    const chunks = [Buffer.from("partial output")];
+    const runtime = createOutputRuntime(chunks, [], code, "SIGTERM");
+    await expect(runtime.exec("run-1", "command", { allowExitCodes: [0, 1, -1] }))
+      .rejects.toThrow("terminated by signal SIGTERM");
+    const stdout = vi.fn();
+    const handle = await runtime.execStreaming("run-1", "command", { onStdout: stdout });
+    await expect(handle.promise).resolves.toEqual({ exitCode: -1, signal: "SIGTERM" });
+    expect(stdout).toHaveBeenCalledWith("partial output");
+    const executor = createSshGitExecutor({ sshSessionRuntime: runtime });
+    await expect(executor.runGit("run-1", "/repo", ["status"]))
+      .rejects.toMatchObject({ code: -1, stdout: "partial output" });
+  });
+
+  it.each([0, 1])("preserves normal exit code %i and its allowlist behavior", async code => {
+    const runtime = createOutputRuntime([Buffer.from("output")], [], code);
+    await expect(runtime.exec("run-1", "command", { allowExitCodes: [code] })).resolves.toBe("output");
+    const handle = await runtime.execStreaming("run-1", "command");
+    await expect(handle.promise).resolves.toMatchObject({ exitCode: code });
+    const executor = createSshGitExecutor({ sshSessionRuntime: runtime });
+    await expect(executor.runGit("run-1", "/repo", ["status"], { allowExitCodes: [code] }))
+      .resolves.toMatchObject({ stdout: "output" });
+    if (code !== 0) {
+      await expect(runtime.exec("run-1", "command")).rejects.toThrow("exit code 1");
+      await expect(executor.runGit("run-1", "/repo", ["status"]))
+        .rejects.toMatchObject({ code: 1 });
+    }
+  });
 
   it.each(splits)("decodes stdout and stderr across UTF-8 byte split %i", async split => {
     const chunks = [bytes.subarray(0, split), bytes.subarray(split)];

@@ -168,9 +168,13 @@ function createSshSessionRuntime({
           stream.on("error", finish);
           stream.end(options.stdin);
         }
-        stream.on("close", (code) => {
+        stream.on("close", (code, signal) => {
           emitStdout(stdoutDecoder.end());
           emitStderr(stderrDecoder.end());
+          if (signal) {
+            finish(new Error(`${actionName} terminated by signal ${signal}.`));
+            return;
+          }
           if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
             finish(new Error(stderr.trim() || `${actionName} failed with exit code ${code}.`));
             return;
@@ -218,7 +222,7 @@ function createSshSessionRuntime({
         remoteStream.once("close", (code, signal) => {
           emitStdout(stdoutDecoder.end());
           emitStderr(stderrDecoder.end());
-          settle(undefined, { exitCode: Number.isInteger(code) ? code : canceled ? -1 : 0, signal });
+          settle(undefined, { exitCode: signal || canceled ? -1 : Number.isInteger(code) ? code : 0, signal });
         });
         if (options.stdin) remoteStream.end(options.stdin); else remoteStream.end();
       });
