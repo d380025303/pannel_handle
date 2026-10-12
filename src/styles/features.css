@@ -4579,12 +4579,6 @@ button.agent-usage-status[aria-expanded="true"] {
   justify-content: flex-end;
 }
 
-.modal-button.danger {
-  border-color: var(--color-danger-hover);
-  color: var(--color-danger-text);
-  background: var(--color-danger-bg);
-}
-
 .git-confirm-overlay {
   z-index: 1300;
 }
