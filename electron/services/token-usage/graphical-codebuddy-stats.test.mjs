@@ -129,7 +129,7 @@ describe("graphical CodeBuddy statistics", () => {
     const root = mkdtempSync(path.join(tmpdir(), "graphical-codebuddy-ssh-"));
     const exec = vi.fn(async (_sessionId, command) => command.includes("sid=sys.argv[1]")
       ? JSON.stringify(["/home/user/.codebuddy/projects/work/remote.jsonl"])
-      : JSON.stringify([line("remote-1", 15)]));
+      : JSON.stringify({ files: [[line("remote-1", 15)]] }));
     const module = createModule(root, createIpcMain(), { sshAgentTransport: { exec } });
     try {
       await module.recordGraphicalCodeBuddy({ threadId: "remote", session: {

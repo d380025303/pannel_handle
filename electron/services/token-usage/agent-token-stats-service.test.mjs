@@ -136,6 +136,45 @@ async function flush() {
 }
 
 describe("agent token live statistics", () => {
+  it("persists matching local and remote CodeBuddy skills and tokens after Stop", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "pannel-buddy-stop-"));
+    const statsStore = createAgentTokenStatsStore({ databaseFile: ":memory:", Database: DatabaseSync });
+    statsStore.load();
+    const skill = id => JSON.stringify({ type: "tool_use", id, name: "Skill", input: { skill: "code-review" } });
+    const main = [codeBuddyLine("main", 10, 5).trim(), skill("main-skill"), skill("main-repeat")];
+    const subagent = [codeBuddyLine("sub", 3, 2).trim(), skill("sub-skill")];
+    const sshAgentTransport = { exec: vi.fn(async () => JSON.stringify({ files: [main, subagent] })) };
+    const service = createAgentTokenStatsService({
+      terminalManager: {}, statsStore, sshAgentTransport, retryDelaysMs: [0],
+      setIntervalFn: vi.fn(), clearIntervalFn: vi.fn()
+    });
+    try {
+      const transcriptPath = path.join(directory, "session.jsonl");
+      await mkdir(path.join(directory, "session", "subagents"), { recursive: true });
+      await writeFile(transcriptPath, main.join("\n"));
+      await writeFile(path.join(directory, "session", "subagents", "agent-one.jsonl"), subagent.join("\n"));
+      for (const type of ["windows", "ssh"]) {
+        service.handleHook({
+          provider: "codebuddy",
+          session: { id: `panel-${type}`, type, agentLocation: "remote", cwd: directory },
+          input: { session_id: `buddy-${type}`, transcript_path: transcriptPath, hook_event_name: "Stop" }
+        });
+      }
+      await vi.waitFor(() => expect(statsStore.getDashboard({ range: "all" }).sessions).toHaveLength(2));
+      const records = statsStore.getDashboard({ range: "all" }).sessions;
+      for (const record of records) {
+        expect(record.capabilities.skills).toMatchObject({ totalCalls: 2, items: [{ name: "code-review", count: 2 }] });
+        expect(record.tokens).toMatchObject({ inputTokens: 13, outputTokens: 7, totalTokens: 20 });
+      }
+      expect(records[0].tokens).toEqual(records[1].tokens);
+      expect(sshAgentTransport.exec).toHaveBeenCalled();
+    } finally {
+      service.shutdown();
+      statsStore.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])("keeps delayed SSH final usage ended when the panel is reused: %s", async reusePanel => {
     let database;
     const statsStore = createAgentTokenStatsStore({
@@ -351,7 +390,7 @@ describe("agent token live statistics", () => {
         })
       }
     ]);
-    const completedClient = createSshClient([{ stdout: JSON.stringify([mainLine.trim(), subagentLine.trim()]) }]);
+    const completedClient = createSshClient([{ stdout: JSON.stringify({ files: [[mainLine.trim()], [subagentLine.trim()]] }) }]);
     const baselineClient = createSshClient([{ stdout: JSON.stringify([]) }]);
     const connectClient = vi.fn(async (_sessionId, options) => {
       if (options.actionName === "Agent live token statistics") return liveClient;

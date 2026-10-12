@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   emptyCapabilityUsage,
+  mergeTranscriptResults,
   parseTranscriptFileWithSubagents,
   parseTranscriptText
 } = require("./agent-token-transcript.cjs");
@@ -35,11 +36,12 @@ function remoteParserCommand(provider, transcriptPath) {
     "p=sys.argv[1]; f=sys.argv[2]",
     "lines=open(f,'r',encoding='utf-8').read().splitlines()",
     "if p=='codebuddy':",
+    " files=[lines]",
     " d=os.path.join(os.path.dirname(f),os.path.splitext(os.path.basename(f))[0],'subagents')",
     " for s in sorted(glob.glob(os.path.join(d,'*.jsonl'))):",
-    "  try: lines+=open(s,'r',encoding='utf-8').read().splitlines()",
+    "  try: files.append(open(s,'r',encoding='utf-8').read().splitlines())",
     "  except Exception: pass",
-    "print(json.dumps(lines))"
+    "print(json.dumps({'files':files} if p=='codebuddy' else lines))"
   ].join("\n");
   return `python3 -c ${shellQuote(script)} ${shellQuote(provider)} ${shellQuote(transcriptPath)}`;
 }
@@ -386,8 +388,12 @@ function createAgentTokenStatsService({
         actionName: "Agent token statistics",
         timeoutMs: 10000
       });
-    const lines = JSON.parse(output);
-    return parseTranscriptText(provider, Array.isArray(lines) ? lines.join("\n") : "");
+    const payload = JSON.parse(output);
+    if (provider === "codebuddy") {
+      const results = payload.files.map(lines => parseTranscriptText(provider, lines.join("\n")));
+      return results.length === 1 ? results[0] : mergeTranscriptResults(results);
+    }
+    return parseTranscriptText(provider, Array.isArray(payload) ? payload.join("\n") : "");
   }
 
   async function readWithRetry(session, provider, transcriptPath) {
