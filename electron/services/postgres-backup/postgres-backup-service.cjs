@@ -11,6 +11,7 @@ const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
 const TABLES = ["token_sessions", "token_session_models", "token_session_skills", "token_session_mcp_tools", "token_daily"];
 const PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const TOKEN_FIELDS = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"];
+const STATS_BATCH_SIZE = 500;
 
 function safeName(value) { return String(value || "").trim().slice(0, 100); }
 function validPort(value) { const n = Number(value); return Number.isInteger(n) && n > 0 && n <= 65535 ? n : 5432; }
@@ -259,11 +260,15 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
           WHERE device_id=$1 AND table_name=$2 AND split_part(row_key, ':', 1)=$3
             AND NOT (row_key = ANY($4::text[]))`, [state.deviceId, table, String(epoch), keys]);
       }
-      for (const { table, key, row } of rows) {
-        await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data) VALUES($1,$2,$3,$4)
+      for (let offset = 0; offset < rows.length; offset += STATS_BATCH_SIZE) {
+        const batch = rows.slice(offset, offset + STATS_BATCH_SIZE)
+          .map(({ table, key, row }) => ({ table_name: table, row_key: key, data: row }));
+        await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data)
+          SELECT $1, batch.table_name, batch.row_key, batch.data
+          FROM jsonb_to_recordset($2::jsonb) AS batch(table_name TEXT, row_key TEXT, data JSONB)
           ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data
           WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data`,
-        [state.deviceId, table, key, row]);
+        [state.deviceId, JSON.stringify(batch)]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }

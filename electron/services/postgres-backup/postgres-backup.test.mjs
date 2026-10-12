@@ -185,7 +185,13 @@ describe("statistics snapshot synchronization", () => {
     let beforeTransaction;
     let failWrite = false;
     let hasStatsFile = true;
+    const batches = [];
+    const statsQueries = [];
+    let uploadingStats = false;
     const client = { release() {}, async query(sql, params = []) {
+      if (sql.includes("DELETE FROM ph_stat_rows")) uploadingStats = true;
+      if (uploadingStats) statsQueries.push(sql);
+      if (sql === "COMMIT" || sql === "ROLLBACK") uploadingStats = false;
       if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
       else if (sql === "ROLLBACK") remote = beforeTransaction;
       else if (sql.includes("DELETE FROM ph_stat_rows")) {
@@ -194,11 +200,19 @@ describe("statistics snapshot synchronization", () => {
         remote = remote.filter(row => !(row.device_id === params[0] && row.table_name === params[1]
           && row.row_key.split(":")[0] === params[2] && !params[3].includes(row.row_key)));
       } else if (sql.includes("INSERT INTO ph_stat_rows")) {
-        if (failWrite && params[1] === "token_session_skills") throw new Error("statistics write failed");
-        const row = { device_id: params[0], table_name: params[1], row_key: params[2], data: structuredClone(params[3]) };
-        const index = remote.findIndex(item => item.device_id === row.device_id
-          && item.table_name === row.table_name && item.row_key === row.row_key);
-        if (index < 0) remote.push(row); else remote[index] = row;
+        expect(sql).toContain("jsonb_to_recordset($2::jsonb)");
+        expect(sql).toContain("ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data");
+        expect(sql).toContain("WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data");
+        const batch = JSON.parse(params[1]);
+        batches.push(batch);
+        if (failWrite && batch.some(row => row.table_name === "token_session_skills")) throw new Error("statistics write failed");
+        for (const value of batch) {
+          const row = { device_id: params[0], ...value };
+          const index = remote.findIndex(item => item.device_id === row.device_id
+            && item.table_name === row.table_name && item.row_key === row.row_key);
+          if (index < 0) remote.push(row);
+          else if (JSON.stringify(remote[index].data) !== JSON.stringify(row.data)) remote[index] = row;
+        }
       } else if (sql.includes("SELECT device_id,table_name,data FROM ph_stat_rows")) {
         return { rows: structuredClone(params.length ? remote.filter(row => row.device_id === params[0]) : remote) };
       }
@@ -242,8 +256,13 @@ describe("statistics snapshot synchronization", () => {
         .toEqual([expect.objectContaining({ table_name: "token_sessions" })]);
       assertProtected();
 
-      // More than the previous batch size: failure must undo all earlier writes and deletions.
-      local.token_sessions = Array.from({ length: 101 }, (_, i) => ({
+      local.token_sessions[0].total_tokens = 20;
+      await service.backupNow();
+      expect(remote.find(row => row.device_id === deviceId && row.row_key === "0:codex:session").data.total_tokens).toBe(20);
+      assertProtected();
+
+      // A failure in the second batch must undo the first batch and all deletions.
+      local.token_sessions = Array.from({ length: 501 }, (_, i) => ({
         id: `codex:new-${i}`, provider: "codex", updated_at: 2, total_tokens: i
       }));
       local.token_session_skills = [{ session_id: "codex:new-0", name: "new-skill", count: 1 }];
@@ -254,13 +273,32 @@ describe("statistics snapshot synchronization", () => {
       expect(remote).toEqual(previous);
       assertProtected();
       failWrite = false;
+      local.token_session_skills = [];
+      local.token_sessions = Array.from({ length: 1000 }, (_, i) => ({
+        id: `codex:batch-${i}`, provider: "codex", total_tokens: i
+      }));
+      let firstRound;
+      for (let round = 0; round < 2; round += 1) {
+        batches.length = 0;
+        statsQueries.length = 0;
+        await service.backupNow();
+        expect(batches.map(batch => batch.length)).toEqual([500, 500]);
+        // Five deletions, two UPSERTs, COMMIT (plus BEGIN = nine queries).
+        expect(statsQueries).toHaveLength(8);
+        expect(remote.filter(row => row.device_id === deviceId && row.data.backup_epoch === 0)).toHaveLength(1000);
+        if (round === 0) firstRound = structuredClone(remote);
+        else expect(remote).toEqual(firstRound);
+        assertProtected();
+      }
+      const unchanged = structuredClone(remote);
       for (const table of Object.keys(local)) local[table] = [];
       hasStatsFile = false;
       await service.backupNow();
-      expect(remote).toEqual(previous);
+      expect(remote).toEqual(unchanged);
       hasStatsFile = true;
       await service.backupNow();
       expect(remote).toEqual(protectedRows);
+      expect(batches).toHaveLength(2);
       assertProtected();
     } finally {
       await service.shutdown();
