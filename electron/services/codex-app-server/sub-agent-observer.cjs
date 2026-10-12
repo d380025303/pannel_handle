@@ -1,5 +1,6 @@
 const { isDeepStrictEqual } = require("node:util");
 const { displayItem, historyItems } = require("./snapshot-helpers.cjs");
+const COMMAND_OUTPUT_LIMIT = 16000;
 
 const isCollaboration = item => ["collabToolCall", "collabAgentToolCall", "subAgentActivity"].includes(item?.type);
 function runtimeStatus(value) {
@@ -15,6 +16,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   let operation = null, refreshAgain = false, disposed = false;
   const terminalStatuses = ["completed", "failed", "shutdown", "interrupted", "deleted"];
   let textDeltas = [];
+  const commandOutputLengths = new WeakMap();
   function takeTextDeltas() { const result = textDeltas; textDeltas = []; return result; }
   let activeReads = 0; const readWaiters = [];
   async function readHistory(threadId, epoch) {
@@ -80,10 +82,21 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     const previous = member.items[index];
     const value = { ...previous, ...item };
     if (incompleteHistory && previous?.text?.startsWith(item.text || "") && previous.text.length > (item.text || "").length) value.text = previous.text;
-    if (item.type === "commandExecution" && !item.aggregatedOutput && previous?.output) value.output = previous.output;
+    if (item.type === "commandExecution" && !item.aggregatedOutput && item.output == null && previous?.output) value.output = previous.output;
     if (item.type === "commandExecution" && item.aggregatedOutput) {
-      value.output = incompleteHistory && previous?.output?.startsWith(item.aggregatedOutput)
-        && previous.output.length > item.aggregatedOutput.length ? previous.output : item.aggregatedOutput;
+      const previousLength = commandOutputLengths.get(previous) || previous?.output?.length || 0;
+      const retainedStart = Math.max(0, previousLength - COMMAND_OUTPUT_LIMIT);
+      const overlap = item.aggregatedOutput.slice(retainedStart);
+      const keepStream = incompleteHistory && previousLength > item.aggregatedOutput.length
+        && previous?.output?.startsWith(overlap);
+      value.output = keepStream ? previous.output : item.aggregatedOutput;
+      commandOutputLengths.set(value, keepStream ? previousLength : item.aggregatedOutput.length);
+    }
+    if (value.type === "commandExecution") {
+      if (!commandOutputLengths.has(value)) commandOutputLengths.set(value,
+        item.output == null ? commandOutputLengths.get(previous) || value.output?.length || 0 : item.output.length);
+      value.output = (value.output || "").slice(-COMMAND_OUTPUT_LIMIT);
+      delete value.aggregatedOutput;
     }
     if (index < 0) {
       if (itemIndices) itemIndices.set(item.id, member.items.length);
@@ -203,7 +216,10 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     }
     const item = member.items.find(value => value.id === params.itemId);
     if (item && ["item/agentMessage/delta", "item/plan/delta"].includes(method)) item.text = (item.text || "") + (params.delta || "");
-    if (item && method === "item/commandExecution/outputDelta") item.output = (item.output || item.aggregatedOutput || "") + (params.delta || "");
+    if (item && method === "item/commandExecution/outputDelta") {
+      commandOutputLengths.set(item, (commandOutputLengths.get(item) || item.output?.length || 0) + (params.delta || "").length);
+      item.output = ((item.output || "") + (params.delta || "").slice(-COMMAND_OUTPUT_LIMIT)).slice(-COMMAND_OUTPUT_LIMIT);
+    }
     if (item && method === "item/reasoning/summaryPartAdded") {
       const summary = [...(item.summary || [])]; summary[params.summaryIndex ?? summary.length] = ""; item.summary = summary;
     }
@@ -215,7 +231,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       "item/commandExecution/outputDelta": "output", "item/reasoning/summaryTextDelta": "summary" }[method];
     if (field) {
       if (expanded && item && params.delta) {
-        textDeltas.push({ threadId, itemId: item.id, field, delta: params.delta,
+        textDeltas.push({ threadId, itemId: item.id, field, delta: field === "output" ? params.delta.slice(-COMMAND_OUTPUT_LIMIT) : params.delta,
           ...(field === "summary" ? { summaryIndex: params.summaryIndex || 0 } : {}) });
         deltaChanged();
       }

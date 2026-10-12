@@ -16,4 +16,9 @@ it("applies ordered text, output and indexed reasoning deltas without mutating h
   ]);
   expect(next?.members[0].items[0]).toMatchObject({ text: "old12", output: "out!", summary: ["first", "second!"] });
   expect(state.members[0].items[0]).toMatchObject({ text: "old", output: "out", summary: ["first", "second"] });
+  const large = applySubAgentTextDeltas(state, [
+    { threadId: "a", itemId: "msg", field: "output", delta: "x".repeat(65536) },
+    { threadId: "a", itemId: "msg", field: "output", delta: "latest" }
+  ]);
+  expect(large?.members[0].items[0].output).toBe("x".repeat(15994) + "latest");
 });

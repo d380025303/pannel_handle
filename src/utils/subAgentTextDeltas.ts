@@ -15,7 +15,8 @@ export function applySubAgentTextDeltas(subAgents: CodexSubAgents | undefined, d
           const index = change.summaryIndex || 0;
           summary[index] = (summary[index] || "") + change.delta;
           next.summary = summary;
-        } else next[change.field] = (next[change.field] || "") + change.delta;
+        } else if (change.field === "output") next.output = ((next.output || "") + change.delta.slice(-16000)).slice(-16000);
+        else next[change.field] = (next[change.field] || "") + change.delta;
       }
       return next;
     }) };

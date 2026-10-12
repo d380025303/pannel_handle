@@ -14,6 +14,38 @@ function fixture(implementation = async () => ({})) {
 afterEach(() => { for (const observer of observers.splice(0)) observer.dispose(); vi.useRealTimers(); });
 
 describe("Codex read-only sub-agent observer", () => {
+  it("bounds collapsed 64MiB command streams, completion and history snapshots", async () => {
+    let history = [];
+    const { observer } = fixture(async (method, params) => method === "thread/read"
+      ? { thread: { id: params.threadId, turns: [{ id: "turn", status: "completed", items: history }] } } : {});
+    observer.reset("root", [spawn("a")]); await settle();
+    itemEvent(observer, "a", { id: "cmd", type: "commandExecution", status: "inProgress" });
+    observer.setView(false);
+    const chunk = "x".repeat(64 * 1024);
+    for (let i = 0; i < 1024; i++) {
+      observer.observe("item/commandExecution/outputDelta", { threadId: "a", itemId: "cmd", delta: chunk });
+    }
+    const check = expected => {
+      const snapshot = observer.snapshot();
+      expect(snapshot.members[0].items[0].output).toBe(expected);
+      expect(snapshot.members[0].items[0]).not.toHaveProperty("aggregatedOutput");
+      expect(JSON.stringify(snapshot).length).toBeLessThan(17000);
+    };
+    check("x".repeat(16000));
+    expect(observer.takeTextDeltas()).toEqual([]);
+    const aggregatedOutput = chunk.repeat(1024) + "latest";
+    itemEvent(observer, "a", { id: "cmd", type: "commandExecution", status: "completed", aggregatedOutput });
+    check(aggregatedOutput.slice(-16000));
+    expect(observer.snapshot().members[0].items[0].status).toBe("completed");
+    history = [{ id: "cmd", type: "commandExecution", status: "completed", aggregatedOutput }];
+    observer.setView(true); await settle(); await observer.refresh();
+    check(aggregatedOutput.slice(-16000));
+    itemEvent(observer, "a", { id: "cmd", type: "commandExecution", output: chunk + "output field" });
+    check((chunk + "output field").slice(-16000));
+    observer.observe("item/commandExecution/outputDelta", { threadId: "a", itemId: "cmd", delta: chunk + "stream tail" });
+    expect(observer.takeTextDeltas()[0].delta).toBe((chunk + "stream tail").slice(-16000));
+    check((chunk + "stream tail").slice(-16000));
+  });
   it("keeps completed 1MiB history silent across polls while retaining refresh, events and discovery", async () => {
     vi.useFakeTimers();
     let status = "completed", descendants = [];
@@ -227,6 +259,17 @@ describe("Codex read-only sub-agent observer", () => {
     status = "completed"; aggregatedOutput = "replacement";
     await observer.refresh();
     expect(output()).toBe("replacement");
+  });
+  it("keeps the latest truncated stream over stale in-progress command history", async () => {
+    const aggregatedOutput = "prefix" + "x".repeat(20000);
+    const { observer } = fixture(async (method, params) => method === "thread/read"
+      ? { thread: { id: params.threadId, turns: [{ status: "inProgress", items: [
+        { id: "cmd", type: "commandExecution", aggregatedOutput }
+      ] }] } } : {});
+    observer.reset("root", [spawn("a")]); await settle();
+    observer.observe("item/commandExecution/outputDelta", { threadId: "a", itemId: "cmd", delta: "latest" });
+    await observer.refresh();
+    expect(observer.snapshot().members[0].items[0].output).toBe("x".repeat(15994) + "latest");
   });
   it("indexes appended history items and protects only in-progress turns", async () => {
     const turns = [
