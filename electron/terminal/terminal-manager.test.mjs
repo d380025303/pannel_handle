@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { execFile } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -128,6 +129,65 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("keeps the event loop responsive with a delayed enumeration subprocess", async () => {
+    const { manager } = createManager();
+    let completed = false;
+    const pending = manager.listWslDistros((file, args, options, callback) => {
+      return execFile(process.execPath, ["-e", "setTimeout(() => process.stdout.write('Ubuntu\\n'), 800)"], options, callback);
+    }).then(result => { completed = true; return result; });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(completed).toBe(false);
+    expect(await pending).toEqual(["Ubuntu"]);
+  });
+
+  it("returns an empty list when an enumeration subprocess exceeds the five second timeout", async () => {
+    const { manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let child;
+    const result = await manager.listWslDistros((file, args, options, callback) => {
+      child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 15000)"], options, callback);
+      return child;
+    });
+    expect(result).toEqual([]);
+    expect(child.killed).toBe(true);
+  }, 10000);
+
+  it("handles terminal data and timers while WSL enumeration is pending", async () => {
+    const { manager, term, broadcast } = createManager();
+    await manager.createSession({ type: "windows", title: "Test" });
+    let finish;
+    const run = vi.fn((file, args, options, callback) => { finish = callback; });
+    let completed = false;
+    const pending = manager.listWslDistros(run).then(result => {
+      completed = true;
+      return result;
+    });
+    expect(run).toHaveBeenCalledWith("wsl.exe", ["-l", "-q"], {
+      encoding: "utf-8", timeout: 5000, windowsHide: true
+    }, expect.any(Function));
+    broadcast.mockClear();
+    await new Promise(resolve => setTimeout(() => {
+      term.emitData("output during enumeration");
+      resolve();
+    }, 10));
+    expect(completed).toBe(false);
+    expect(JSON.stringify(broadcast.mock.calls)).toContain("output during enumeration");
+    finish(null, "\uFEFFUbuntu\0\r\n  Debian  \r\n\n");
+    expect(await pending).toEqual(["Ubuntu", "Debian"]);
+  });
+
+  it("returns an empty WSL list on command errors, timeouts, or launch exceptions", async () => {
+    const { manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const error of [new Error("command failed"), Object.assign(new Error("timeout"), { killed: true })]) {
+      expect(await manager.listWslDistros((file, args, options, callback) => {
+        callback(error, "partial output");
+      })).toEqual([]);
+    }
+    expect(await manager.listWslDistros(() => { throw new Error("launch failed"); })).toEqual([]);
+    expect(await manager.listWslDistros((file, args, options, callback) => callback(null, ""))).toEqual([]);
+  });
+
   it("keeps timers responsive and shares successful concurrent probes", async () => {
     const run = vi.fn((file, args, options, callback) => {
       setTimeout(() => callback(null, file === "where.exe" ? "C:\\PS\\pwsh.exe" : ""), 20);

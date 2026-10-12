@@ -2,7 +2,7 @@ const { mergeEnvironment } = require("../services/environment/index.cjs");
 const os = require("node:os");
 const { normalizeAdditionalDirectories } = require("../services/opencode-acp/additional-directories.cjs");
 const path = require("node:path");
-const { execFile, execSync } = require("node:child_process");
+const { execFile } = require("node:child_process");
 const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
@@ -195,11 +195,14 @@ function getSshShell() {
   return "ssh2";
 }
 
-function listWslDistros() {
+async function listWslDistros(runFile = execFile) {
   try {
-    const output = execSync("wsl.exe -l -q", {
-      encoding: "utf-8",
-      timeout: 5000
+    const output = await new Promise((resolve, reject) => {
+      runFile("wsl.exe", ["-l", "-q"], {
+        encoding: "utf-8",
+        timeout: 5000,
+        windowsHide: true
+      }, (error, stdout) => error ? reject(error) : resolve(stdout));
     });
     return output
       .replace(/\0/g, "")
