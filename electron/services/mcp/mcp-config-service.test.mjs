@@ -5,7 +5,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { createMcpConfigService } = require("./mcp-config-service.cjs");
+const { createMcpConfigService, replaceCodexServer } = require("./mcp-config-service.cjs");
+const { parse: parseToml } = require("smol-toml");
 
 const roots = [];
 
@@ -50,6 +51,41 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it.each(["tools[prod]", 'tools["prod"].path\\', "tools['prod']"])("creates, edits and deletes Codex server %s while preserving other configuration", (name) => {
+    const { homeDir, service } = setup();
+    const filePath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const unrelated = '# keep this comment\nmodel = "keep"\n\n[mcp_servers.other]\ncommand = "other"\n';
+    writeFileSync(filePath, unrelated, "utf-8");
+    const target = { provider: "codex", scope: "user" };
+    const added = service.save({ ...target, expectedVersion: service.list(target).version,
+      draft: stdioDraft(name, { env: [{ key: "MODE", value: "prod", masked: false }] }) });
+    expect(added.status).toBe("saved");
+    expect(parseToml(readFileSync(filePath, "utf-8")).mcp_servers[name].command).toBe("npx");
+
+    const edited = service.save({ ...target, originalName: name, expectedVersion: added.document.version,
+      draft: stdioDraft(name, { command: "node" }) });
+    expect(edited.status).toBe("saved");
+    const content = readFileSync(filePath, "utf-8");
+    expect(content).toContain(unrelated);
+    expect(parseToml(content).mcp_servers[name]).toEqual({ command: "node", args: ["-y", "example-mcp"], enabled: true });
+
+    const removed = service.remove({ ...target, name, expectedVersion: edited.document.version });
+    expect(removed.status).toBe("removed");
+    expect(readFileSync(filePath, "utf-8").trimEnd()).toBe(unrelated.trimEnd());
+    expect(parseToml(readFileSync(filePath, "utf-8")).mcp_servers).toEqual({ other: { command: "other" } });
+  });
+
+  it("recognizes literal quoted Codex table names and preserves following tables", () => {
+    const unrelated = '[mcp_servers.other]\r\ncommand = "keep"\r\n';
+    const text = "[mcp_servers.'tools[prod]'] # server\r\ncommand = \"old\"\r\n"
+      + "[mcp_servers.'tools[prod]'.env] # environment\r\nMODE = \"prod\"\r\n" + unrelated;
+    const edited = replaceCodexServer(text, "tools[prod]", "tools[prod]", { command: "new" });
+    expect(edited).toContain(unrelated.trimEnd());
+    expect(parseToml(edited).mcp_servers).toEqual({ other: { command: "keep" }, "tools[prod]": { command: "new" } });
+    expect(replaceCodexServer(text, "tools[prod]")).toBe(unrelated);
+  });
+
   it.each(["explicit", "runtime"])("reads and saves SSH local Codex project configuration in the %s workspace", (workspaceType) => {
     const { homeDir, projectDirectory } = setup();
     const session = { id: "ssh-local", type: "ssh", agentLocation: "local", runtimeMode: "app-server",

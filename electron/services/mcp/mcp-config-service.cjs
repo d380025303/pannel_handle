@@ -373,7 +373,7 @@ function replaceCodexServer(text, originalName, name, config) {
   const lines = text.match(/.*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) || [];
   const matches = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const header = lines[index].match(/^\s*\[([^\[\]]+)]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
+    const header = lines[index].match(/^\s*\[((?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|[^\[\]"'\r\n])+)\]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
     if (!header) continue;
     const parts = parseTomlHeaderPath(header[1]);
     if (parts[0] === "mcp_servers" && parts[1] === originalName) matches.push(index);
