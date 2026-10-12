@@ -89,7 +89,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     }
     return list(id);
   }
-  function reconcile(id) {
+  function reconcile(id, persist = true) {
     const state = store.getSchedulerState(id); let changed = false;
     const tasks = (state.tasks || []).map(task => {
       if (state.records.some(record => record.id === task.ownerId)) return task;
@@ -97,7 +97,8 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
       if (!task.enabled && task.nextRunAt === null) return task;
       changed = true; return { ...task, enabled: false, nextRunAt: null, lastRun: { status: "stopped", error: "负责人已删除。", startedAt: now() } };
     });
-    if (changed) store.tasks(id, tasks);
+    if (changed && persist) store.tasks(id, tasks);
+    return { tasks, changed };
   }
   async function tick() {
     if (ticking || stopped || suspended) return;
@@ -105,30 +106,27 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     const at = now(); const resumed = at - lastTick > 60000; lastTick = at;
     try {
       for (const id of store.templateIds()) {
-        reconcile(id);
-        const saved = store.getSchedulerState(id).tasks || [];
-        let lifecycleChanged = false;
+        const reconciled = reconcile(id, false);
+        const saved = reconciled.tasks;
+        let changed = reconciled.changed;
         const synced = saved.map(task => {
           const run = job(task.id);
           if (!run) return task;
           const shown = visibleRun(task, run);
           const counted = !manualPending.has(task.id) && submitted(task.id) && task.countedRunAt !== run.startedAt;
           if (!counted && JSON.stringify(task.lastRun) === JSON.stringify(shown)) return task;
-          lifecycleChanged = true;
+          changed = true;
           const executedCount = task.executedCount + (counted ? 1 : 0);
           const exhausted = task.schedule.kind === "interval" && executedCount >= task.schedule.count;
           return { ...task, lastRun: shown, executedCount, ...(counted ? { countedRunAt: run.startedAt } : {}), ...(exhausted ? { enabled: false, nextRunAt: null } : {}) };
         });
-        if (lifecycleChanged) store.tasks(id, synced);
+        const dispatches = [];
+        const reserved = new Set();
         let value;
         try { value = template(id); } catch { value = null; }
-        for (const task of store.getSchedulerState(id).tasks || []) {
+        for (const [index, task] of synced.entries()) {
           if (!task.enabled) continue;
-          const update = patch => {
-            if (stopped) return;
-            const current = store.getSchedulerState(id).tasks || [];
-            if (current.some(t => t.id === task.id)) store.tasks(id, current.map(t => t.id === task.id ? { ...t, ...patch } : t));
-          };
+          const update = patch => { synced[index] = { ...synced[index], ...patch }; changed = true; };
           if (!value || !supported(value)) { revoke(task.ownerId); update({ enabled: false, nextRunAt: null, lastRun: { status: "stopped", error: "模板不存在或不支持。", startedAt: at } }); continue; }
           if (!task.nextRunAt || resumed) { update({ nextRunAt: nextRun(task.schedule, at) }); continue; }
           if (task.nextRunAt > at) continue;
@@ -141,9 +139,20 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
             update({ lastRun: { status: "failed", error: `未处理任务检查失败：${error.message}`, startedAt: at } }); continue;
           }
           const key = `${id}:${task.ownerId}`;
-          if (pending.has(key) || ownerBusy(id, task.ownerId)) {
+          if (pending.has(key) || reserved.has(key) || ownerBusy(id, task.ownerId)) {
             update({ lastRun: { status: "skipped", error: "上一轮未结束，已跳过本周期。", startedAt: at } }); continue;
           }
+          reserved.add(key);
+          dispatches.push({ task, key });
+        }
+        if (changed) store.tasks(id, synced);
+        for (const { task, key } of dispatches) {
+          if (stopped) break;
+          const update = patch => {
+            if (stopped) return;
+            const current = store.getSchedulerState(id).tasks || [];
+            if (current.some(t => t.id === task.id)) store.tasks(id, current.map(t => t.id === task.id ? { ...t, ...patch } : t));
+          };
           pending.add(key);
           // Dispatch independently so one slow HTTP launch cannot delay other owners.
           void launch(id, { ...task, trigger: "scheduled" }).then(() => {
