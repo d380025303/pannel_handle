@@ -439,8 +439,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("session-api:invoke", (_event, input) => sessionApiService.invoke(input));
   }
   if (moduleOwnerService) {
+    for (const method of ["list", "get", "preview", "execute", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"]) {
+      ipcMain.handle(`work-items:${method}`, (_event, input) => moduleOwnerService.workItems[method](input));
+    }
     ipcMain.handle("module-owners:templates", () => moduleOwnerService.listTemplates());
-    for (const method of ["get", "preview", "generate", "mutate", "configure", "restore", "listHistory", "listTaskRuns", "getTaskRun", "listTasks", "saveTask", "deleteTask"]) {
+    for (const method of ["get", "preview", "generate", "mutate", "configure", "restore", "listHistory", "listTaskRuns", "getTaskRun", "deleteTaskRun", "listTasks", "saveTask", "deleteTask"]) {
       ipcMain.handle(`module-owners:${method}`, (_event, id, input) => moduleOwnerService[method](id, input));
     }
   }

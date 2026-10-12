@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { OwnerCell } from "./OwnerCell";
 import { OwnerDialog } from "./OwnerDialog";
 import type { ModuleOwnerHistory, ModuleOwnerRecord, ModuleOwnerSettings, ModuleOwnerState, ModuleOwnerTemplate, SessionApiResult, SessionApiState } from "../../vite-env";
 import "./module-owners.css";
@@ -7,11 +8,11 @@ import { ModuleOwnerTasks } from "./ModuleOwnerTasks";
 const activeStatuses = ["creating", "running", "uncertain"];
 const statusLabels: Record<string, string> = { creating: "正在创建分析会话", running: "分析进行中", uncertain: "创建结果待确认，请检查会话列表", completed: "分析已结束", failed: "分析失败", stopped: "分析已停止" };
 const operationLabels: Record<string, string> = { initial: "初始状态", add: "新增", update: "修改", delete: "删除", restore: "回滚" };
-const blank = { name: "", responsibilities: "", directories: "" };
+const blank = { name: "", responsibilities: "", recentActivity: "", directories: "" };
 
 function OwnerTable({ records }: { records: ModuleOwnerRecord[] }) {
-  return <div className="module-owners-table-scroll"><table><thead><tr><th>负责模块名称</th><th>职责</th><th>主要负责目录</th></tr></thead><tbody>
-    {records.map(record => <tr key={record.id}><td>{record.name}</td><td>{record.responsibilities}</td><td>{record.directories.map(directory => <code key={directory}>{directory}</code>)}</td></tr>)}
+  return <div className="module-owners-table-scroll"><table><thead><tr><th>负责模块名称</th><th>职责</th><th>近期行为</th><th>主要负责目录</th></tr></thead><tbody>
+    {records.map(record => <tr key={record.id}><td><OwnerCell label="负责模块名称" text={record.name} /></td><td><OwnerCell label="职责" text={record.responsibilities} /></td><td><OwnerCell label="近期行为" text={record.recentActivity ?? ""} /></td><td><OwnerCell label="主要负责目录" text={record.directories.join("\n")} code /></td></tr>)}
   </tbody></table>{!records.length && <p className="module-owners-empty">此版本暂无负责人。</p>}</div>;
 }
 
@@ -130,7 +131,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
   }
   async function saveRecord() {
     const id = templateId;
-    const fields = { name: draft.name, responsibilities: draft.responsibilities, directories: draft.directories.split(/\r?\n/).map(value => value.trim()).filter(Boolean) };
+    const fields = { name: draft.name, responsibilities: draft.responsibilities, recentActivity: draft.recentActivity, directories: draft.directories.split(/\r?\n/).map(value => value.trim()).filter(Boolean) };
     const value = await window.moduleOwnerApi.mutate(id, editing ? { operation: "update", id: editing.id, version: editing.version, ...fields } : { operation: "add", ...fields });
     if (currentId.current === id) { setState(value); setDraft(blank); setEditing(null); setDialog(null); }
   }
@@ -153,9 +154,9 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
     {!templates.length && <p>请先创建会话模板。</p>}
     {state && <>
       <section className="module-owners-card">
-        <div className="module-owners-table-scroll"><table><colgroup><col className="module-owners-name-column" /><col /><col className="module-owners-directory-column" /><col className="module-owners-action-column" /></colgroup><thead><tr><th>负责模块名称</th><th>职责</th><th>主要负责目录</th><th>操作</th></tr></thead><tbody>
-          {state.records.map(record => <tr key={record.id}><td>{record.name}</td><td>{record.responsibilities}</td><td>{record.directories.map(directory => <code key={directory}>{directory}</code>)}</td><td><div className="module-owners-row-actions">
-            <button type="button" aria-label={`编辑 ${record.name}`} disabled={busy} onClick={() => { openDialog("edit"); setEditing(record); setDraft({ name: record.name, responsibilities: record.responsibilities, directories: record.directories.join("\n") }); }}>编辑</button>
+        <div className="module-owners-table-scroll"><table><colgroup><col className="module-owners-name-column" /><col /><col /><col className="module-owners-directory-column" /><col className="module-owners-action-column" /></colgroup><thead><tr><th>负责模块名称</th><th>职责</th><th>近期行为</th><th>主要负责目录</th><th>操作</th></tr></thead><tbody>
+          {state.records.map(record => <tr key={record.id}><td><OwnerCell label="负责模块名称" text={record.name} /></td><td><OwnerCell label="职责" text={record.responsibilities} /></td><td><OwnerCell label="近期行为" text={record.recentActivity ?? ""} /></td><td><OwnerCell label="主要负责目录" text={record.directories.join("\n")} code /></td><td><div className="module-owners-row-actions">
+            <button type="button" aria-label={`编辑 ${record.name}`} disabled={busy} onClick={() => { openDialog("edit"); setEditing(record); setDraft({ name: record.name, responsibilities: record.responsibilities, recentActivity: record.recentActivity ?? "", directories: record.directories.join("\n") }); }}>编辑</button>
             <button type="button" aria-label={`定时任务 ${record.name}`} disabled={busy} onClick={() => { setTaskOwner(record); openDialog("tasks"); }}>定时任务</button>
             <button type="button" className="module-owners-history-link" aria-label={`历史记录 ${record.name}`} disabled={busy} onClick={() => openDialog("history", record)}>历史记录</button>
             <button type="button" className="module-owners-danger" aria-label={`删除 ${record.name}`} disabled={busy} onClick={() => { setDeleting(record); openDialog("delete"); }}>删除</button>
@@ -173,6 +174,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
           <div className="module-owners-dialog-body">
           <label>负责模块名称<input required maxLength={200} value={draft.name} disabled={busy} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
           <label>职责<textarea required rows={3} maxLength={20000} value={draft.responsibilities} disabled={busy} onChange={event => setDraft({ ...draft, responsibilities: event.target.value })} /></label>
+          <label>近期行为<textarea rows={3} maxLength={20000} value={draft.recentActivity} disabled={busy} onChange={event => setDraft({ ...draft, recentActivity: event.target.value })} /></label>
           <label>模块主要负责目录列表（每行一个，相对项目目录）<textarea required rows={3} value={draft.directories} disabled={busy} onChange={event => setDraft({ ...draft, directories: event.target.value })} /></label>
           </div><footer className="module-owners-dialog-footer"><button type="button" disabled={busy} onClick={closeDialog}>取消</button><button type="submit" disabled={busy || !draft.name.trim() || !draft.responsibilities.trim() || !draft.directories.trim()}>保存负责人</button>
           </footer>

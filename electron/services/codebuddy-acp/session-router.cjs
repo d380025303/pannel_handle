@@ -39,6 +39,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     return codex[method](id, ...args);
   };
   return {
+    onTaskTurnEnded: listener => codex.onTaskTurnEnded(listener),
     getInjectedToolState: routeCodex("getInjectedToolState"), isInjectedToolCallCurrent: routeCodex("isInjectedToolCallCurrent"),
     start: (session, runtime) => serviceForProvider(session.agentProvider).start(session, runtime),
     restart: route("restart"), snapshot: route("snapshot"), getWorkspaceCwd: route("getWorkspaceCwd"),

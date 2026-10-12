@@ -19,6 +19,23 @@ async function call(service, endpoint, options = {}) {
 }
 afterEach(async () => { for (const f of fixtures.splice(0)) { await f.service.stop(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("session HTTP API", () => {
+  it("correlates identical zero-tool bodies to their own private lifecycle hooks", async () => {
+    const f = fixture(); await f.service.configure({ enabled: true });
+    const received = [];
+    f.instances.create.mockImplementation(async (_body, hooks) => {
+      received.push(hooks);
+      hooks.onSessionCreated({ id: `session-${received.length}` });
+      return { sessionId: `session-${received.length}`, status: "started" };
+    });
+    const one = { onSessionCreated: vi.fn() }; const two = { onSessionCreated: vi.fn() };
+    const body = { templateId: "saved", mode: "default", prompt: "相同内容" };
+    await Promise.all([f.service.invoke({ operation: "create", body }, one), f.service.invoke({ operation: "create", body }, two)]);
+    expect(one.onSessionCreated).toHaveBeenCalledTimes(1); expect(two.onSessionCreated).toHaveBeenCalledTimes(1);
+    expect(one.onSessionCreated.mock.calls[0][0].id).not.toBe(two.onSessionCreated.mock.calls[0][0].id);
+    const invalid = await call(f.service, "/api/v1/session-instances", { method: "POST", headers: { "Content-Type": "application/json", "X-Pannel-Creation-Id": "unknown" }, body: JSON.stringify(body) });
+    expect(invalid.status).toBe(409); expect(f.instances.create).toHaveBeenCalledTimes(2);
+    expect(body).toEqual({ templateId: "saved", mode: "default", prompt: "相同内容" });
+  });
   it("queries live instances over HTTP independently of MCP and handles errors", async () => {
     const { createSessionStatusServer } = require("../mcp/session-status-server.cjs");
     const sessions = [{ id: "run /中文", title: "Work", type: "windows", runtimeMode: "terminal" }];

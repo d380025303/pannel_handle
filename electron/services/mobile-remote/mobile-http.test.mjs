@@ -1,11 +1,43 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
 import { afterEach, expect, it, vi } from "vitest";
 import httpModule from "./mobile-http.cjs";
 
 const roots = [];
 afterEach(() => roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true })));
+
+it("returns 400 for malformed URLs and encoded paths while keeping the HTTP server available", async () => {
+  let port;
+  const { handleHttp } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port }) }, getAddress: () => "127.0.0.1", getStaticRoot: () => "."
+  });
+  const server = http.createServer(handleHttp);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  port = server.address().port;
+  const request = url => new Promise((resolve, reject) => {
+    http.get({ hostname: "127.0.0.1", port, path: url, agent: false }, response => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { body += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode, body }));
+      response.on("error", reject);
+    }).on("error", reject);
+  });
+  try {
+    for (const url of ["/%", "/%E0%A4%A", "http://["]) {
+      expect(await request(url)).toEqual({ status: 400, body: "Bad Request" });
+      const health = await request("/health");
+      expect(health.status).toBe(200);
+      expect(JSON.parse(health.body)).toMatchObject({ ok: true });
+    }
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
 
 it("checks the live bind address and origin for both HTTP and websocket upgrades", () => {
   let address = "192.168.1.1";

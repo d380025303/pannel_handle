@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const { createModuleOwnerService, CALLBACK_PATH } = require("./module-owner-service.cjs");
 const { createSessionApiService } = require("../session-api/session-api-service.cjs");
 const { createBusinessDataStore } = require("../../stores/business-data-store.cjs");
+const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 const fixtures = [];
 const settings = { mode: "plan", prompt: "分析项目" };
 const fields = { name: "模块 A", responsibilities: "职责 A", directories: ["src"] };
@@ -20,8 +21,10 @@ async function fixture(withHistory = false) {
   graphicalService.onTaskTurnEnded = fn => { listener = fn; return () => { listener = undefined; }; };
   const dataStore = withHistory ? createBusinessDataStore({ userData }).open() : undefined;
   let api;
+  const terminalManager = { getSession: id => sessions.get(id) };
+  const routedGraphicalService = createGraphicalSessionRouter(graphicalService, {}, terminalManager);
   const owners = createModuleOwnerService({ userData, dataStore, sessionStore: { getTemplate: id => templates.find(value => value.id === id), getLibrary: () => templates },
-    terminalManager: { getSession: id => sessions.get(id) }, graphicalService, getSessionApi: () => api });
+    terminalManager, graphicalService: routedGraphicalService, getSessionApi: () => api });
   let body;
   const instances = { listTemplates: () => ({ templates: [] }), create: vi.fn(async (input, hooks) => {
     body = input;
@@ -67,9 +70,11 @@ describe("module owner generation through actual HTTP", () => {
     expect(JSON.stringify(f.owners.preview("one", settings))).not.toContain(f.getBody().toolCallback.bearerToken);
     expect((await (await f.callback("add_module_owner", { ...fields, name: "模块 B" })).json()).success).toBe(true);
     const record = f.owners.get("one").records[0];
-    expect((await (await f.callback("update_module_owner", { ...fields, id: record.id, version: record.version, responsibilities: "AI 更新" })).json()).success).toBe(true);
+    expect((await (await f.callback("update_module_owner", { ...fields, id: record.id, version: record.version, responsibilities: "AI 更新", recentActivity: "执行模块检查" })).json()).success).toBe(true);
     expect((await (await f.callback("delete_module_owner", { id: record.id, version: record.version })).json()).success).toBe(false);
     const current = f.owners.get("one").records[0];
+    const listed = JSON.parse((await (await f.callback("list_module_owners", { name: current.name })).json()).output);
+    expect(listed[0].recentActivity).toBe("执行模块检查");
     expect((await (await f.callback("delete_module_owner", { id: current.id, version: current.version })).json()).success).toBe(true);
     expect(f.owners.get("one").records).toHaveLength(1);
     expect(f.owners.get("two").records).toEqual([]);
@@ -146,6 +151,29 @@ async function due(f, advance = 60000) {
   return clock;
 }
 describe("module owner scheduled HTTP sessions", () => {
+  it.each([
+    [], ["list_module_owners"], ["update_module_owner"],
+    ["list_module_owners", "update_module_owner"]
+  ])("describes only explicitly selected tools: %j", async (...selected) => {
+    const f = await fixture();
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    const prompt = "用户原文：请考虑 list_module_owners，但不要自动授权。";
+    f.owners.saveTask("one", { ...scheduled(owner.id), tools: selected, prompt });
+    await due(f);
+    await vi.waitFor(() => expect(f.owners.listTasks("one")[0].executedCount).toBe(1));
+    const body = f.getBody();
+    expect(body.prompt.startsWith(`${prompt}\n\n`)).toBe(true);
+    const appended = body.prompt.slice(prompt.length);
+    for (const name of ["list_module_owners", "update_module_owner"]) {
+      expect(appended.includes(name)).toBe(selected.includes(name));
+    }
+    expect(body.tools?.map(tool => tool.name) || []).toEqual(selected);
+    if (!selected.length) {
+      expect(appended).not.toContain("工具");
+      expect(body).not.toHaveProperty("toolCallback");
+    }
+    if (selected.includes("update_module_owner")) expect(appended).toContain("仅可修改本负责人");
+  });
   it("injects selected tools and latest owner, enforces owner boundaries and counts submissions", async () => {
     const f = await fixture();
     f.owners.mutate("one", { operation: "add", ...fields });
@@ -170,6 +198,7 @@ describe("module owner scheduled HTTP sessions", () => {
     expect(f.instances.create).toHaveBeenCalledTimes(1);
     expect(f.owners.listTasks("one")[0].executedCount).toBe(1);
     f.sessions.get("run").busy = false;
+    f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "完成巡检" });
     clock.mockReturnValue(f.owners.listTasks("one")[0].nextRunAt);
     await f.owners.tickTasks();
     await vi.waitFor(() => expect(f.owners.listTasks("one")[0].enabled).toBe(false));
@@ -250,7 +279,8 @@ describe("scheduled call history", () => {
     const query = { taskId: task.id, id: summary.id };
     expect(f.owners.getTaskRun("one", query).input.prompt).toContain("本次负责人的最新信息");
     expect(JSON.stringify(f.owners.getTaskRun("one", query))).not.toContain(f.getBody().toolCallback.bearerToken);
-    f.end({ sessionId: "run", threadId: "thread", turnId: "other", status: "completed", output: "wrong" });
+    f.end({ sessionId: "other", threadId: "thread", turnId: "turn", status: "completed", output: "wrong session" });
+    f.end({ sessionId: "run", threadId: "other", turnId: "turn", status: "completed", output: "wrong thread" });
     expect(f.owners.getTaskRun("one", query).output).toBe("");
     f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "最终计划" });
     f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "duplicate" });
@@ -280,4 +310,46 @@ it("shows SQLite write failures on the task and continues one creation", async (
   await vi.waitFor(() => expect(f.owners.listTasks("one")[0].executedCount).toBe(1));
   expect(f.owners.listTasks("one")[0].lastRun.error).toContain("历史写入失败");
   expect(f.instances.create).toHaveBeenCalledTimes(1);
+});
+
+
+it("rejects removed task history tools", async () => {
+  const f = await fixture();
+  await f.owners.generate("one", settings);
+  for (const name of ["search_module_owner_task_runs", "get_module_owner_task_run"]) {
+    expect(f.getBody().tools.some(tool => tool.name === name)).toBe(false);
+    expect(await (await f.callback(name, {})).json()).toMatchObject({ success: false, output: "工具未获本次授权。" });
+    expect(() => f.owners.saveTask("one", { ...scheduled("owner"), tools: [name] })).toThrow();
+  }
+});
+
+it("updates recent activity through HTTP while preserving omission and rejecting stale versions", async () => {
+  const f = await fixture();
+  f.owners.mutate("one", { operation: "add", ...fields, recentActivity: "开始检查" });
+  await f.owners.generate("one", settings);
+  const first = f.owners.get("one").records[0];
+  const update = async patch => {
+    const record = f.owners.get("one").records[0];
+    return (await f.callback("update_module_owner", { ...fields, id: record.id, version: record.version, ...patch })).json();
+  };
+  expect((await update({})).success).toBe(true);
+  expect(f.owners.get("one").records[0].recentActivity).toBe("开始检查");
+  expect((await update({ version: first.version, recentActivity: "迟到更新" })).success).toBe(false);
+  expect((await update({ recentActivity: "" })).success).toBe(true);
+  const listed = await (await f.callback("list_module_owners", {})).json();
+  expect(JSON.parse(listed.output)[0].recentActivity).toBe("");
+});
+
+it("validates template and arguments before deleting finished history", async () => {
+  const f = await fixture(true);
+  f.dataStore.saveTaskRun({ id: "history", templateId: "one", taskId: "task", status: "running", calledAt: 1, input: {}, output: "" });
+  const query = { taskId: "task", id: "history" };
+  expect(() => f.owners.deleteTaskRun("missing", query)).toThrow("来源会话模板不存在");
+  expect(() => f.owners.deleteTaskRun("one", { ...query, extra: true })).toThrow();
+  expect(() => f.owners.deleteTaskRun("one", query)).toThrow("不能删除");
+  f.owners.deleteTaskRun("two", query);
+  expect(f.owners.getTaskRun("one", query).status).toBe("running");
+  f.dataStore.saveTaskRun({ ...f.owners.getTaskRun("one", query), status: "completed" });
+  f.owners.deleteTaskRun("one", query); f.owners.deleteTaskRun("one", query);
+  expect(f.owners.listTaskRuns("one", { taskId: "task" }).total).toBe(0);
 });

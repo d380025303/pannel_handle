@@ -7,7 +7,7 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
-const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "api", "moduleOwners", "create"];
+const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "api", "moduleOwners", "workItems", "create"];
 const VALID_TITLE_BAR_ACTIONS = new Set(DEFAULT_TITLE_BAR_ACTION_ORDER);
 function normalizeTitleBarActionOrder(value) {
   const seen = new Set();
@@ -18,10 +18,11 @@ function normalizeTitleBarActionOrder(value) {
       ordered.push(id);
     }
   }
-  const normalized = [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id) && id !== "settings" && id !== "api" && id !== "moduleOwners")];
+  const normalized = [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id) && id !== "settings" && id !== "api" && id !== "moduleOwners" && id !== "workItems")];
   if (!seen.has("settings")) normalized.splice(6, 0, "settings");
   if (!seen.has("api")) normalized.splice(normalized.indexOf("create"), 0, "api");
   if (!seen.has("moduleOwners")) normalized.splice(normalized.indexOf("create"), 0, "moduleOwners");
+  if (!seen.has("workItems")) normalized.splice(normalized.indexOf("create"), 0, "workItems");
   return normalized;
 }
 function normalizeTitleBarHiddenActions(value) {

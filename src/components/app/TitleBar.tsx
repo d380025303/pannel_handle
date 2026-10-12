@@ -20,6 +20,7 @@ type TitleBarProps = {
   onOpenIdea?: () => void;
   onOpenApi?: () => void;
   onOpenModuleOwners?: () => void;
+  onOpenWorkItems?: () => void;
   mobileAccessState: MobileAccessState | null;
   screenshotEnabled?: boolean;
   onCaptureScreenshot?: () => void;
@@ -27,7 +28,7 @@ type TitleBarProps = {
   hiddenActions?: TitleBarActionId[];
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenIdea, onOpenApi, onOpenModuleOwners, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenIdea, onOpenApi, onOpenModuleOwners, onOpenWorkItems, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -62,6 +63,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
   };
 
   const simpleActions = {
+    workItems: { label: t("workItems.title"), icon: PanelsTopLeft, onClick: onOpenWorkItems },
     moduleOwners: { label: t("moduleOwners.title"), icon: Library, onClick: onOpenModuleOwners },
     api: { label: t("sessionApi.title"), icon: Braces, onClick: onOpenApi },
     terminal: { label: t("app.openTerminal"), icon: Terminal, onClick: onOpenTerminal },

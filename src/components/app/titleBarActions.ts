@@ -12,6 +12,7 @@ export const TITLE_BAR_ACTIONS = [
   { id: "quickAgent", labelKey: "session.quickAgent" },
   { id: "api", labelKey: "sessionApi.title" },
   { id: "moduleOwners", labelKey: "moduleOwners.title" },
+  { id: "workItems", labelKey: "workItems.title" },
   { id: "create", labelKey: "sidebar.newSession" }
 ] as const satisfies ReadonlyArray<{ id: string; labelKey: TranslationKey }>;
 
@@ -23,5 +24,6 @@ export function withSettingsAction(order: TitleBarActionId[]): TitleBarActionId[
   if (!next.includes("settings")) next.splice(6, 0, "settings");
   if (!next.includes("api")) next.splice(next.includes("create") ? next.indexOf("create") : next.length, 0, "api");
   if (!next.includes("moduleOwners")) next.splice(next.includes("create") ? next.indexOf("create") : next.length, 0, "moduleOwners");
+  if (!next.includes("workItems")) next.splice(next.includes("create") ? next.indexOf("create") : next.length, 0, "workItems");
   return next;
 }

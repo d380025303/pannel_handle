@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { createBusinessDataStore } = require("../../stores/business-data-store.cjs");
 const { createModuleOwnerStore } = require("./module-owner-store.cjs");
 const dirs = [];
-const fields = { name: "渲染", responsibilities: "桌面交互", directories: ["src", "src", "C:\\repo\\electron"] };
+const fields = { name: "渲染", responsibilities: "桌面交互", recentActivity: "检查存储与历史", directories: ["src", "src", "C:\\repo\\electron"] };
 function fixture() { const userData = mkdtempSync(path.join(tmpdir(), "pannel-owners-")); dirs.push(userData); const broadcast = vi.fn(); return { userData, broadcast, store: createModuleOwnerStore({ userData, broadcast }) }; }
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 describe("module owner persistence and history", () => {
@@ -161,4 +161,58 @@ it("excludes legacy whole-table snapshots from owner history", () => {
   const store = createModuleOwnerStore({ userData: f.userData });
   expect(store.listHistory("one", { ownerId: "owner" })).toEqual({ revision: 1, history: [] });
   expect(store.get("one").history).toHaveLength(1);
+});
+
+
+it("maintains recent activity through omitted updates, clearing, restart and restore", () => {
+  const f = fixture();
+  let value = f.store.mutate("one", { operation: "add", ...fields, recentActivity: undefined }, { cwd: "C:/repo" });
+  expect(value.records[0].recentActivity).toBe("");
+  const update = recent => {
+    const record = value.records[0];
+    value = f.store.mutate("one", { operation: "update", id: record.id, version: record.version, ...fields, recentActivity: undefined, ...recent }, { cwd: "C:/repo" });
+  };
+  update({ recentActivity: "  检查模块\n修复问题  " });
+  const historyId = value.history.at(-1).id;
+  expect(value.records[0].recentActivity).toBe("检查模块\n修复问题");
+  update({});
+  expect(value.records[0].recentActivity).toBe("检查模块\n修复问题");
+  expect(createModuleOwnerStore({ userData: f.userData }).get("one").records).toEqual(value.records);
+  const before = value;
+  expect(() => update({ recentActivity: "a".repeat(20001) })).toThrow();
+  expect(f.store.get("one")).toEqual(before);
+  update({ recentActivity: "" });
+  expect(value.records[0].recentActivity).toBe("");
+  value = f.store.restore("one", { historyId, revision: value.revision });
+  expect(value.records[0].recentActivity).toBe("检查模块\n修复问题");
+});
+
+it("normalizes legacy records and history without changing revisions", () => {
+  const f = fixture();
+  const saved = f.store.mutate("one", { operation: "add", ...fields }, { cwd: "C:/repo" });
+  delete saved.records[0].recentActivity;
+  delete saved.history[0].after.recentActivity;
+  writeFileSync(path.join(f.userData, "module-owners.json"), JSON.stringify({ schemaVersion: 1, templates: { one: saved } }));
+  const store = createModuleOwnerStore({ userData: f.userData });
+  const value = store.get("one");
+  expect(value.revision).toBe(saved.revision);
+  expect(value.records[0]).toEqual({ ...saved.records[0], recentActivity: "" });
+  expect(store.listHistory("one", { ownerId: value.records[0].id }).history[0].after.recentActivity).toBe("");
+  expect(store.restore("one", { historyId: value.history[0].id, revision: value.revision }).records[0].recentActivity).toBe("");
+});
+
+it("removes retired tools from saved tasks without changing other configuration", () => {
+  const f = fixture();
+  f.store.mutate("one", { operation: "add", ...fields }, { cwd: "C:\\repo" });
+  const tasks = [
+    { id: "mixed", name: "巡检", enabled: true, tools: ["list_module_owners", "search_module_owner_task_runs", "update_module_owner", "get_module_owner_task_run"] },
+    { id: "history-only", tools: ["get_module_owner_task_run"] }
+  ];
+  f.store.tasks("one", tasks);
+  const reloaded = createModuleOwnerStore({ userData: f.userData });
+  const expected = [{ ...tasks[0], tools: ["list_module_owners", "update_module_owner"] }, { ...tasks[1], tools: [] }];
+  expect(reloaded.get("one").tasks).toEqual(expected);
+  expect(JSON.parse(readFileSync(path.join(f.userData, "module-owners.json"), "utf8")).templates.one.tasks).toEqual(tasks);
+  reloaded.tasks("one", reloaded.get("one").tasks);
+  expect(createModuleOwnerStore({ userData: f.userData }).get("one").tasks).toEqual(expected);
 });

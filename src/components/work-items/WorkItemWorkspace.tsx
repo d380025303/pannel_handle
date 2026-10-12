@@ -1,0 +1,170 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { WorkItem, WorkItemAttempt, WorkItemPage, WorkItemStatus } from "../../vite-env";
+import { OwnerDialog } from "../module-owners/OwnerDialog";
+import "../module-owners/module-owners.css";
+import "./work-items.css";
+
+export const WORK_ITEM_STATUS: Record<WorkItemStatus, string> = { pending: "待执行", creating: "创建中", running: "执行中", uncertain: "待核对", completed: "已完成", failed: "失败", stopped: "中断", void: "已作废" };
+const active = (status: WorkItemStatus) => ["creating", "running", "uncertain"].includes(status);
+const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
+type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
+const titles = { detail: "任务详情", execute: "执行任务", attempts: "执行记录", void: "作废任务", restore: "恢复任务", resolve: "核对执行结果" };
+
+export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean; onOpenSession: (id: string) => void }) {
+  const ref = useRef<HTMLElement>(null);
+  const submitting = useRef(false);
+  const promptInitialized = useRef(false);
+  const [prompt, setPrompt] = useState("");
+  const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
+  const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
+  const [status, setStatus] = useState<WorkItemStatus | "">(""); const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(false); const [error, setError] = useState("");
+  const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof window.workItemApi.preview>> | null>(null);
+  const [dialogLoading, setDialogLoading] = useState(false); const [dialogError, setDialogError] = useState("");
+  const [busy, setBusy] = useState(false); const [reason, setReason] = useState("");
+  const [attemptPage, setAttemptPage] = useState(0); const [attempts, setAttempts] = useState<Awaited<ReturnType<typeof window.workItemApi.listAttempts>> | null>(null);
+  const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
+
+  useEffect(() => {
+    if (!visible) { setDialog(null); return; }
+    const changed = () => setReload(value => value + 1);
+    const off = window.workItemApi.onChanged(changed);
+    const offOwners = window.moduleOwnerApi.onChanged(changed);
+    changed();
+    return () => { off(); offOwners(); };
+  }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
+    let live = true;
+    setLoading(true); setError("");
+    void window.workItemApi.list({ ...(templateId ? { templateId } : {}), ...(ownerId ? { ownerId } : {}), ...(status ? { status } : {}), keyword, page })
+      .then(value => { if (live) { setData(value); if (page > 0 && page * 20 >= value.total) setPage(Math.max(0, Math.ceil(value.total / 20) - 1)); } })
+      .catch(err => { if (live) setError(String(err)); }).finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [visible, templateId, ownerId, status, keyword, page, reload]);
+  useLayoutEffect(() => {
+    if (!ref.current || !dialog) return;
+    const background = ref.current;
+    background.inert = true;
+    background.setAttribute("aria-hidden", "true");
+    return () => { background.inert = false; background.removeAttribute("aria-hidden"); };
+  }, [dialog]);
+  useEffect(() => {
+    if (!dialog || !visible) return;
+    let live = true;
+    setDialogLoading(true);
+    void (async () => {
+      const value = await window.workItemApi.get({ id: dialog.id });
+      if (live) setItem(value);
+      if (dialog.kind === "execute" && !active(value.status) && value.status !== "void") {
+        const body = await window.workItemApi.preview({ id: value.id, version: value.version });
+        if (live) {
+          setPreview(body);
+          if (!promptInitialized.current) { setPrompt(value.output); promptInitialized.current = true; }
+        }
+      }
+      if (dialog.kind === "attempts") {
+        const value = await window.workItemApi.listAttempts({ id: dialog.id, page: attemptPage });
+        if (live) setAttempts(value);
+        if (selectedAttemptId) {
+          const detail = await window.workItemApi.getAttempt({ id: dialog.id, attemptId: selectedAttemptId });
+          if (live) setAttempt(detail);
+        }
+      }
+    })().catch(err => { if (live) setDialogError(String(err)); }).finally(() => { if (live) setDialogLoading(false); });
+    return () => { live = false; };
+  }, [dialog, visible, reload, attemptPage, selectedAttemptId]);
+
+  function open(id: string, kind: Dialog["kind"]) {
+    promptInitialized.current = false; setPrompt("");
+    setItem(null); setPreview(null); setAttempts(null); setAttempt(null); setSelectedAttemptId(""); setAttemptPage(0);
+    setDialogError(""); setReason(""); setDialog({ id, kind });
+  }
+  async function openSession(id: string) {
+    try {
+      const sessions = await window.terminalApi.listSessions();
+      if (!sessions.some(session => session.id === id)) throw new Error("会话已关闭或不存在，执行记录仍保留。");
+      setDialog(null); onOpenSession(id);
+    } catch (err) { if (dialog) setDialogError(String(err)); else setError(String(err)); }
+  }
+  async function perform(operation: "execute" | "void" | "restore" | "resolveUncertain") {
+    if (!item || submitting.current || (operation === "execute" && !prompt.trim())) return;
+    submitting.current = true; setBusy(true); setDialogError("");
+    try {
+      await window.workItemApi[operation]({ id: item.id, version: item.version, ...(operation === "void" ? { reason } : {}), ...(operation === "execute" ? { prompt } : {}) });
+      setDialog(null);
+    } catch (err) { setDialogError(String(err)); }
+    finally { submitting.current = false; setBusy(false); setReload(value => value + 1); }
+  }
+  if (!visible) return null;
+  return <>
+    <section ref={ref} className="module-owners-workspace work-items-workspace" aria-label="任务列表">
+      <header className="module-owners-toolbar work-items-toolbar">
+        <h2>任务列表</h2>
+        <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+        <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
+        <label>状态<select value={status} onChange={event => { setStatus(event.target.value as WorkItemStatus | ""); setPage(0); }}><option value="">全部状态</option>{Object.entries(WORK_ITEM_STATUS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
+        <button type="button" onClick={() => setReload(value => value + 1)}>刷新</button>
+      </header>
+      <p className="module-owners-path">定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮才记为已完成。</p>
+      {error && <p className="module-owners-error" role="alert">{error}</p>}
+      {data.storageErrors?.map((value, index) => <p key={index} className="module-owners-error" role="alert">{value}</p>)}
+      {loading && <p role="status">正在查询任务…</p>}
+      <div className="module-owners-card work-items-scroll">
+        {!data.records.length ? <p className="module-owners-empty">暂无任务。</p> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th>来源</th><th>最终回复</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
+          <td><strong>{value.taskName}</strong><div>{value.owner.name}</div><div className="module-owners-path">{value.template.title}</div>{value.unavailable && <div className="module-owners-error">{value.unavailable}</div>}</td>
+          <td><div className="work-items-summary">{value.summary}</div></td>
+          <td>{WORK_ITEM_STATUS[value.status]}{value.error && <div className="module-owners-error">{value.error}</div>}</td>
+          <td>{time(value.createdAt)}<div className="module-owners-path">最近执行：{time(value.lastStartedAt)}</div></td>
+          <td><div className="work-items-actions">
+            <button type="button" onClick={() => open(value.id, "detail")}>详情</button>
+            <button type="button" disabled={active(value.status) || value.status === "void" || Boolean(value.unavailable)} onClick={() => open(value.id, "execute")}>{value.latestAttemptId ? "再次执行" : "执行"}</button>
+            <button type="button" onClick={() => open(value.id, "attempts")}>执行记录</button>
+            {value.latestAttemptId && value.sessionId && <button type="button" onClick={() => void openSession(value.sessionId!)}>打开最近会话</button>}
+            {value.status === "uncertain" && <button type="button" onClick={() => open(value.id, "resolve")}>核对结果</button>}
+            {value.status === "void" ? <button type="button" onClick={() => open(value.id, "restore")}>恢复</button> : <button type="button" disabled={active(value.status)} onClick={() => open(value.id, "void")}>作废</button>}
+          </div></td>
+        </tr>)}</tbody></table>}
+      </div>
+      <footer className="work-items-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
+    </section>
+    {dialog && <OwnerDialog title={titles[dialog.kind]} busy={busy} onClose={() => setDialog(null)} wide>
+      <div className="module-owners-dialog-body work-items-dialog-body">
+        {dialogError && <div><p className="module-owners-error" role="alert">{dialogError}</p><button type="button" disabled={busy || dialogLoading} onClick={() => { setDialogError(""); setReload(value => value + 1); }}>重新查询</button></div>}
+        {dialogLoading && <p role="status">正在加载…</p>}
+        {item && <>
+          <p>{item.taskName} · {item.owner.name} · {item.template.title} · {WORK_ITEM_STATUS[item.status]}</p>
+          {item.unavailable && <p className="module-owners-error">{item.unavailable}</p>}
+          {dialog.kind === "detail" && <>
+            <h3>原始最终回复</h3><pre className="work-items-content">{item.output}</pre>
+            <h3>来源信息</h3><pre className="work-items-content">{JSON.stringify({ taskId: item.taskId, ownerId: item.ownerId, templateId: item.templateId, sourceRunId: item.sourceRunId,
+              sessionId: item.sourceSessionId, threadId: item.sourceThreadId, turnId: item.sourceTurnId, template: item.template, owner: item.owner, tools: item.tools }, null, 2)}</pre>
+            {item.voidedAt && <p>作废时间：{time(item.voidedAt)} · 原因：{item.voidReason || "未填写"}</p>}
+          </>}
+          {dialog.kind === "execute" && <>
+            <p>确认后使用普通模式创建新会话。提示词默认使用原始最终回复，编辑仅用于本次执行，并保留在执行记录中。</p>
+            {preview && <><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p><label>实际提示词<textarea aria-label="实际提示词" rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} /></label></>}
+          </>}
+          {dialog.kind === "void" && <><p>作废后保留回复和执行记录，恢复后才能执行。</p><label>作废原因（可选）<textarea aria-label="作废原因" value={reason} maxLength={2000} onChange={event => setReason(event.target.value)} /></label></>}
+          {dialog.kind === "restore" && <p>恢复为待执行，保留原始回复及全部执行记录。</p>}
+          {dialog.kind === "resolve" && <p>请先查看原会话，确认已结束或不存在。确认后标记为中断，允许再次执行。关联会话仍在运行或创建请求未结束时不能解除锁定。</p>}
+          {dialog.kind === "attempts" && <>
+            {!attempts?.records.length && !dialogLoading && <p>暂无执行记录。</p>}
+            {attempts?.records.map(value => <button className="work-items-attempt-row" type="button" key={value.id} aria-pressed={selectedAttemptId === value.id} onClick={() => { setAttempt(null); setDialogError(""); setSelectedAttemptId(value.id); }}>{time(value.startedAt)} · {WORK_ITEM_STATUS[value.status]} · {value.sessionId || "未创建会话"}</button>)}
+            <div className="work-items-pagination"><span>共 {attempts?.total || 0} 次</span><button type="button" disabled={attemptPage === 0 || dialogLoading} onClick={() => { setAttemptPage(value => value - 1); setSelectedAttemptId(""); setAttempt(null); }}>上一页</button><button type="button" disabled={(attemptPage + 1) * 20 >= (attempts?.total || 0) || dialogLoading} onClick={() => { setAttemptPage(value => value + 1); setSelectedAttemptId(""); setAttempt(null); }}>下一页</button></div>
+            {attempt && <><p>结束时间：{time(attempt.endedAt)}</p>{attempt.error && <p className="module-owners-error">{attempt.error}</p>}{attempt.sessionId && <button type="button" onClick={() => void openSession(attempt.sessionId!)}>打开会话</button>}<h3>实际输入与配置</h3><pre className="work-items-content">{JSON.stringify({ input: attempt.input, configuration: attempt.configuration }, null, 2)}</pre><h3>本次最终回复</h3><pre className="work-items-content">{attempt.output || "无回复"}</pre></>}
+          </>}
+        </>}
+      </div>
+      <footer className="module-owners-dialog-footer"><button type="button" disabled={busy} onClick={() => setDialog(null)}>关闭</button>
+        {dialog.kind === "execute" && <button type="button" disabled={busy || dialogLoading || !item || !preview || !prompt.trim() || active(item.status) || item.status === "void" || Boolean(item.unavailable)} onClick={() => void perform("execute")}>{busy ? "创建中…" : "确认执行"}</button>}
+        {dialog.kind === "void" && <button type="button" disabled={busy || dialogLoading || !item || active(item.status) || item.status === "void"} onClick={() => void perform("void")}>确认作废</button>}
+        {dialog.kind === "restore" && <button type="button" disabled={busy || dialogLoading || item?.status !== "void"} onClick={() => void perform("restore")}>确认恢复</button>}
+        {dialog.kind === "resolve" && <button type="button" disabled={busy || dialogLoading || item?.status !== "uncertain"} onClick={() => void perform("resolveUncertain")}>确认已结束，标记中断</button>}
+      </footer>
+    </OwnerDialog>}
+  </>;
+}

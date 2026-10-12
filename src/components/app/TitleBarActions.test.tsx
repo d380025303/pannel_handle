@@ -12,6 +12,7 @@ describe("TitleBar session actions", () => {
     const onOpenCreate = vi.fn();
     const onOpenApi = vi.fn();
     const onOpenModuleOwners = vi.fn();
+    const onOpenWorkItems = vi.fn();
     const { container } = render(
       <TitleBar
         activeTitle="PowerShell"
@@ -22,6 +23,7 @@ describe("TitleBar session actions", () => {
         onOpenCreate={onOpenCreate}
         onOpenApi={onOpenApi}
         onOpenModuleOwners={onOpenModuleOwners}
+        onOpenWorkItems={onOpenWorkItems}
       />
     );
 
@@ -39,6 +41,8 @@ describe("TitleBar session actions", () => {
     expect(actionGroup?.contains(ownerButton)).toBe(true);
     fireEvent.click(ownerButton);
     expect(onOpenModuleOwners).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "任务列表" }));
+    expect(onOpenWorkItems).toHaveBeenCalledTimes(1);
     fireEvent.click(apiButton);
     expect(onOpenApi).toHaveBeenCalledTimes(1);
     fireEvent.click(libraryButton);
@@ -136,7 +140,7 @@ describe("TitleBar session actions", () => {
       hiddenActions={["settings", "terminal", "library"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 5)).toEqual(["打开设置", "接口调用", "模块负责人", "新建会话", "打开 Token 统计"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 5)).toEqual(["打开设置", "接口调用", "模块负责人", "任务列表", "新建会话"]);
     expect(screen.queryByRole("button", { name: "打开终端" })).toBeNull();
     expect(screen.queryByRole("button", { name: "从库中启动" })).toBeNull();
     expect(screen.getByRole("button", { name: "打开设置" })).toBeTruthy();
@@ -151,7 +155,7 @@ describe("TitleBar session actions", () => {
       actionOrder={["create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(7, 10)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(8, 11)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
     fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });

@@ -12,6 +12,7 @@ function createSessionApiService({ userData, instances, moduleOwners, listInstan
   let server = null;
   let error = "";
   let transition = Promise.resolve();
+  const trackedCreations = new Map();
   try {
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
     config.enabled = saved.enabled === true;
@@ -91,7 +92,14 @@ function createSessionApiService({ userData, instances, moduleOwners, listInstan
     if (!parsed.success) return fail(response, 400, "invalid_parameters", "请提供有效的模板、模式、任务文本和模型参数。");
     let hooks;
     try {
-      hooks = moduleOwners?.claimCreation(parsed.data);
+      const trackingId = request.headers["x-pannel-creation-id"];
+      if (trackingId) {
+        const tracked = trackedCreations.get(trackingId);
+        if (!tracked || tracked.body !== JSON.stringify(parsed.data)) return fail(response, 409, "invalid_creation_tracking", "创建关联已失效。");
+        trackedCreations.delete(trackingId);
+        hooks = tracked.hooks;
+      } else hooks = moduleOwners?.claimCreation(parsed.data);
+      hooks?.onCreationClaimed?.();
       reply(response, 201, await (hooks ? instances.create(parsed.data, hooks) : instances.create(parsed.data)));
     }
     catch (err) {
@@ -141,18 +149,21 @@ function createSessionApiService({ userData, instances, moduleOwners, listInstan
     transition = operation.catch(() => {});
     return operation;
   }
-  async function invoke(input) {
+  async function invoke(input, hooks) {
     if (!server?.listening) throw new Error("接口服务未启用。");
     if (!["list", "create", "listInstances", "getInstanceStatus"].includes(input?.operation)) throw new Error("无效的接口调用。");
     if (input.operation === "getInstanceStatus" && (typeof input.sessionId !== "string" || !input.sessionId.trim())) throw new Error("请提供会话 ID。");
     const method = input.operation === "create" ? "POST" : "GET";
     const url = `${baseUrl()}/api/v1/${input.operation === "list" ? "session-templates" : "session-instances"}${input.operation === "getInstanceStatus" ? `/${encodeURIComponent(input.sessionId.trim())}` : ""}`;
     const started = Date.now();
+    const trackingId = hooks && method === "POST" ? randomBytes(32).toString("hex") : null;
+    if (trackingId) trackedCreations.set(trackingId, { body: JSON.stringify(sessionInstanceSchema.parse(input.body)), hooks });
     try {
-      const response = await fetch(url, { method, headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+      const response = await fetch(url, { method, headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", ...(trackingId ? { "X-Pannel-Creation-Id": trackingId } : {}) },
         ...(method === "POST" ? { body: JSON.stringify(input.body) } : {}), signal: AbortSignal.timeout(120000), redirect: "error" });
       return { method, url, status: response.status, elapsedMs: Date.now() - started, body: await response.json() };
     } catch { throw new Error(input.operation === "create" ? "接口调用失败或超时；创建结果可能尚未确认，请先检查会话列表，不要直接重复创建。" : "接口查询失败或超时。"); }
+    finally { if (trackingId) trackedCreations.delete(trackingId); }
   }
   return { status, start, stop, configure, invoke, revealToken: () => config.token,
     resetToken: () => {

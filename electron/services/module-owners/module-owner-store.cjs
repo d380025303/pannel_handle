@@ -5,6 +5,7 @@ const { readJson } = require("../../stores/business-store-io.cjs");
 const { z } = require("zod");
 
 const fields = z.object({ name: z.string().trim().min(1).max(200), responsibilities: z.string().trim().min(1).max(20000),
+  recentActivity: z.string().trim().max(20000).optional(),
   directories: z.array(z.string().trim().min(1).max(4096)).min(1).max(200) }).strict();
 const mutationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("add"), ...fields.shape }).strict(),
@@ -21,6 +22,17 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     const saved = readJson(dataStore, file);
     if (saved.schemaVersion !== 1 || !saved.templates || typeof saved.templates !== "object" || Array.isArray(saved.templates)) throw new Error("格式无效");
     state = saved;
+    const normalize = record => { if (record && record.recentActivity === undefined) record.recentActivity = ""; };
+    for (const value of Object.values(state.templates)) {
+      for (const task of value.tasks || []) {
+        if (Array.isArray(task.tools)) task.tools = task.tools.filter(name => !["search_module_owner_task_runs", "get_module_owner_task_run"].includes(name));
+      }
+      value.records.forEach(normalize);
+      value.history.forEach(entry => {
+        normalize(entry.before); normalize(entry.after);
+        entry.records?.forEach(normalize);
+      });
+    }
   } catch (error) { if (error.code !== "ENOENT") loadError = new Error("负责人数据读取失败，请检查负责人存储；为保护已有数据，暂不允许写入。"); }
   const empty = () => ({ revision: 0, records: [], history: [], settings: { mode: "plan", prompt: DEFAULT_PROMPT } });
   function get(templateId) {
@@ -65,7 +77,7 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     const record = value.records.find(item => item.id === parsed.id);
     if (parsed.operation !== "add" && (!record || record.version !== parsed.version)) throw new Error("记录已修改或删除，请重新读取后再操作。");
     if (parsed.operation !== "delete" && value.records.some(item => item.id !== parsed.id && item.name.toLocaleLowerCase() === parsed.name.toLocaleLowerCase())) throw new Error("同一模板中模块名称不能重复。");
-    const normalized = parsed.operation === "delete" ? null : { name: parsed.name, responsibilities: parsed.responsibilities, directories: directories(parsed.directories, cwd) };
+    const normalized = parsed.operation === "delete" ? null : { name: parsed.name, responsibilities: parsed.responsibilities, recentActivity: parsed.recentActivity ?? record?.recentActivity ?? "", directories: directories(parsed.directories, cwd) };
     const before = structuredClone(record || null);
     const ownerId = record?.id || randomUUID();
     value.revision += 1;

@@ -649,9 +649,26 @@ contextBridge.exposeInMainWorld("sessionApi", {
   }
 });
 
+contextBridge.exposeInMainWorld("workItemApi", {
+  list: input => ipcRenderer.invoke("work-items:list", input),
+  get: input => ipcRenderer.invoke("work-items:get", input),
+  preview: input => ipcRenderer.invoke("work-items:preview", input),
+  execute: input => ipcRenderer.invoke("work-items:execute", input),
+  listAttempts: input => ipcRenderer.invoke("work-items:listAttempts", input),
+  getAttempt: input => ipcRenderer.invoke("work-items:getAttempt", input),
+  void: input => ipcRenderer.invoke("work-items:void", input),
+  restore: input => ipcRenderer.invoke("work-items:restore", input),
+  resolveUncertain: input => ipcRenderer.invoke("work-items:resolveUncertain", input),
+  onChanged: callback => {
+    const listener = () => callback();
+    ipcRenderer.on("work-items:changed", listener);
+    return () => ipcRenderer.removeListener("work-items:changed", listener);
+  }
+});
 contextBridge.exposeInMainWorld("moduleOwnerApi", {
   listTaskRuns: (id, input) => ipcRenderer.invoke("module-owners:listTaskRuns", id, input),
   getTaskRun: (id, input) => ipcRenderer.invoke("module-owners:getTaskRun", id, input),
+  deleteTaskRun: (id, input) => ipcRenderer.invoke("module-owners:deleteTaskRun", id, input),
   listHistory: (id, input) => ipcRenderer.invoke("module-owners:listHistory", id, input),
   listTasks: id => ipcRenderer.invoke("module-owners:listTasks", id),
   saveTask: (id, input) => ipcRenderer.invoke("module-owners:saveTask", id, input),

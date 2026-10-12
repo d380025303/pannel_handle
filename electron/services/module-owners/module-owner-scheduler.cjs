@@ -7,7 +7,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   const pending = new Set();
   function visibleRun(task, run = job(task.id)) {
     const saved = task.lastRun;
-    if (saved && run && saved.startedAt >= run.startedAt && ((saved.status === "stopped" && !task.enabled) || (saved.status === "skipped" && active(run)))) return saved;
+    if (saved && run && saved.startedAt >= run.startedAt && ((saved.status === "stopped" && !task.enabled) || saved.status === "skipped")) return saved;
     return run || saved;
   }
   function list(id) {
@@ -22,7 +22,8 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     if (parsed.id && (!old || old.ownerId !== parsed.ownerId)) throw new Error("任务不存在或不属于此负责人。");
     if (parsed.enabled && !supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
     const next = nextRun(parsed.schedule, now());
-    const task = { ...old, ...parsed, id: old?.id || randomUUID(), executedCount: old?.executedCount || 0 };
+    const reenabled = old && !old.enabled && parsed.enabled;
+    const task = { ...old, ...parsed, id: old?.id || randomUUID(), executedCount: reenabled ? 0 : old?.executedCount || 0 };
     if (task.schedule.kind === "interval" && task.executedCount >= task.schedule.count) task.enabled = false;
     const changed = !old || old.enabled !== task.enabled || JSON.stringify(old.schedule) !== JSON.stringify(task.schedule);
     task.nextRunAt = task.enabled ? (changed ? next : old.nextRunAt) : null;

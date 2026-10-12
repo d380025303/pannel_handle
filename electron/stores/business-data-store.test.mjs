@@ -149,3 +149,16 @@ it("persists paginated task runs separately from owner documents and interrupts 
   expect(() => store.getTaskRun("other", "task", "22")).toThrow();
   store.close();
 });
+
+
+ it("deletes only finished task runs in the requested scope and persists deletion", () => {
+  const f = fixture(); let store = f.open();
+  for (const status of ["completed", "failed", "stopped", "creating", "running", "uncertain"]) store.saveTaskRun({ id: status, templateId: "t", taskId: "task", calledAt: 1, status, input: {}, output: "reply" });
+  store.deleteTaskRun("other", "task", "completed"); store.deleteTaskRun("t", "other", "completed");
+  expect(store.listTaskRuns("t", "task").total).toBe(6);
+  for (const status of ["creating", "running", "uncertain"]) expect(() => store.deleteTaskRun("t", "task", status)).toThrow("不能删除");
+  for (const status of ["completed", "failed", "stopped"]) { store.deleteTaskRun("t", "task", status); store.deleteTaskRun("t", "task", status); }
+  expect(store.listTaskRuns("t", "task").total).toBe(3);
+  expect(() => store.getTaskRun("t", "task", "completed")).toThrow();
+  store.close(); store = f.open(); expect(store.listTaskRuns("t", "task").total).toBe(3); store.close();
+});

@@ -3,7 +3,7 @@ const { SESSION_TOOLS } = require("../mcp/session-tool-definitions.cjs");
 const { TOOLS } = require("../module-owners/module-owner-service.cjs");
 const { REMOTE_TOOLS } = require("../../ssh/remote-agent-bridge-service.cjs");
 const text = (zh, en) => ({ "zh-CN": zh, "en-US": en });
-const fields = { name: "桌面界面", responsibilities: "维护桌面交互", directories: ["src"] };
+const fields = { name: "桌面界面", responsibilities: "维护桌面交互", directories: ["src"], recentActivity: "检查桌面交互并修复布局问题" };
 const identity = { id: "<OWNER_ID>", version: 1 };
 const timestamp = 1791763200000;
 const owner = { ...identity, ...fields, createdAt: timestamp, updatedAt: timestamp };
@@ -26,9 +26,9 @@ const resultExamples = {
   remote_exec: { cwd: "/workspace/project", exitCode: 0, signal: null, stdout: " M notes.txt\n", stderr: "", truncated: false }
 };
 const metadata = {
-  list_module_owners: ["查询模块负责人", "List module owners", { name: fields.name }, true, "返回当前来源模板负责人及最新版本；可选 name 去除首尾空白后精确匹配，不传则返回全部，未匹配返回空数组。", "Returns owners and their latest versions for the source template. Optional name matches exactly after trimming; omit it for all owners. No match returns an empty array."],
+  list_module_owners: ["查询模块负责人", "List module owners", { name: fields.name }, true, "返回当前来源模板负责人、近期行为及最新版本；可选 name 去除首尾空白后精确匹配，不传则返回全部，未匹配返回空数组。", "Returns owners, recentActivity and their latest versions for the source template. Optional name matches exactly after trimming; omit it for all owners. No match returns an empty array."],
   add_module_owner: ["新增模块负责人", "Add a module owner", fields, false, "返回操作类型、表修订号、新记录 ID 和负责人记录，记录 AI 修改历史。", "Returns the operation, table revision, new record ID and owner record, and records AI change history."],
-  update_module_owner: ["修改模块负责人", "Update a module owner", { ...identity, ...fields }, false, "须提交全部业务字段；版本冲突后重新查询。定时任务仅允许修改绑定负责人。", "Submit all business fields; re-query on version conflicts. Scheduled tasks can only update their bound owner."],
+  update_module_owner: ["修改模块负责人", "Update a module owner", { ...identity, ...fields }, false, "须提交名称、职责和目录；recentActivity 可选，未传保留，空字符串清空；版本冲突后重新查询。定时任务仅允许修改绑定负责人。", "Submit name, responsibilities and directories; optional recentActivity preserves its value when omitted and clears it when empty; re-query on version conflicts. Scheduled tasks can only update their bound owner."],
   delete_module_owner: ["删除模块负责人", "Delete a module owner", identity, false, "删除并记录历史；版本冲突后重新查询。", "Deletes the owner and records history; re-query on version conflicts."],
   list_session_instances: ["查询运行会话", "List running sessions", {}, true, "返回运行实例、Agent 状态和最近活动摘要，不查询历史对话。", "Returns running instances, Agent status and recent activity without historical conversations."],
   get_session_instance_status: ["查询单个会话状态", "Get session status", { sessionId: "<SESSION_ID>" }, true, "返回实例状态和最近摘要；不存在或已结束则报错。", "Returns instance status and recent activity; missing or ended instances return an error."],
@@ -42,7 +42,7 @@ const metadata = {
   remote_exec: ["执行远程命令", "Run a remote command", { command: "git status --short", cwd: ".", timeoutMs: 120000 }, false, "返回退出码、stdout、stderr 和截断状态；命令通过独立 SSH 通道执行。", "Returns exit code, stdout, stderr and truncation status; commands run through a separate SSH channel."]
 };
 const conditions = {
-  owners: text("通过模块负责人生成流程注入，仅支持有项目目录的本机 Windows Codex 图形模板，并须开启 HTTP 接口。临时授权绑定来源模板和活动工具请求；定时任务可选 list_module_owners、update_module_owner。目录必须位于项目内。", "Injected by module-owner generation for local Windows Codex graphical templates with a project directory and HTTP service enabled. Temporary grants bind the source template and active tool call. Scheduled tasks can select list_module_owners and update_module_owner. Directories must remain inside the project."),
+  owners: text("通过模块负责人生成流程注入，仅支持有项目目录的本机 Windows Codex 图形模板，并须开启 HTTP 接口。临时授权绑定来源模板和活动工具请求；定时任务可选负责人查询和修改工具。目录必须位于项目内。", "Injected by module-owner generation for local Windows Codex graphical templates with a project directory and HTTP service enabled. Temporary grants bind the source template and active tool call. Scheduled tasks can select owner listing and update tools. Directories must remain inside the project."),
   sessions: text("通过本机会话 MCP 调用，须启用服务并使用 Bearer 授权。创建实例只接受图形 Agent 模板，沿用现有权限流程；自定义工具与回调必须成对提供，注入仅支持本机 Windows Codex。", "Available through the local session MCP with the service enabled and Bearer authorization. Creation requires a graphical Agent template and follows existing permissions. Custom tools and callback must be paired; injection supports local Windows Codex only."),
   remote: text("通过本地 Agent 的 SSH 远程桥接 MCP 调用，需要已建立绑定的 SSH 会话。文件路径和命令工作目录受远程工作区限制；写入和执行遵循桥接审批策略。", "Available through the local Agent SSH bridge MCP with a bound SSH session. File paths and command directories are restricted to the remote workspace; writes and commands follow bridge approval policy.")
 };

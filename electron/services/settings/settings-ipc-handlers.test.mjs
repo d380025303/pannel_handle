@@ -175,7 +175,7 @@ describe("settings IPC handlers", () => {
       titleBarHiddenActions: ["terminal", "settings", "overview", "unknown", "terminal"]
     });
     expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
-      titleBarActionOrder: ["api", "moduleOwners", "create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"],
+      titleBarActionOrder: ["api", "moduleOwners", "workItems", "create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"],
       titleBarHiddenActions: ["terminal"]
     }, { throwOnSaveError: true });
     expect(result.titleBarHiddenActions).toEqual(["terminal"]);

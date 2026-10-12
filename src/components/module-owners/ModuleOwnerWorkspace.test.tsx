@@ -4,14 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModuleOwnerWorkspace } from "./ModuleOwnerWorkspace";
 import type { ModuleOwnerApi, ModuleOwnerState, ModuleOwnerTask, SessionApi } from "../../vite-env";
 
-const record = { id: "owner", name: "桌面", responsibilities: "桌面交互", directories: ["src"], version: 1, createdAt: 1, updatedAt: 1 };
+const record = { id: "owner", name: "桌面", responsibilities: "桌面交互", recentActivity: "完成模块检查", directories: ["src"], version: 1, createdAt: 1, updatedAt: 1 };
 const initial: ModuleOwnerState = { revision: 1, records: [record], settings: { mode: "plan", prompt: "分析模块" }, generation: null,
   history: [{ id: "initial", revision: 0, operation: "initial", source: "system", at: 1, records: [] }, { id: "added", revision: 1, operation: "add", source: "ai", at: 2, kind: "owner", ownerId: record.id, before: null, after: record }] };
 let ownerApi: ModuleOwnerApi;
 let changed: ((event: { templateId: string }) => void) | undefined;
 beforeEach(() => {
   ownerApi = {
-    listTaskRuns: vi.fn().mockResolvedValue({ records: [], total: 0 }), getTaskRun: vi.fn(),
+    listTaskRuns: vi.fn().mockResolvedValue({ records: [], total: 0 }), getTaskRun: vi.fn(), deleteTaskRun: vi.fn().mockResolvedValue(undefined),
     listHistory: vi.fn().mockResolvedValue({ revision: initial.revision, history: initial.history.filter(entry => entry.kind === "owner") }),
     listTasks: vi.fn().mockResolvedValue([]), saveTask: vi.fn().mockResolvedValue([]), deleteTask: vi.fn().mockResolvedValue([]),
     listTemplates: vi.fn().mockResolvedValue([{ templateId: "one", title: "项目一", cwd: "C:/repo", supported: true }, { templateId: "two", title: "项目二", cwd: "C:/other", supported: false }]),
@@ -29,10 +29,12 @@ describe("module owner workspace", () => {
   it("edits fields with the displayed version and refuses to hide conflict errors", async () => {
     render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑 桌面" }));
+    expect((screen.getByLabelText("近期行为") as HTMLTextAreaElement).value).toBe("完成模块检查");
+    fireEvent.change(screen.getByLabelText("近期行为"), { target: { value: "修复问题\n验证完成" } });
     fireEvent.change(screen.getByLabelText("职责"), { target: { value: "新职责" } });
     vi.mocked(ownerApi.mutate).mockRejectedValueOnce(new Error("记录已修改，请重新读取"));
     fireEvent.click(screen.getByRole("button", { name: "保存负责人" }));
-    await waitFor(() => expect(ownerApi.mutate).toHaveBeenCalledWith("one", { operation: "update", id: "owner", version: 1, name: "桌面", responsibilities: "新职责", directories: ["src"] }));
+    await waitFor(() => expect(ownerApi.mutate).toHaveBeenCalledWith("one", { operation: "update", id: "owner", version: 1, name: "桌面", responsibilities: "新职责", recentActivity: "修复问题\n验证完成", directories: ["src"] }));
     expect((await screen.findByRole("alert")).textContent).toContain("重新读取");
     expect((screen.getByLabelText("职责") as HTMLTextAreaElement).value).toBe("新职责");
   });
@@ -87,7 +89,7 @@ describe("module owner workspace", () => {
     fireEvent.change(modal.getByLabelText("职责"), { target: { value: "新职责" } });
     fireEvent.change(modal.getByLabelText(/模块主要负责目录/), { target: { value: "src/new\n electron/new " } });
     fireEvent.click(modal.getByRole("button", { name: "保存负责人" }));
-    await waitFor(() => expect(ownerApi.mutate).toHaveBeenCalledWith("one", { operation: "add", name: "新模块", responsibilities: "新职责", directories: ["src/new", "electron/new"] }));
+    await waitFor(() => expect(ownerApi.mutate).toHaveBeenCalledWith("one", { operation: "add", name: "新模块", responsibilities: "新职责", recentActivity: "", directories: ["src/new", "electron/new"] }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
   it("requires explicit deletion confirmation and sends the displayed record version", async () => {
@@ -169,7 +171,10 @@ it("configures per-owner schedules and selected tools in the task dialog", async
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "巡检" } });
   fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "检查模块" } });
   fireEvent.change(screen.getByLabelText("周期类型"), { target: { value: "interval" } });
-  fireEvent.click(screen.getByLabelText("list_module_owners"));
+  for (const tool of ["update_module_owner"]) {
+    expect((screen.getByLabelText(tool) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByLabelText(tool));
+  }
   fireEvent.click(screen.getByLabelText("启用任务"));
   expect((screen.getByLabelText("记录到历史记录") as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByLabelText("记录到历史记录"));
@@ -190,13 +195,20 @@ it("opens a list first, isolates nested editing and restores focus one level at 
   ownerTrigger.focus(); fireEvent.click(ownerTrigger);
   const outer = screen.getByRole("dialog", { name: "桌面 · 定时任务" });
   expect(screen.queryByLabelText("任务名称")).toBeNull();
-  const edit = await screen.findByRole("button", { name: "编辑任务" });
+  const list = await screen.findByRole("table", { name: "定时任务列表" });
+  expect(within(list).getAllByRole("columnheader")).toHaveLength(5);
+  const row = within(list).getByRole("row", { name: /巡检/ });
+  expect(within(row).getByText("已启用")).toBeTruthy();
+  expect(within(row).getByText("已执行 2 次")).toBeTruthy();
+  const edit = within(row).getByRole("button", { name: "编辑任务" });
   edit.focus(); fireEvent.click(edit);
   const inner = screen.getByRole("dialog", { name: "编辑定时任务" });
   expect(outer.inert).toBe(true);
   expect(outer.getAttribute("aria-hidden")).toBe("true");
   expect(document.activeElement).toBe(inner);
   expect((screen.getByLabelText("任务名称") as HTMLInputElement).value).toBe("巡检");
+  expect((screen.getByLabelText("update_module_owner") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("list_module_owners") as HTMLInputElement).checked).toBe(false);
   expect((screen.getByLabelText("会话模式") as HTMLSelectElement).value).toBe("plan");
   expect((screen.getByLabelText("执行次数上限") as HTMLInputElement).value).toBe("5");
   fireEvent.keyDown(inner, { key: "Tab", shiftKey: true });
@@ -223,12 +235,12 @@ it("preserves a failed task draft during list refresh and returns to the updated
   expect((await screen.findByRole("alert")).textContent).toContain("周期配置无效");
   vi.mocked(ownerApi.listTasks).mockResolvedValue([{ ...task, name: "后台更新" }]);
   changed?.({ templateId: "one" });
-  await waitFor(() => expect(screen.getByText("后台更新 · 已启用")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("后台更新")).toBeTruthy());
   expect((screen.getByLabelText("任务名称") as HTMLInputElement).value).toBe("新巡检");
   fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑定时任务" })).toBeNull());
   expect(screen.getByRole("dialog", { name: "桌面 · 定时任务" })).toBeTruthy();
-  expect(screen.getByText("新巡检 · 已启用")).toBeTruthy();
+  expect(screen.getByText("新巡检")).toBeTruthy();
   expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", { id: "task", ownerId: "owner", name: "新巡检", prompt: "检查模块", mode: "plan", enabled: true, recordHistory: false, tools: ["update_module_owner"], schedule: task.schedule });
 });
 
@@ -239,19 +251,25 @@ it("blocks duplicate task saves and dismissals while pending", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
   await screen.findByText("暂无定时任务，点击上方按钮添加。");
   fireEvent.click(screen.getByRole("button", { name: "新增定时任务" }));
+  expect(screen.queryByLabelText("search_module_owner_task_runs")).toBeNull();
+  expect(screen.queryByLabelText("get_module_owner_task_run")).toBeNull();
+  for (const name of ["list_module_owners", "update_module_owner"]) {
+    expect((screen.getByLabelText(name) as HTMLInputElement).checked).toBe(false);
+  }
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "巡检" } });
   fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "检查模块" } });
   const inner = screen.getByRole("dialog", { name: "新增定时任务" });
   const form = inner.querySelector("form")!;
   fireEvent.submit(form); fireEvent.submit(form);
   expect(ownerApi.saveTask).toHaveBeenCalledTimes(1);
+  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", expect.objectContaining({ tools: [] }));
   expect((screen.getByRole("button", { name: "关闭弹窗" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.keyDown(inner, { key: "Escape" });
   fireEvent.mouseDown(inner.parentElement!);
   expect(screen.getByRole("dialog", { name: "新增定时任务" })).toBeTruthy();
   finish([task]);
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "新增定时任务" })).toBeNull());
-  expect(screen.getByText("巡检 · 已启用")).toBeTruthy();
+  expect(screen.getByText("巡检")).toBeTruthy();
 });
 
 it("cancels nested forms with buttons and backdrop, and keeps task row actions working", async () => {
@@ -270,8 +288,10 @@ it("cancels nested forms with buttons and backdrop, and keeps task row actions w
   fireEvent.click(screen.getByRole("button", { name: "打开会话" }));
   expect(open).toHaveBeenCalledWith("task-session");
   fireEvent.click(screen.getByRole("button", { name: "停用" }));
-  await screen.findByText("巡检 · 已停用");
+  await screen.findByText("已停用");
   fireEvent.click(screen.getByRole("button", { name: "删除任务" }));
+  const confirmation = screen.getByRole("button", { name: "确认删除任务" }).closest("tr")!;
+  expect(confirmation.querySelector("td")?.colSpan).toBe(5);
   expect(ownerApi.deleteTask).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认删除任务" }));
   await screen.findByText("暂无定时任务，点击上方按钮添加。");

@@ -37,7 +37,16 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploa
       response.end("Forbidden");
       return;
     }
-    const requestUrl = new URL(request.url || "/", `http://${request.headers.host}`);
+    let requestUrl;
+    let decodedPath;
+    try {
+      requestUrl = new URL(request.url || "/", `http://${request.headers.host}`);
+      decodedPath = decodeURIComponent(requestUrl.pathname);
+    } catch {
+      response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      response.end("Bad Request");
+      return;
+    }
     const upload = /^\/api\/v1\/upload\/([a-f0-9-]{36})$/.exec(requestUrl.pathname);
     if (request.method === "POST" && upload && uploads) {
       void uploads.receive(request, response, upload[1], requestUrl.searchParams.get("ticket"));
@@ -59,7 +68,7 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploa
       return;
     }
     const staticRoot = path.resolve(getStaticRoot());
-    const relative = requestUrl.pathname === "/" ? "index.html" : decodeURIComponent(requestUrl.pathname).replace(/^\/+/, "");
+    const relative = requestUrl.pathname === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
     const candidate = path.resolve(staticRoot, relative);
     const target = candidate.startsWith(`${staticRoot}${path.sep}`) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()
       ? candidate

@@ -6,6 +6,7 @@ export type TranslationParams = Record<string, string | number>;
 
 export type TranslationKey =
   | "moduleOwners.title"
+  | "workItems.title"
   | "sessionApi.title"
   | "sessionApi.running"
   | "sessionApi.stopped"
@@ -1098,6 +1099,7 @@ export const VALID_LOCALES = new Set<Locale>(LOCALE_OPTIONS.map((locale) => loca
 export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
     "moduleOwners.title": "模块负责人",
+    "workItems.title": "任务列表",
     "sessionApi.title": "接口调用",
     "sessionApi.running": "运行中",
     "sessionApi.stopped": "未运行",
@@ -2183,6 +2185,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   },
   "en-US": {
     "moduleOwners.title": "Module owners",
+    "workItems.title": "Task list",
     "sessionApi.title": "API calls",
     "sessionApi.running": "Running",
     "sessionApi.stopped": "Stopped",

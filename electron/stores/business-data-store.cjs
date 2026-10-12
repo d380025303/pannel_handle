@@ -51,6 +51,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (!names.has(name)) throw new Error(`Unsupported business data file: ${name}`);
     return name;
   }
+  const workItems = require("./module-owner-work-item-store.cjs").createWorkItemStore(() => db, transaction);
   function putSetting(source, key, value) {
     db.prepare("INSERT INTO app_settings(source, key, value_json) VALUES (?, ?, ?) ON CONFLICT(source, key) DO UPDATE SET value_json=excluded.value_json")
       .run(source, key, JSON.stringify(value));
@@ -206,6 +207,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
           ON app_module_owner_task_runs(template_id, task_id, called_at DESC, id DESC);`);
         db.prepare("INSERT INTO app_migrations(version, completed_at) VALUES (3, ?) ON CONFLICT(version) DO NOTHING").run(Date.now());
       });
+      transaction(() => workItems.initializeWorkItems());
       const integrity = db.prepare("PRAGMA quick_check").get();
       if (Object.values(integrity)[0] !== "ok") throw new Error("Business database failed integrity check.");
       for (const row of db.prepare("SELECT name FROM app_sources").all()) readDocument(row.name);
@@ -240,6 +242,13 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (!row) throw new Error("调用记录不存在或不属于此任务。");
     return JSON.parse(row.value_json);
   }
+  function deleteTaskRun(templateId, taskId, id) {
+    ensureOpen();
+    const record = db.prepare("SELECT status FROM app_module_owner_task_runs WHERE template_id=? AND task_id=? AND id=?").get(templateId, taskId, id);
+    if (!record) return;
+    if (!["completed", "failed", "stopped"].includes(record.status)) throw new Error("调用尚未结束，不能删除历史记录。");
+    db.prepare("DELETE FROM app_module_owner_task_runs WHERE template_id=? AND task_id=? AND id=?").run(templateId, taskId, id);
+  }
   function interruptTaskRuns() {
     ensureOpen();
     transaction(() => {
@@ -248,7 +257,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       }
     });
   }
-  return { open, read, write, close, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns };
+  return { open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };
