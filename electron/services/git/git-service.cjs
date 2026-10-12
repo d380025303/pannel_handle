@@ -658,7 +658,7 @@ function createGitService({
         : ["diff", "--no-color", "--find-renames", "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     } else if (scope === "staged") {
-      args = ["diff", "--cached", "--no-color", "--find-renames", "--", literalPathspec(repoPath)];
+      args = ["diff", "--cached", "--no-color", "--find-renames", "--", literalPathspec(repoPath), ...(oldPath ? [literalPathspec(oldPath)] : [])];
     } else if (scope === "commit") {
       const oid = validateCommitOid(request?.revision);
       args = ["show", "--format=", "--no-ext-diff", "--no-color", "--find-renames", oid, ...(repoPath ? ["--", literalPathspec(repoPath)] : [])];
