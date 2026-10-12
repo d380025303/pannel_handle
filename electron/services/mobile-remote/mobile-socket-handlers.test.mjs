@@ -1,11 +1,80 @@
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import http from "node:http";
+import WebSocket, { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import socketModule from "./mobile-socket-handlers.cjs";
 import protocolModule from "./mobile-protocol.cjs";
 import hubModule from "../../terminal/terminal-state-hub.cjs";
+import httpModule from "./mobile-http.cjs";
 
 const hubs = [];
 afterEach(() => { for (const hub of hubs.splice(0)) hub.shutdown(); });
+
+it("isolates an unauthenticated unmasked frame and keeps HTTP and another websocket available", async () => {
+  let port;
+  const closed = vi.fn();
+  const uploads = { releaseSocket: vi.fn() };
+  const files = { releaseSocket: vi.fn() };
+  const handlers = socketModule.createMobileSocketHandlers({
+    terminalManager: {}, stateHub: {}, now: Date.now, sizes: {}, uploads, files,
+    auth: {
+      handleSocketClosed: closed,
+      handlePasswordLogin: socket => { socket.authenticated = true; }
+    },
+    send: (socket, message) => socket.send(JSON.stringify(message)), sendError: vi.fn()
+  });
+  const { handleHttp, verifyRequestHost } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port }) }, getAddress: () => "127.0.0.1", getStaticRoot: () => "."
+  });
+  const server = http.createServer(handleHttp);
+  const wss = new WebSocketServer({ noServer: true });
+  wss.on("connection", handlers.handleWebSocket);
+  server.on("upgrade", (request, socket, head) => {
+    if (request.url !== "/api/v1/ws" || !verifyRequestHost(request)) return socket.destroy();
+    wss.handleUpgrade(request, socket, head, ws => wss.emit("connection", ws, request));
+  });
+  const clients = [];
+  try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    port = server.address().port;
+    const connect = async () => {
+      const client = new WebSocket(`ws://127.0.0.1:${port}/api/v1/ws`);
+      clients.push(client);
+      await once(client, "open");
+      return client;
+    };
+    const healthy = await connect();
+    healthy.send(JSON.stringify({ v: protocolModule.PROTOCOL_VERSION, type: "password.login" }));
+    const ping = async at => {
+      const message = once(healthy, "message");
+      healthy.send(JSON.stringify({ v: protocolModule.PROTOCOL_VERSION, type: "ping", at }));
+      expect(JSON.parse(String((await message)[0]))).toEqual({ type: "pong", at });
+    };
+    await ping(1);
+    const invalid = await connect();
+    const disconnected = once(invalid, "close");
+    // Real TCP bytes: FIN text frame, one byte payload, deliberately no client mask.
+    invalid._socket.write(Buffer.from([0x81, 0x01, 0x61]));
+    await disconnected;
+    await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1));
+    const failedSocket = closed.mock.calls[0][0];
+    expect(failedSocket.authenticated).toBe(false);
+    expect(failedSocket.mobileCloseReason).toBe("socket-error-WS_ERR_EXPECTED_MASK");
+    expect(uploads.releaseSocket).toHaveBeenCalledExactlyOnceWith(failedSocket);
+    expect(files.releaseSocket).toHaveBeenCalledExactlyOnceWith(failedSocket);
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ ok: true });
+    await ping(2);
+    expect(healthy.readyState).toBe(WebSocket.OPEN);
+  } finally {
+    for (const client of clients) client.terminate();
+    for (const socket of wss.clients) socket.terminate();
+    await new Promise(resolve => wss.close(resolve));
+    await new Promise(resolve => server.close(resolve));
+  }
+});
 
 function fixture() {
   const stateHub = hubModule.createTerminalStateHub();

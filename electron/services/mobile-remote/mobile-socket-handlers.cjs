@@ -217,6 +217,10 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.remoteAddress = request.socket.remoteAddress || "unknown";
     socket.subscriptions = new Set();
     socket.graphicalSessionId = null;
+    socket.on("error", (error) => {
+      socket.mobileCloseReason = `socket-error-${error.code || "unknown"}`;
+      socket.terminate();
+    });
     socket.on("pong", () => { socket.lastAliveAt = now(); });
     socket.on("message", (raw) => { socket.lastAliveAt = now(); handleSocketMessage(socket, raw); });
     socket.on("close", (code) => {
