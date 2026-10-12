@@ -1,4 +1,5 @@
 const { spawn: defaultSpawn } = require("node:child_process");
+const { StringDecoder } = require("node:string_decoder");
 const { normalizeOpenCodeMessage } = require("./live/opencode-tracker.cjs");
 const { emptyTokens } = require("./agent-token-transcript.cjs");
 
@@ -12,24 +13,32 @@ function run(command, args, options, spawn = defaultSpawn) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...options, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
+    let stdoutBytes = 0;
     let stderr = "";
     let settled = false;
     const timer = setTimeout(() => { child.kill(); fail(new Error("OpenCode session export timed out.")); }, 30000);
     timer.unref?.();
     const fail = error => { if (!settled) { settled = true; clearTimeout(timer); reject(error); } };
     child.stdout.on("data", chunk => {
-      stdout += chunk.toString("utf-8");
-      if (Buffer.byteLength(stdout, "utf-8") > MAX_EXPORT_BYTES) {
+      if (settled) return;
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_EXPORT_BYTES) {
         child.kill();
         fail(new Error("OpenCode session export exceeded the size limit."));
+        return;
       }
+      stdout += stdoutDecoder.write(chunk);
     });
-    child.stderr.on("data", chunk => { stderr = (stderr + chunk.toString("utf-8")).slice(-2000); });
+    child.stderr.on("data", chunk => { stderr = (stderr + stderrDecoder.write(chunk)).slice(-2000); });
     child.once("error", fail);
     child.once("close", code => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stdout += stdoutDecoder.end();
+      stderr = (stderr + stderrDecoder.end()).slice(-2000);
       if (code === 0) resolve(stdout);
       else reject(new Error(stderr.trim() || `OpenCode session export exited with code ${code}.`));
     });

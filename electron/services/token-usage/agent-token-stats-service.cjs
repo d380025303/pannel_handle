@@ -1,4 +1,5 @@
 const { spawn: defaultSpawn } = require("node:child_process");
+const { StringDecoder } = require("node:string_decoder");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -50,16 +51,24 @@ function runProcess(command, args, spawn = defaultSpawn) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
+    let stdoutBytes = 0;
     let stderr = "";
     child.stdout.on("data", chunk => {
-      stdout += chunk.toString("utf-8");
-      if (Buffer.byteLength(stdout, "utf-8") > MAX_TRANSCRIPT_BYTES) child.kill();
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_TRANSCRIPT_BYTES) child.kill();
+      else stdout += stdoutDecoder.write(chunk);
     });
-    child.stderr.on("data", chunk => { stderr += chunk.toString("utf-8"); });
+    child.stderr.on("data", chunk => { stderr += stderrDecoder.write(chunk); });
     child.once("error", reject);
-    child.once("close", code => code === 0
-      ? resolve(stdout)
-      : reject(new Error(stderr.trim() || `Transcript reader exited with code ${code}.`)));
+    child.once("close", code => {
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
+      if (stdoutBytes > MAX_TRANSCRIPT_BYTES) reject(new Error("Transcript reader exceeded the size limit."));
+      else if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `Transcript reader exited with code ${code}.`));
+    });
   });
 }
 
