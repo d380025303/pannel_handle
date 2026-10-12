@@ -21,13 +21,26 @@ function versionOf(buffer) {
 }
 
 function readConfigFile(filePath, fsApi = fs) {
+  let fd;
   try {
-    const buffer = fsApi.readFileSync(filePath);
-    if (buffer.length > MAX_CONFIG_BYTES) throw new Error("MCP configuration is too large to edit.");
+    fd = fsApi.openSync(filePath, "r");
+    if (fsApi.fstatSync(fd).size > MAX_CONFIG_BYTES) throw new Error("MCP configuration is too large to edit.");
+    // Bound reads even if the file grows after fstat; tolerate short reads.
+    const storage = Buffer.allocUnsafe(MAX_CONFIG_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < storage.length) {
+      const count = fsApi.readSync(fd, storage, bytesRead, storage.length - bytesRead, null);
+      if (count === 0) break;
+      bytesRead += count;
+    }
+    if (bytesRead > MAX_CONFIG_BYTES) throw new Error("MCP configuration is too large to edit.");
+    const buffer = storage.subarray(0, bytesRead);
     return { buffer, text: buffer.toString("utf-8"), version: versionOf(buffer), exists: true };
   } catch (err) {
     if (err?.code !== "ENOENT") throw err;
     return { buffer: Buffer.alloc(0), text: "", version: "missing", exists: false };
+  } finally {
+    if (fd !== undefined) fsApi.closeSync(fd);
   }
 }
 

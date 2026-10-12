@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
+import fs from "node:fs";
 
 const require = createRequire(import.meta.url);
-const { createMcpConfigService, replaceCodexServer } = require("./mcp-config-service.cjs");
+const { createMcpConfigService, replaceCodexServer, MAX_CONFIG_BYTES } = require("./mcp-config-service.cjs");
 const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 const { parse: parseToml } = require("smol-toml");
 
@@ -58,6 +59,44 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it.each(["oversized", "growing", "normal", "limit", "empty", "missing"])("bounds actual config reads for %s files", (state) => {
+    const { homeDir } = setup();
+    const filePath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const text = state === "normal" ? '[mcp_servers.demo]\ncommand = "node"\n' : "";
+    if (state !== "missing") writeFileSync(filePath, text);
+    if (state === "oversized") fs.truncateSync(filePath, 128 * 1024 * 1024);
+    if (state === "limit") writeFileSync(filePath, " ".repeat(MAX_CONFIG_BYTES));
+    let actualBytes = 0;
+    const readSync = vi.fn((fd, buffer, offset, length, position) => {
+      const count = fs.readSync(fd, buffer, offset, Math.min(length, 65536), position);
+      actualBytes += count;
+      return count;
+    });
+    const closeSync = vi.fn((fd) => fs.closeSync(fd));
+    const service = createMcpConfigService({ homeDir, fsApi: {
+      ...fs, readSync, closeSync,
+      readFileSync: () => { throw new Error("Unbounded read attempted"); },
+      fstatSync: (fd) => {
+        const stat = fs.fstatSync(fd);
+        if (state === "growing") fs.truncateSync(filePath, 128 * 1024 * 1024);
+        return stat;
+      }
+    } });
+    const target = { provider: "codex", scope: "user" };
+    if (state === "oversized" || state === "growing") {
+      expect(() => service.list(target)).toThrow("MCP configuration is too large to edit.");
+      expect(actualBytes).toBe(state === "oversized" ? 0 : MAX_CONFIG_BYTES + 1);
+    } else {
+      const result = service.list(target);
+      expect(result.servers.map(server => server.name)).toEqual(state === "normal" ? ["demo"] : []);
+      const content = state === "limit" ? " ".repeat(MAX_CONFIG_BYTES) : text;
+      expect(result.version).toBe(state === "missing" ? "missing" : createHash("sha256").update(content).digest("hex"));
+      expect(actualBytes).toBe(Buffer.byteLength(content));
+    }
+    expect(closeSync).toHaveBeenCalledTimes(state === "missing" ? 0 : 1);
+  });
+
   it.each([undefined, "app-server", "terminal"])("uses global CODEX_HOME for user reads, saves and deletes with session %s", (runtimeMode) => {
     const { root, homeDir } = setup();
     const codexHome = path.join(root, "custom-codex");
