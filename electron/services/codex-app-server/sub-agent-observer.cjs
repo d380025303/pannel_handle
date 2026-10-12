@@ -125,7 +125,10 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
           for (const item of member.items) collaboration(item, member.threadId);
           const turn = result.thread.turns?.at(-1);
           if (turn?.status === "failed") member.status = "failed";
-          else if (turn?.status === "inProgress" && member.status === "idle") member.status = "running";
+          else if (["idle", "notLoaded"].includes(result.thread.status?.type)) {
+            if (["completed", "interrupted"].includes(turn?.status)) member.status = turn.status;
+            else if (turn?.status === "inProgress") member.status = "running";
+          }
         }
       } catch (cause) { if (valid(epoch)) member.error = cause.message; }
       finally { if (valid(epoch)) member.loading = false; }

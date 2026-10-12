@@ -14,6 +14,41 @@ function fixture(implementation = async () => ({})) {
 afterEach(() => { for (const observer of observers.splice(0)) observer.dispose(); vi.useRealTimers(); });
 
 describe("Codex read-only sub-agent observer", () => {
+  it.each(["completed", "interrupted"])("retains %s across inactive polls and switches to a new running turn", async resultStatus => {
+    let threadStatus = { type: "idle" }, turnStatus = resultStatus;
+    const thread = () => ({ id: "a", parentThreadId: "root", status: threadStatus,
+      turns: [{ id: "turn", status: turnStatus, items: [] }] });
+    const { observer } = fixture(async method => method === "thread/list"
+      ? { data: [thread()] } : { thread: thread() });
+    observer.reset("root"); await settle();
+    observer.observe("turn/completed", { threadId: "a", turn: { status: resultStatus } });
+    expect(observer.snapshot().members[0].status).toBe(resultStatus);
+    for (const type of ["idle", "notLoaded"]) {
+      threadStatus = { type };
+      for (let i = 0; i < 2; i++) {
+        await observer.refresh();
+        expect(observer.snapshot().members[0].status).toBe(resultStatus);
+      }
+    }
+    observer.observe("turn/started", { threadId: "a" });
+    expect(observer.snapshot().members[0].status).toBe("running");
+    turnStatus = "inProgress";
+    await observer.refresh();
+    expect(observer.snapshot().members[0].status).toBe("running");
+  });
+  it.each(["completed", "interrupted"])("preserves active thread status over a stale %s turn", async turnStatus => {
+    let activeFlags = [];
+    const thread = () => ({ id: "a", parentThreadId: "root", status: { type: "active", activeFlags },
+      turns: [{ id: "turn", status: turnStatus, items: [] }] });
+    const { observer } = fixture(async method => method === "thread/list"
+      ? { data: [thread()] } : { thread: thread() });
+    observer.reset("root"); await settle();
+    for (const status of ["running", "waitingOnApproval", "waitingOnUserInput"]) {
+      activeFlags = status === "running" ? [] : [status];
+      await observer.refresh();
+      expect(observer.snapshot().members[0].status).toBe(status);
+    }
+  });
   it("discovers activity-only members, preserves interaction status and restores nested history", async () => {
     const activity = (id, kind = "started") => ({ id: `${id}:${kind}`, type: "subAgentActivity", agentThreadId: id, agentPath: `/root/${id}`, kind });
     const { observer } = fixture();
