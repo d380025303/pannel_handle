@@ -376,6 +376,44 @@ describe("session-store", () => {
     expect(reopened.getTemplate("1").graphicalSessionEnabled).toBe(enabled);
   });
 
+  it.each([true, false])("uses identical load and import migrations with legacy Codex default %s", (legacyEnabled) => {
+    const templates = [
+      { agentProvider: "codex", type: "ssh", agentLocation: "local" },
+      ...[true, false].flatMap(enabled => [
+        { agentProvider: "codex", type: "ssh", agentLocation: "local", graphicalSessionEnabled: enabled, codexAppServerEnabled: !enabled },
+        { agentProvider: "codex", type: "ssh", agentLocation: "local", codexAppServerEnabled: enabled }
+      ]),
+      { agentProvider: "codex", type: "windows" },
+      { agentProvider: "codex", type: "wsl" },
+      { agentProvider: "codex", type: "ssh", agentLocation: "remote" },
+      ...["gemini", "grok"].flatMap(agentProvider => [
+        { agentProvider, type: "windows", graphicalSessionEnabled: true },
+        { agentProvider, type: "windows", graphicalSessionEnabled: true, [`${agentProvider}GraphicalConfigured`]: true }
+      ]),
+      { agentProvider: "codebuddy", codeBuddyAcpEnabled: true },
+      { agentProvider: "opencode", openCodeAcpEnabled: false }
+    ].map((template, index) => ({ ...template, id: String(index + 1), title: `Template ${index}`, createdAt: 123 }));
+    const openStore = (sessionsFile) => createSessionStore({
+      sessionsFile, getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe",
+      getLegacyCodexAppServerEnabled: () => legacyEnabled
+    });
+    const loadedFile = createTempSessionsFile();
+    const importedFile = createTempSessionsFile();
+    writeFileSync(loadedFile, JSON.stringify(templates));
+    const loaded = openStore(loadedFile).loadLibrary();
+    const importedStore = openStore(importedFile);
+    importedStore.importLibrary(templates);
+    expect(importedStore.exportLibrary({ includeEncryptedSecrets: true })).toEqual(loaded);
+    expect(loaded.map(template => template.graphicalSessionEnabled)).toEqual([
+      false, true, true, false, false, legacyEnabled, legacyEnabled, true,
+      false, true, false, true, true, false
+    ]);
+    expect(openStore(importedFile).loadLibrary()).toEqual(loaded);
+    expect(templates[0]).not.toHaveProperty("codexAppServerEnabled");
+    importedStore.addToLibrary({ id: "new", type: "ssh", agentProvider: "codex", agentLocation: "local" });
+    expect(importedStore.getTemplate("new").graphicalSessionEnabled).toBe(true);
+  });
+
   it("keeps existing local SSH Codex templates in terminal mode while allowing new App Server templates", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

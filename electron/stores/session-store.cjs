@@ -256,14 +256,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
   }
 
-  function loadLibrary() {
-    const saved = loadSessions();
-    const legacyEnabled = getLegacyCodexAppServerEnabled();
-    const needsMigration = saved.some(template => typeof template?.graphicalSessionEnabled !== "boolean"
-      || template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
-      || template?.agentProvider === "grok" && template.grokGraphicalConfigured !== true
-      || "codexAppServerEnabled" in template || "codeBuddyAcpEnabled" in template || "openCodeAcpEnabled" in template);
-    librarySessions = saved.map(template => normalizeTemplate({
+  function migrateLegacyTemplate(template, legacyEnabled) {
+    return {
       ...template,
       ...(template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
         ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
@@ -273,7 +267,17 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
         ? { codexAppServerEnabled: legacyEnabled } : {}),
       ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
         ? { codexAppServerEnabled: false } : {})
-    }));
+    };
+  }
+
+  function loadLibrary() {
+    const saved = loadSessions();
+    const legacyEnabled = getLegacyCodexAppServerEnabled();
+    const needsMigration = saved.some(template => typeof template?.graphicalSessionEnabled !== "boolean"
+      || template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
+      || template?.agentProvider === "grok" && template.grokGraphicalConfigured !== true
+      || "codexAppServerEnabled" in template || "codeBuddyAcpEnabled" in template || "openCodeAcpEnabled" in template);
+    librarySessions = saved.map(template => normalizeTemplate(migrateLegacyTemplate(template, legacyEnabled)));
     for (const session of librarySessions) {
       bumpTemplateIdCounter(session.id);
     }
@@ -416,6 +420,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       throw new Error("Imported sessions must be an array.");
     }
 
+    const legacyEnabled = getLegacyCodexAppServerEnabled();
     const imported = [];
     let importedNextSessionId = nextSessionId;
     const usedIds = new Set(librarySessions.map(session => session.id));
@@ -428,14 +433,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
         id = String(importedNextSessionId++);
       }
       usedIds.add(id);
-      const template = normalizeTemplate({
-        ...item,
-        ...(item.agentProvider === "gemini" && item.geminiGraphicalConfigured !== true
-          ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
-        ...(item.agentProvider === "grok" && item.grokGraphicalConfigured !== true
-          ? { graphicalSessionEnabled: false, grokGraphicalConfigured: true } : {}),
-        id
-      });
+      const template = normalizeTemplate({ ...migrateLegacyTemplate(item, legacyEnabled), id });
       imported.push(template);
     }
 
