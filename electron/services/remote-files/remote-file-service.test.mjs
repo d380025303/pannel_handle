@@ -66,6 +66,38 @@ function readStream(stream) {
 }
 
 describe("remote-file-service", () => {
+  it.each([
+    ["~", "\\\\wsl.localhost\\Ubuntu\\home", "/home/alice"],
+    ["/var", "\\\\wsl.localhost\\Ubuntu\\var", "/var/alice"],
+    ["/mnt/c", "C:\\", "/mnt/c/alice"]
+  ])("lists WSL children under %s with matching metadata paths", async (basePath, hostPath, childPath) => {
+    const childHostPath = path.win32.join(hostPath, "alice");
+    const fsApi = {
+      promises: {
+        readdir: vi.fn(async (target) => {
+          expect(target).toBe(hostPath);
+          return [{ name: "alice", isDirectory: () => true, isSymbolicLink: () => false }];
+        }),
+        stat: vi.fn(async (target) => {
+          if (target !== childHostPath) {
+            throw Object.assign(new Error(`ENOENT: ${target}`), { code: "ENOENT" });
+          }
+          return { size: 4096, mtimeMs: 1234 };
+        })
+      }
+    };
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", cwd: "~" }),
+      fsApi
+    });
+
+    await expect(service.list("run-1", basePath)).resolves.toEqual([
+      { name: "alice", path: childPath, type: "directory", size: 4096, modifiedAt: 1234 }
+    ]);
+    expect(fsApi.promises.readdir).toHaveBeenCalledWith(hostPath, { withFileTypes: true });
+    expect(fsApi.promises.stat).toHaveBeenCalledExactlyOnceWith(childHostPath);
+  });
+
   it("preserves UTF-8 BOM and CRLF when saving text", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-format-"));
     const filePath = path.join(dir, "note.txt");

@@ -58,7 +58,7 @@ function fromWslHostPath(hostPath, wslDistro) {
 function joinWslPath(basePath, name) {
   const normalizedBase = normalizeWslPath(basePath);
   if (normalizedBase === "~") {
-    return normalizeWslPath(`/${name}`);
+    return normalizeWslPath(`/home/${name}`);
   }
   return path.posix.join(normalizedBase, name);
 }
