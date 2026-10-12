@@ -7,6 +7,7 @@ function createWindowManager({ onMainWindowClosed } = {}) {
   let closeRequestPending = false;
   let closeListenerReady = false;
   let closeRequestSent = false;
+  let rendererUnavailable = false;
 
   function hasWindow() {
     return mainWindow && !mainWindow.isDestroyed();
@@ -43,9 +44,10 @@ function createWindowManager({ onMainWindowClosed } = {}) {
     closeRequestPending = false;
     closeListenerReady = false;
     closeRequestSent = false;
+    rendererUnavailable = false;
 
     mainWindow.on("close", (event) => {
-      if (allowClose) return;
+      if (allowClose || rendererUnavailable) return;
       event.preventDefault();
       requestClose();
     });
@@ -55,6 +57,11 @@ function createWindowManager({ onMainWindowClosed } = {}) {
     });
     mainWindow.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
       if (!isMainFrame || isInPlace) return;
+      closeListenerReady = false;
+      closeRequestSent = false;
+    });
+    mainWindow.webContents.on("render-process-gone", () => {
+      rendererUnavailable = true;
       closeListenerReady = false;
       closeRequestSent = false;
     });
@@ -119,12 +126,16 @@ function createWindowManager({ onMainWindowClosed } = {}) {
 
   function requestClose() {
     if (!hasWindow()) return;
+    if (rendererUnavailable) {
+      mainWindow.close();
+      return;
+    }
     closeRequestPending = true;
     sendPendingCloseRequest();
   }
 
   function sendPendingCloseRequest() {
-    if (hasWindow() && closeListenerReady && closeRequestPending && !closeRequestSent) {
+    if (hasWindow() && !rendererUnavailable && closeListenerReady && closeRequestPending && !closeRequestSent) {
       closeRequestSent = true;
       broadcast("window:close-requested");
     }
@@ -133,6 +144,7 @@ function createWindowManager({ onMainWindowClosed } = {}) {
   function setCloseListenerReady(event, ready) {
     if (!hasWindow() || event.sender !== mainWindow.webContents) return;
     closeListenerReady = Boolean(ready);
+    if (closeListenerReady) rendererUnavailable = false;
     sendPendingCloseRequest();
   }
 
