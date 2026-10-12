@@ -165,3 +165,108 @@ describe("PostgreSQL backup service", () => {
     }
   });
 });
+
+
+describe("statistics snapshot synchronization", () => {
+  it("removes deleted details, preserves other devices and epochs, and rolls back failed snapshots", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pg-backup-stats-"));
+    const local = {
+      token_sessions: [{ id: "codex:session", provider: "codex", updated_at: 1, total_tokens: 10 }],
+      token_session_skills: [{ session_id: "codex:session", name: "skill", count: 3 }],
+      token_session_models: [{ session_id: "codex:session", model: "model" }],
+      token_session_mcp_tools: [{ session_id: "codex:session", server_name: "server", tool_name: "tool", count: 2 }],
+      token_daily: [{ date: "2026-10-12", provider: "codex", total_tokens: 10 }]
+    };
+    class FakeDatabase {
+      prepare(sql) { return { all: () => structuredClone(local[sql.split(" ").at(-1)]) }; }
+      close() {}
+    }
+    let remote = [];
+    let beforeTransaction;
+    let failWrite = false;
+    let hasStatsFile = true;
+    const client = { release() {}, async query(sql, params = []) {
+      if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
+      else if (sql === "ROLLBACK") remote = beforeTransaction;
+      else if (sql.includes("DELETE FROM ph_stat_rows")) {
+        expect(sql).toContain("device_id=$1 AND table_name=$2 AND split_part(row_key, ':', 1)=$3");
+        expect(sql).toContain("ANY($4::text[])");
+        remote = remote.filter(row => !(row.device_id === params[0] && row.table_name === params[1]
+          && row.row_key.split(":")[0] === params[2] && !params[3].includes(row.row_key)));
+      } else if (sql.includes("INSERT INTO ph_stat_rows")) {
+        if (failWrite && params[1] === "token_session_skills") throw new Error("statistics write failed");
+        const row = { device_id: params[0], table_name: params[1], row_key: params[2], data: structuredClone(params[3]) };
+        const index = remote.findIndex(item => item.device_id === row.device_id
+          && item.table_name === row.table_name && item.row_key === row.row_key);
+        if (index < 0) remote.push(row); else remote[index] = row;
+      } else if (sql.includes("SELECT device_id,table_name,data FROM ph_stat_rows")) {
+        return { rows: structuredClone(params.length ? remote.filter(row => row.device_id === params[0]) : remote) };
+      }
+      return { rows: [] };
+    } };
+    class FakePool { async connect() { return client; } async end() {} }
+    const service = createPostgresBackupService({ userData: root,
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value),
+        decryptString: value => value.toString("utf8") },
+      sessionStore: { exportLibrary: () => [] }, statsFile: path.join(root, "stats.sqlite3"),
+      fsApi: { existsSync: () => hasStatsFile }, Database: FakeDatabase, PoolClass: FakePool,
+      terminalManager: { listSessions: () => [] }, historyService: {},
+      dataStore: { read: () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); }, write() {} }
+    });
+    try {
+      service.load();
+      await service.saveConfig({ enabled: true, host: "localhost", database: "backup", user: "user",
+        password: "password", passphrase: "passphrase" });
+      await service.shutdown();
+      const deviceId = service.publicState().deviceId;
+      const dashboard = () => service.getDashboard({ deviceId, range: "all" });
+      await service.backupNow();
+      expect((await dashboard()).summary.skillCalls).toBe(3);
+      const protectedRows = remote.flatMap(row => [
+        { ...structuredClone(row), device_id: "other-device" },
+        { ...structuredClone(row), row_key: row.row_key.replace(/^0:/, "10:"), data: { ...row.data, backup_epoch: 10 } }
+      ]);
+      remote.push(...structuredClone(protectedRows));
+      const assertProtected = () => expect(remote.filter(row => row.device_id !== deviceId
+        || row.data.backup_epoch === 10)).toEqual(protectedRows);
+      local.token_session_skills = [];
+      local.token_session_models = [];
+      local.token_session_mcp_tools = [];
+      local.token_daily = [];
+      expect((await service.backupNow()).lastError).toBe("");
+      const current = (await dashboard()).sessions.find(row => row.id === `${deviceId}:0:codex:session`);
+      expect(current.capabilities.skills.totalCalls).toBe(0);
+      expect(current.capabilities.mcp.totalCalls).toBe(0);
+      expect(current.models).toEqual([]);
+      expect(remote.filter(row => row.device_id === deviceId && row.data.backup_epoch === 0))
+        .toEqual([expect.objectContaining({ table_name: "token_sessions" })]);
+      assertProtected();
+
+      // More than the previous batch size: failure must undo all earlier writes and deletions.
+      local.token_sessions = Array.from({ length: 101 }, (_, i) => ({
+        id: `codex:new-${i}`, provider: "codex", updated_at: 2, total_tokens: i
+      }));
+      local.token_session_skills = [{ session_id: "codex:new-0", name: "new-skill", count: 1 }];
+      const previous = structuredClone(remote);
+      failWrite = true;
+      await expect(service.backupNow()).rejects.toThrow("statistics write failed");
+      expect(service.publicState().lastError).toBe("statistics write failed");
+      expect(remote).toEqual(previous);
+      assertProtected();
+      failWrite = false;
+      for (const table of Object.keys(local)) local[table] = [];
+      hasStatsFile = false;
+      await service.backupNow();
+      expect(remote).toEqual(previous);
+      hasStatsFile = true;
+      await service.backupNow();
+      expect(remote).toEqual(protectedRows);
+      assertProtected();
+    } finally {
+      await service.shutdown();
+      if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+});

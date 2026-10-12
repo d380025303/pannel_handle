@@ -248,19 +248,25 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     } finally { db.close(); }
   }
   async function uploadStats(client) {
+    if (!fsApi.existsSync(statsFile)) return;
+    const epoch = state.statsEpoch;
     const rows = statRows();
-    for (let i = 0; i < rows.length; i += 100) {
-      await client.query("BEGIN");
-      try {
-        for (const { table, key, row } of rows.slice(i, i + 100)) {
-          await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data) VALUES($1,$2,$3,$4)
-            ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data
-            WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data`,
-          [state.deviceId, table, key, row]);
-        }
-        await client.query("COMMIT");
-      } catch (error) { await client.query("ROLLBACK"); throw error; }
-    }
+    await client.query("BEGIN");
+    try {
+      for (const table of TABLES) {
+        const keys = rows.filter(row => row.table === table).map(row => row.key);
+        await client.query(`DELETE FROM ph_stat_rows
+          WHERE device_id=$1 AND table_name=$2 AND split_part(row_key, ':', 1)=$3
+            AND NOT (row_key = ANY($4::text[]))`, [state.deviceId, table, String(epoch), keys]);
+      }
+      for (const { table, key, row } of rows) {
+        await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data) VALUES($1,$2,$3,$4)
+          ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data
+          WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data`,
+        [state.deviceId, table, key, row]);
+      }
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
   }
   async function uploadConversations(client) {
     const activeSessions = terminalManager.listSessions();
