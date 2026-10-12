@@ -34,6 +34,10 @@ function parseCustomArguments(value) {
   }
 }
 
+function toolIdentity(name, namespace = "") {
+  return JSON.stringify([namespace, String(name || "").trim()]);
+}
+
 function toolAlias(name) {
   return `pht_${crypto.createHash("sha256").update(String(name)).digest("hex").slice(0, 12)}`;
 }
@@ -55,18 +59,21 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
   const toolAliases = new Map();
   const toolKinds = new Map();
   const toolNamespaces = new Map();
-  const aliasesByToolName = new Map();
+  const aliasesByToolIdentity = new Map();
+  const identitiesByAlias = new Map();
   const deferredTools = [];
-  const aliasFor = (name, kind = "function", namespaceEntry) => {
+  const aliasFor = (name, kind = "function", namespace = "") => {
     const toolName = String(name || "").trim();
     if (!toolName) throw invalidRequest("Codex tool name is required.");
-    const alias = toolAlias(toolName);
-    const existing = toolAliases.get(alias);
-    if (existing && existing !== toolName) throw invalidRequest(`Codex tool alias collision: ${toolName}.`);
+    const identity = toolIdentity(toolName, namespace);
+    const alias = toolAlias(identity);
+    const existing = identitiesByAlias.get(alias);
+    if (existing && existing !== identity) throw invalidRequest(`Codex tool alias collision: ${toolName}.`);
     toolAliases.set(alias, toolName);
     toolKinds.set(alias, kind);
-    if (namespaceEntry) toolNamespaces.set(alias, namespaceEntry);
-    aliasesByToolName.set(toolName, alias);
+    if (namespace) toolNamespaces.set(alias, { namespace, name: toolName });
+    identitiesByAlias.set(alias, identity);
+    aliasesByToolIdentity.set(identity, alias);
     return alias;
   };
   const appendAssistantToolCall = toolCall => {
@@ -87,12 +94,10 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
       if (!["system", "user", "assistant"].includes(role)) throw invalidRequest(`Responses message role is not supported: ${role}.`);
       messages.push({ role, content: textFromContent(item.content, { strict: true }) });
     } else if (item.type === "function_call") {
-      const qualifiedName = item.namespace ? `${item.namespace}__${item.name}` : item.name;
-      appendAssistantToolCall({ id: item.call_id || item.id, type: "function", function: { name: aliasFor(qualifiedName, "function", item.namespace ? { namespace: item.namespace, name: item.name } : undefined), arguments: item.arguments || "{}" } });
+      appendAssistantToolCall({ id: item.call_id || item.id, type: "function", function: { name: aliasFor(item.name, "function", item.namespace), arguments: item.arguments || "{}" } });
     } else if (item.type === "custom_tool_call") {
-      const qualifiedName = item.namespace ? `${item.namespace}__${item.name}` : item.name;
-      customTools.add(qualifiedName);
-      appendAssistantToolCall({ id: item.call_id || item.id, type: "function", function: { name: aliasFor(qualifiedName, "custom", item.namespace ? { namespace: item.namespace, name: item.name } : undefined), arguments: JSON.stringify({ input: item.input || "" }) } });
+      customTools.add(toolIdentity(item.name, item.namespace));
+      appendAssistantToolCall({ id: item.call_id || item.id, type: "function", function: { name: aliasFor(item.name, "custom", item.namespace), arguments: JSON.stringify({ input: item.input || "" }) } });
     } else if (item.type === "tool_search_call") {
       appendAssistantToolCall({ id: item.call_id || item.id, type: "function", function: { name: aliasFor("tool_search", "tool_search"), arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments || {}) } });
     } else if (item.type === "tool_search_output") {
@@ -117,16 +122,15 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
     }
     const name = String(tool.name || "").trim();
     const originalName = namespace ? `${namespace}__${name}` : name;
-    const namespaceEntry = namespace ? { namespace, name } : undefined;
     if (tool.type === "function") {
-      return [{ type: "function", function: { name: aliasFor(originalName, "function", namespaceEntry), description: `Codex tool ${originalName}. ${tool.description || ""}`.trim(), parameters: tool.parameters || {}, ...(typeof tool.strict === "boolean" ? { strict: tool.strict } : {}) } }];
+      return [{ type: "function", function: { name: aliasFor(name, "function", namespace), description: `Codex tool ${originalName}. ${tool.description || ""}`.trim(), parameters: tool.parameters || {}, ...(typeof tool.strict === "boolean" ? { strict: tool.strict } : {}) } }];
     }
     if (tool.type === "custom") {
-      customTools.add(originalName);
+      customTools.add(toolIdentity(name, namespace));
       return [{
         type: "function",
         function: {
-          name: aliasFor(originalName, "custom", namespaceEntry),
+          name: aliasFor(name, "custom", namespace),
           description: `Codex tool ${originalName}. ${tool.description || "Codex custom tool"}\nReturn the complete custom tool input in the input field.`,
           parameters: { type: "object", properties: { input: { type: "string" } }, required: ["input"], additionalProperties: false }
         }
@@ -159,12 +163,12 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
   let selectedToolAlias;
   if (toolChoice && typeof toolChoice === "object" && toolChoice.name) {
     const qualifiedName = toolChoice.namespace ? `${toolChoice.namespace}__${toolChoice.name}` : String(toolChoice.name);
-    const alias = aliasesByToolName.get(qualifiedName);
+    const alias = aliasesByToolIdentity.get(toolIdentity(toolChoice.name, toolChoice.namespace));
     if (!alias) throw invalidRequest(`Codex tool_choice references an unavailable tool: ${qualifiedName}.`);
     selectedToolAlias = alias;
     toolChoice = "required";
   } else if (toolChoice?.type === "tool_search") {
-    const alias = aliasesByToolName.get("tool_search");
+    const alias = aliasesByToolIdentity.get(toolIdentity("tool_search"));
     if (!alias) throw invalidRequest("Codex tool_choice references an unavailable tool: tool_search.");
     selectedToolAlias = alias;
     toolChoice = "required";
@@ -335,7 +339,9 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       const originalName = toolAliases.get(call.name) || call.name;
       const toolKind = toolKinds.get(call.name);
       const namespaceEntry = toolNamespaces.get(call.name);
-      const isCustom = customTools.has(originalName);
+      const isCustom = toolKind
+        ? toolKind === "custom"
+        : customTools.has(toolIdentity(namespaceEntry?.name || originalName, namespaceEntry?.namespace)) || customTools.has(originalName);
       const item = toolKind === "tool_search"
         ? { id: `tsc_${crypto.randomUUID().replace(/-/g, "")}`, type: "tool_search_call", status, call_id: call.id, execution: "client", arguments: (() => { try { return JSON.parse(call.arguments || "{}"); } catch { return {}; } })() }
         : isCustom

@@ -15,7 +15,7 @@ describe("Responses to Chat Completions protocol", () => {
     expect(result.request.messages[2].tool_calls[0].function.name).toMatch(/^pht_/);
     expect(result.request.messages[3]).toEqual({ role: "tool", tool_call_id: "call-1", content: "Done" });
     expect(result.request.tools[0].function.parameters.required).toEqual(["input"]);
-    expect(result.customTools.has("apply_patch")).toBe(true);
+    expect(result.customTools.has(JSON.stringify(["", "apply_patch"]))).toBe(true);
   });
 
   it("normalizes developer messages and forwards built-in and MCP function tools", () => {
@@ -63,6 +63,46 @@ describe("Responses to Chat Completions protocol", () => {
     ]);
   });
 
+  it.each(["function", "custom"])("keeps flat and namespaced %s tools distinct", kind => {
+    const parameters = [
+      { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      { type: "object", properties: { id: { type: "integer" } }, required: ["id"] }
+    ];
+    const tools = [
+      { type: "function", name: "files__read", parameters: parameters[0] },
+      { type: "namespace", name: "files", tools: [{ type: kind, name: "read", parameters: parameters[1] }] }
+    ];
+    const calls = [
+      { type: "function_call", call_id: "flat", name: "files__read", arguments: '{"path":"a.txt"}' },
+      kind === "custom"
+        ? { type: "custom_tool_call", call_id: "nested", namespace: "files", name: "read", input: "read a.txt" }
+        : { type: "function_call", call_id: "nested", namespace: "files", name: "read", arguments: '{"id":7}' }
+    ];
+    const converted = responsesToChat({ tools, input: calls });
+    expect(converted.request.tools).toHaveLength(2);
+    const aliases = converted.request.tools.map(tool => tool.function.name);
+    expect(new Set(aliases).size).toBe(2);
+    expect(converted.request.tools[0].function.parameters).toEqual(parameters[0]);
+    expect(converted.request.tools[1].function.parameters).toEqual(kind === "custom"
+      ? { type: "object", properties: { input: { type: "string" } }, required: ["input"], additionalProperties: false }
+      : parameters[1]);
+    expect(converted.request.messages[0].tool_calls.map(call => call.function.name)).toEqual(aliases);
+    calls.forEach((call, index) => {
+      const selected = responsesToChat({ tools, tool_choice: { type: index ? kind : "function", name: call.name, ...(call.namespace ? { namespace: call.namespace } : {}) } });
+      expect(selected.request.tools.map(tool => tool.function.name)).toEqual([aliases[index]]);
+      expect(selected.request.tool_choice).toBe("required");
+    });
+    const parser = createResponseAccumulator({ ...converted, model: "model-a" });
+    parser.start();
+    parser.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: converted.request.messages[0].tool_calls.map((call, index) => ({ ...call, index })) } }] })}\n\n`));
+    const output = parser.finish().output;
+    expect(output).toHaveLength(2);
+    output.forEach((item, index) => {
+      expect(item).toMatchObject(calls[index]);
+      if (!index) expect(item).not.toHaveProperty("namespace");
+    });
+  });
+
   it("rejects provider-hosted tools and unavailable forced tools instead of silently degrading", () => {
     expect(() => responsesToChat({ tools: [{ type: "web_search", external_web_access: true }] })).toThrow("tool type is not supported");
     expect(() => responsesToChat({ tools: [{ type: "function", name: "exec_command" }], tool_choice: { type: "function", name: "missing" } })).toThrow("tool_choice references an unavailable tool");
@@ -98,9 +138,9 @@ describe("Responses to Chat Completions protocol", () => {
     expect(followUp.request.messages[0].tool_calls[0].function.name).toBeTruthy();
     expect(followUp.request.messages[1]).toEqual({ role: "tool", tool_call_id: "search-1", content: JSON.stringify({ tools: [{ type: "namespace", name: "mcp__jira", tools: [{ type: "function", name: "get_issue", description: "Read an issue", parameters: { type: "object" } }] }] }) });
     expect(followUp.request.tools).toHaveLength(1);
-    expect([...followUp.toolAliases.values()]).toContain("mcp__jira__get_issue");
+    expect([...followUp.toolAliases.values()]).toContain("get_issue");
 
-    const mcpAlias = [...followUp.toolAliases].find(([, name]) => name === "mcp__jira__get_issue")[0];
+    const mcpAlias = [...followUp.toolAliases].find(([, name]) => name === "get_issue")[0];
     const mcpAccumulator = createResponseAccumulator({ model: "glm-5.3", toolAliases: followUp.toolAliases, toolKinds: followUp.toolKinds, toolNamespaces: followUp.toolNamespaces });
     mcpAccumulator.start();
     mcpAccumulator.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "mcp-1", function: { name: mcpAlias, arguments: "{}" } }] } }] })}\n\n`));
