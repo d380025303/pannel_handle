@@ -335,13 +335,46 @@ describe("mcp-config-service", () => {
     }
   });
 
+  it.each(["oversized", "unbounded-response", "growing", "normal", "limit", "empty", "missing"])("bounds SSH Codex config decoding for %s files", async (state) => {
+    const { homeDir } = setup();
+    const session = { id: "ssh", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    const text = state === "normal" ? '[mcp_servers.demo]\ncommand = "node"\n' : "";
+    const content = state === "unbounded-response" ? Buffer.alloc(32 * 1024 * 1024)
+      : state === "growing" ? Buffer.alloc(MAX_CONFIG_BYTES + 1)
+      : state === "limit" ? Buffer.alloc(MAX_CONFIG_BYTES, " ") : Buffer.from(text);
+    const output = state === "oversized" ? "oversized:" : state === "missing" ? "missing:"
+      : `exists:${content.toString("base64")}`;
+    const exec = vi.fn(async () => output);
+    const service = createMcpConfigService({ homeDir, terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => "/srv/app" }, sshAgentTransport: { exec } });
+    const decode = vi.spyOn(Buffer, "from");
+    try {
+      const result = service.list({ provider: "codex", scope: "project", sessionId: "ssh" });
+      if (["oversized", "unbounded-response", "growing"].includes(state)) {
+        await expect(result).rejects.toThrow("MCP 配置文件过大。");
+      } else {
+        const document = await result;
+        expect(document.version).toBe(state === "missing" ? "missing" : createHash("sha256").update(content).digest("hex"));
+        expect(document.servers).toHaveLength(state === "normal" ? 1 : 0);
+      }
+      const decoded = decode.mock.calls.filter(([, encoding]) => encoding === "base64");
+      expect(decoded).toHaveLength(["oversized", "unbounded-response", "missing"].includes(state) ? 0 : 1);
+      const command = exec.mock.calls[0][1];
+      expect(command).toContain('stat -c %s --');
+      expect(command).toContain(`-gt ${MAX_CONFIG_BYTES}`);
+      expect(command).toContain(`head -c ${MAX_CONFIG_BYTES + 1} --`);
+      expect(command).toContain("set -o pipefail");
+      expect(command.indexOf("stat -c")).toBeLessThan(command.indexOf("head -c"));
+    } finally { decode.mockRestore(); }
+  });
+
   it("reads and updates SSH Codex MCP configuration in the active session environment", async () => {
     const { homeDir } = setup();
     const session = { id: "ssh", type: "ssh", agentLocation: "remote", runtimeMode: "app-server",
       agentProvider: "codex", cwd: "/srv/app" };
     let text = 'model = "keep"\n[mcp_servers.demo]\ncommand = "old"\n';
     const exec = vi.fn(async (_id, command) => {
-      if (command.includes("base64 <")) return `exists:${Buffer.from(text).toString("base64")}`;
+      if (command.includes("head -c")) return `exists:${Buffer.from(text).toString("base64")}`;
       if (command.includes("printf %s")) return "/srv/app/.codex/config.toml";
       return "";
     });
@@ -370,7 +403,7 @@ describe("mcp-config-service", () => {
     let staged;
     const version = () => text === null ? "missing" : createHash("sha256").update(text).digest("hex");
     const exec = vi.fn(async (_id, command) => {
-      if (command.includes("base64 <")) return text === null ? "missing:" : `exists:${Buffer.from(text).toString("base64")}`;
+      if (command.includes("head -c")) return text === null ? "missing:" : `exists:${Buffer.from(text).toString("base64")}`;
       if (command.includes("printf %s")) return "/srv/app/.codex/config.toml";
       if (command.includes("sha256sum")) {
         if (state === "changed-before-write") text = 'model = "external"\n';

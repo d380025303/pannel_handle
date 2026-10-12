@@ -695,9 +695,15 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
   }
   function remotePath(target) { return target.path ? bashQuote(target.path) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'; }
   async function remoteRecord(target) {
-    const output = await remoteExec(target, `target=${remotePath(target)}; if [ -f "$target" ]; then printf 'exists:'; base64 < "$target" | tr -d '\\n'; else printf 'missing:'; fi`);
-    const exists = output.trim().startsWith("exists:");
-    const buffer = exists ? Buffer.from(output.trim().slice("exists:".length), "base64") : Buffer.alloc(0);
+    const output = (await remoteExec(target, `target=${remotePath(target)}; if [ -f "$target" ]; then `
+      + `size=$(stat -c %s -- "$target") || exit 1; if [ "$size" -gt ${MAX_CONFIG_BYTES} ]; then printf 'oversized:'; `
+      + `else set -o pipefail; printf 'exists:'; head -c ${MAX_CONFIG_BYTES + 1} -- "$target" | base64 | tr -d '\\n'; fi; else printf 'missing:'; fi`)).trim();
+    if (output === "oversized:") throw new Error("MCP 配置文件过大。");
+    const exists = output.startsWith("exists:");
+    // Bound decoding too, even if the transport returns an unexpected response.
+    if (exists && output.length - "exists:".length > 4 * Math.ceil(MAX_CONFIG_BYTES / 3))
+      throw new Error("MCP 配置文件过大。");
+    const buffer = exists ? Buffer.from(output.slice("exists:".length), "base64") : Buffer.alloc(0);
     if (buffer.length > MAX_CONFIG_BYTES) throw new Error("MCP 配置文件过大。");
     return { buffer, text: buffer.toString("utf8"), version: exists ? versionOf(buffer) : "missing", exists };
   }
