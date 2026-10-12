@@ -1,4 +1,5 @@
 const path = require("node:path");
+const { StringDecoder } = require("node:string_decoder");
 const { DEFAULT_EXCLUDED_DIRS, MAX_TEXT_FILE_SIZE, MAX_TEXT_RESULTS, SEARCH_TIMEOUT_MS } = require("./search-limits.cjs");
 const { getWorkspaceRoot, toDisplayPath, toDisplayRelativePath } = require("./search-paths.cjs");
 const { createProcessError } = require("./search-task.cjs");
@@ -125,6 +126,7 @@ function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task
 
     task.child = child;
     const results = [];
+    const stdoutDecoder = new StringDecoder("utf8");
     let stdoutBuffer = "";
     let stderr = "";
     let settled = false;
@@ -161,7 +163,7 @@ function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task
     }, SEARCH_TIMEOUT_MS);
 
     child.stdout?.on("data", (chunk) => {
-      stdoutBuffer += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk);
+      stdoutBuffer += Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk);
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = lines.pop() || "";
       for (const line of lines) consumeLine(line);
@@ -179,6 +181,7 @@ function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task
       settle(reject, error);
     });
     child.on("close", (code) => {
+      stdoutBuffer += stdoutDecoder.end();
       consumeLine(stdoutBuffer);
       if (task.cancelled) {
         settle(reject, createProcessError("Project search was cancelled.", "SEARCH_CANCELLED"));
