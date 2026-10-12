@@ -539,6 +539,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     windowManager.requestClose();
   });
   ipcMain.on("window:resolve-close", (_event, confirmed) => windowManager.resolveClose(Boolean(confirmed)));
+  ipcMain.on("window:close-listener-ready", (event, ready) => windowManager.setCloseListenerReady(event, ready));
 }
 
 module.exports = {

@@ -87,6 +87,53 @@ describe("agent token statistics SQLite store", () => {
     store.close();
   });
 
+  it.each([20, 0])("discards the clear checkpoint when cumulative counters reset to %i", resetTotal => {
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
+    store.load();
+    const update = total => store.update({
+      provider: "codex", agentSessionId: "reset-after-clear", panelSessionId: "panel",
+      tokens: tokens(total, total, 0)
+    });
+    try {
+      update(100);
+      store.clear();
+      update(resetTotal);
+      update(30);
+      let dashboard = store.getDashboard({ range: "all" });
+      expect(dashboard.summary.tokens.totalTokens).toBe(30);
+      expect(dashboard.dailyTrend.map(item => item.tokens.totalTokens)).toEqual([30]);
+      update(110);
+      dashboard = store.getDashboard({ range: "all" });
+      expect(dashboard.summary.tokens.totalTokens).toBe(110);
+      expect(dashboard.totalCount).toBe(1);
+      expect(dashboard.dailyTrend.map(item => item.tokens.totalTokens)).toEqual([110]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps the clear checkpoint for unchanged and increasing cumulative counters", () => {
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
+    store.load();
+    const update = total => store.update({
+      provider: "codex", agentSessionId: "continued-after-clear", panelSessionId: "panel",
+      tokens: tokens(total)
+    });
+    try {
+      update(100);
+      store.clear();
+      expect(update(100)).toBeUndefined();
+      update(120);
+      update(130);
+      const dashboard = store.getDashboard({ range: "all" });
+      expect(dashboard.summary.tokens.totalTokens).toBe(30);
+      expect(dashboard.dailyTrend.map(item => item.tokens.totalTokens)).toEqual([30]);
+      expect(dashboard.totalCount).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it("includes CodeBuddy sessions in totals, filtering, and provider comparison", () => {
     const { store } = fixture();
     store.update({ provider: "codebuddy", agentSessionId: "buddy", panelSessionId: "panel", title: "Buddy", location: "windows", models: ["glm-5.2"], tokens: tokens(240) });

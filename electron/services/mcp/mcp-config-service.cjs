@@ -49,12 +49,14 @@ function normalizeProjectPath(value) {
   return resolved.replace(/^([A-Z]):/, (_match, drive) => `${drive.toLowerCase()}:`);
 }
 
-function resolveProjectDirectory(homeDir, terminalManager, sessionId) {
+function resolveProjectDirectory(homeDir, terminalManager, graphicalService, sessionId) {
   const session = terminalManager?.getSession?.(String(sessionId || ""));
   if (!session) throw new Error("Select a running Windows session to manage project MCP configuration.");
   if (session.type !== "windows" && !(session.type === "ssh" && session.agentLocation === "local"))
     throw new Error("Project MCP management currently supports Windows sessions only.");
-  const rawCwd = String(session.cwd || "").trim();
+  const workspaceCwd = session.type === "ssh" && session.agentLocation === "local"
+    ? graphicalService?.getWorkspaceCwd?.(session.id) : session.cwd;
+  const rawCwd = String(workspaceCwd || "").trim();
   const cwd = rawCwd === "~" ? homeDir : rawCwd;
   if (!cwd) throw new Error("The active session does not have a working directory.");
   let stat;
@@ -72,9 +74,9 @@ function openCodeConfigPath(directory, fsApi = fs) {
   return fsApi.existsSync(jsonc) ? jsonc : path.join(directory, "opencode.json");
 }
 
-function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager, environmentService, fsApi }) {
+function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager, graphicalService, environmentService, fsApi }) {
   validateProviderScope(provider, scope);
-  const projectDirectory = scope === "user" ? undefined : resolveProjectDirectory(homeDir, terminalManager, sessionId);
+  const projectDirectory = scope === "user" ? undefined : resolveProjectDirectory(homeDir, terminalManager, graphicalService, sessionId);
   const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
   const codexHome = provider === "codex" && session?.runtimeMode === "app-server"
     ? environmentService?.resolve?.(session)?.CODEX_HOME || process.env.CODEX_HOME : undefined;
@@ -623,7 +625,7 @@ function runWsl(distro, script, input = null) {
 
 function createMcpConfigService({ homeDir, terminalManager, graphicalService, sshAgentTransport, sshFileSystem, environmentService, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
-  const context = { homeDir: path.resolve(homeDir), terminalManager, environmentService, fsApi };
+  const context = { homeDir: path.resolve(homeDir), terminalManager, graphicalService, environmentService, fsApi };
 
   function remoteTarget(request) {
     if (!graphicalService || request?.provider !== "codex" || !request.sessionId) return null;

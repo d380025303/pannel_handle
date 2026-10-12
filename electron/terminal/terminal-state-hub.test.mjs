@@ -16,6 +16,30 @@ describe("terminal state hub", () => {
     hub.shutdown();
   });
 
+  it("keeps output queued during a snapshot available as deltas", async () => {
+    const hub = createTerminalStateHub();
+    try {
+      hub.write("run-1", "FIRST");
+      const pendingSnapshot = hub.getSnapshot("run-1");
+      hub.write("run-1", "SECOND");
+
+      const snapshot = await pendingSnapshot;
+      expect(snapshot.ansi).toBe("FIRST");
+      expect(snapshot.seq).toBe(1);
+      const deltas = hub.getDeltas("run-1", snapshot.seq);
+      expect(deltas).toEqual([{ seq: 2, data: "SECOND" }]);
+      expect(snapshot.ansi + deltas.map((event) => event.data).join("")).toBe("FIRSTSECOND");
+      expect(await hub.getText("run-1")).toBe("FIRSTSECOND");
+
+      const latestSnapshot = await hub.getSnapshot("run-1");
+      expect(latestSnapshot.ansi).toBe("FIRSTSECOND");
+      expect(latestSnapshot.seq).toBe(2);
+      expect(hub.getDeltas("run-1", latestSnapshot.seq)).toEqual([]);
+    } finally {
+      hub.shutdown();
+    }
+  });
+
   it("resizes one shared screen model", async () => {
     const hub = createTerminalStateHub();
     hub.start("run-1", 100, 30);

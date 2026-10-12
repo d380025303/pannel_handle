@@ -18,11 +18,11 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   });
   const key = value => process.platform === "win32" ? value.toLowerCase() : value;
 
-  async function safePath(value) {
+  async function safePath(value, allowedRoots) {
     if (typeof value !== "string" || !value || value.includes("\0") || !pathApi.isAbsolute(value)
       || value.startsWith("\\\\") || value.startsWith("//")) throw new Error("文件路径无效。");
     const target = pathApi.resolve(value);
-    const allowed = roots().map(root => pathApi.resolve(root));
+    const allowed = allowedRoots || roots().map(root => pathApi.resolve(root));
     const root = allowed.find(item => key(target) === key(item) || key(target).startsWith(key(item.endsWith(pathApi.sep) ? item : `${item}${pathApi.sep}`)));
     if (!root) throw new Error("此位置不属于可访问的本地磁盘。");
     const relative = pathApi.relative(root, target);
@@ -39,14 +39,15 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
 
   async function list(directory) {
     if (directory == null) return { path: null, entries: roots().map(root => ({ name: root, path: root, type: "drive", size: null })) };
-    const { target, info } = await safePath(directory);
+    const allowed = roots().map(root => pathApi.resolve(root));
+    const { target, info } = await safePath(directory, allowed);
     if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
     const names = await fsApi.promises.readdir(target);
     const entries = [];
     for (const name of names) {
       const child = pathApi.join(target, name);
       try {
-        const item = await safePath(child);
+        const item = await safePath(child, allowed);
         if (item.info.isDirectory() || item.info.isFile()) entries.push({ name, path: child,
           type: item.info.isDirectory() ? "directory" : "file", size: item.info.isFile() ? item.info.size : null });
       } catch { /* Unreadable entries and links are omitted. */ }

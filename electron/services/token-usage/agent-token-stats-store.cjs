@@ -432,7 +432,13 @@ function createAgentTokenStatsStore({
       recordId = `${provider}:${agentSessionId}:${timestamp}`;
       record = undefined;
     }
-    const baseline = readBaseline(provider, agentSessionId) || {};
+    let baseline = readBaseline(provider, agentSessionId) || {};
+    if (!record && baseline.tokens && rawTokens.totalTokens < baseline.tokens.totalTokens) {
+      transaction(() => {
+        database.prepare("DELETE FROM token_baselines WHERE provider = ? AND agent_session_id = ?").run(provider, agentSessionId);
+      });
+      baseline = {};
+    }
     const baselineTokens = cloneTokens(record?.baselineTokens || baseline.tokens || emptyTokens());
     const baselineCapabilities = normalizeCapabilityUsage(record?.baselineCapabilities || baseline.capabilities || emptyCapabilityUsage());
     const visibleTokens = subtractTokens(rawTokens, baselineTokens);

@@ -67,6 +67,28 @@ describe("module owner persistence and history", () => {
     }
     expect(f.store.get("one")).toEqual(before);
   });
+  it("rejects Windows drive-relative paths on add and update without writing records or history", () => {
+    const f = fixture();
+    const cwd = "C:\\repo";
+    const before = f.store.mutate("one", { operation: "add", ...fields, directories: ["src", "C:\\repo\\electron"] }, { cwd });
+    expect(before.records[0].directories).toEqual(["src", "electron"]);
+    const record = before.records[0];
+    const file = path.join(f.userData, "module-owners.json");
+    const saved = readFileSync(file, "utf8");
+    f.broadcast.mockClear();
+    for (const directory of ["C:../outside", "C:..\\outside", "c:src", "C:"]) {
+      for (const operation of ["add", "update"]) {
+        const input = operation === "add"
+          ? { operation, ...fields, name: "其他", directories: [directory] }
+          : { operation, ...fields, id: record.id, version: record.version, directories: [directory] };
+        expect(() => f.store.mutate("one", input, { cwd })).toThrow("负责目录必须位于项目工作目录内");
+        expect(f.store.get("one")).toEqual(before);
+        expect(readFileSync(file, "utf8")).toBe(saved);
+      }
+    }
+    expect(f.broadcast).not.toHaveBeenCalled();
+    expect(createModuleOwnerStore({ userData: f.userData }).get("one")).toEqual(before);
+  });
   it("preserves unreadable saved data instead of overwriting it", () => {
     const f = fixture(); const file = path.join(f.userData, "module-owners.json");
     writeFileSync(file, "broken");

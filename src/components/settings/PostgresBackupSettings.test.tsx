@@ -32,6 +32,11 @@ describe("PostgresBackupSettings", () => {
     expect(await screen.findByRole("button", { name: "作为副本恢复" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "作为副本恢复" }));
     await waitFor(() => expect(restore).toHaveBeenCalledWith("snapshot-1", undefined));
+    expect(await screen.findByText(/已恢复 2 个会话/)).toBeTruthy();
+    restore.mockRejectedValueOnce(new Error("attempt to write a readonly database"));
+    fireEvent.click(screen.getByRole("button", { name: "作为副本恢复" }));
+    expect(await screen.findByText("attempt to write a readonly database")).toBeTruthy();
+    expect(screen.queryByText(/已恢复 2 个会话/)).toBeNull();
   });
 
   it("shows offline remote sources as pending instead of errors", async () => {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import filesModule from "./mobile-files.cjs";
 
 const roots = [];
@@ -41,6 +41,44 @@ it("lists local directories and excludes links and inaccessible paths", async ()
   expect((await files.list(root)).entries.map(entry => entry.name)).toEqual(["folder", "note.txt"]);
   if (linked) await expect(files.list(path.join(root, "link"))).rejects.toThrow(/符号链接/);
   await expect(files.list(path.resolve(root, ".."))).rejects.toThrow(/本地磁盘/);
+});
+
+it("probes drives once per large listing while validating every child", async () => {
+  const directory = "C:\\folder";
+  const names = Array.from({ length: 1000 }, (_, index) => `file-${index}.txt`);
+  const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
+  const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 10 };
+  const fsApi = {
+    statSync: vi.fn(drive => {
+      if (drive === "C:\\") return directoryInfo;
+      throw Object.assign(new Error("Unavailable drive"), { code: "ENOENT" });
+    }),
+    promises: {
+      readdir: vi.fn(async () => names),
+      lstat: vi.fn(async () => fileInfo),
+      realpath: vi.fn(async target => target),
+      stat: vi.fn(async target => target === directory ? directoryInfo : fileInfo)
+    }
+  };
+  const files = filesModule.createMobileFiles({ fsApi });
+  const expected = names.map(name => ({ name, path: path.win32.join(directory, name), type: "file", size: 10 }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  expect(await files.list(directory)).toEqual({ path: directory, entries: expected });
+  expect(fsApi.statSync).toHaveBeenCalledTimes(26);
+  expect(fsApi.promises.lstat).toHaveBeenCalledTimes(2001);
+  expect(fsApi.promises.realpath).toHaveBeenCalledTimes(1001);
+
+  fsApi.promises.lstat.mockImplementation(async target => ({
+    ...fileInfo, isSymbolicLink: () => target === path.win32.join(directory, names[0])
+  }));
+  fsApi.promises.realpath.mockImplementation(async target =>
+    target === path.win32.join(directory, names[1]) ? "D:\\outside.txt" : target);
+  const filtered = await files.list(directory);
+  expect(filtered.entries).toEqual(expected.filter(entry => !names.slice(0, 2).includes(entry.name)));
+  expect(fsApi.statSync).toHaveBeenCalledTimes(52);
+  await expect(files.list(path.win32.join(directory, names[0]))).rejects.toThrow(/符号链接/);
+  await expect(files.list(path.win32.join(directory, names[1]))).rejects.toThrow(/重定向/);
+  await expect(files.list("D:\\outside")).rejects.toThrow(/本地磁盘/);
 });
 
 it("streams a file once to the authenticated phone", async () => {

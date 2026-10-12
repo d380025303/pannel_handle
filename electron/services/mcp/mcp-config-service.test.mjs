@@ -50,6 +50,32 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it.each(["explicit", "runtime"])("reads and saves SSH local Codex project configuration in the %s workspace", (workspaceType) => {
+    const { homeDir, projectDirectory } = setup();
+    const session = { id: "ssh-local", type: "ssh", agentLocation: "local", runtimeMode: "app-server",
+      agentProvider: "codex", cwd: "/srv/app",
+      ...(workspaceType === "explicit" ? { localAgentCwd: projectDirectory } : {}) };
+    const getWorkspaceCwd = vi.fn(() => projectDirectory);
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session }, graphicalService: { getWorkspaceCwd } });
+    const filePath = path.join(projectDirectory, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, '[mcp_servers.demo]\ncommand = "old"\n', "utf-8");
+    const target = { provider: "codex", scope: "project", sessionId: session.id };
+
+    const first = service.list(target);
+    expect(first.path).toBe(filePath);
+    expect(first.projectDirectory).toBe(projectDirectory);
+    expect(first.servers[0]).toMatchObject({ name: "demo", command: "old" });
+    const saved = service.save({ ...target, originalName: "demo", expectedVersion: first.version,
+      draft: stdioDraft("demo", { command: "new" }) });
+    expect(saved.status).toBe("saved");
+    expect(saved.document.path).toBe(filePath);
+    expect(saved.document.servers[0]).toMatchObject({ name: "demo", command: "new" });
+    expect(readFileSync(filePath, "utf-8")).toContain('command = "new"');
+    expect(getWorkspaceCwd).toHaveBeenCalledWith(session.id);
+  });
+
   it("reads and updates SSH Codex MCP configuration in the active session environment", async () => {
     const { homeDir } = setup();
     const session = { id: "ssh", type: "ssh", agentLocation: "remote", runtimeMode: "app-server",

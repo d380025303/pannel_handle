@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
@@ -60,7 +60,7 @@ describe("PostgreSQL backup service", () => {
     const sessionStore = {
       exportLibrary: () => [{ id: "1", title: "SSH", type: "ssh", sshConfig: { host: "example.org", encryptedSecret: "local-only" } }],
       decryptSecret: () => "ssh-password",
-      importLibrary: items => { imported.push(...items); return { importedCount: items.length, sessions: items }; }
+      importLibrary: vi.fn(items => { imported.push(...items); return { importedCount: items.length, sessions: items }; })
     };
     const safeStorage = { isEncryptionAvailable: () => true,
       encryptString: value => Buffer.from(value), decryptString: value => value.toString("utf8") };
@@ -81,6 +81,9 @@ describe("PostgreSQL backup service", () => {
       expect(restored.importedCount).toBe(1);
       expect(imported[0].sshConfig.secret).toBe("ssh-password");
       expect(imported[0].sshConfig.encryptedSecret).toBeUndefined();
+      const writeError = new Error("attempt to write a readonly database");
+      sessionStore.importLibrary.mockImplementationOnce(() => { throw writeError; });
+      await expect(service.restoreSnapshot(snapshots[0].id, "portable-passphrase")).rejects.toBe(writeError);
     } finally {
       await service.shutdown();
       if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) {

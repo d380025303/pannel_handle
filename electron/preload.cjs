@@ -616,7 +616,11 @@ contextBridge.exposeInMainWorld("windowApi", {
   onCloseRequested: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("window:close-requested", listener);
-    return () => ipcRenderer.removeListener("window:close-requested", listener);
+    ipcRenderer.send("window:close-listener-ready", true);
+    return () => {
+      ipcRenderer.removeListener("window:close-requested", listener);
+      ipcRenderer.send("window:close-listener-ready", ipcRenderer.listenerCount("window:close-requested") > 0);
+    };
   },
   isMaximized: () => ipcRenderer.invoke("window:is-maximized"),
   onMaximizedChanged: (callback) => {

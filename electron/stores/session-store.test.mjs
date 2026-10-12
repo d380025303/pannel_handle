@@ -2,10 +2,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createSessionStore, inferWorkingDirectory, normalizeTags } = require("./session-store.cjs");
+const { createBusinessDataStore } = require("./business-data-store.cjs");
 
 let tempDirs = [];
 
@@ -43,6 +45,55 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps memory and SQLite unchanged after a read-only import, then persists a successful retry", () => {
+    const sessionsFile = createTempSessionsFile();
+    let database;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
+      }
+    }).open();
+    const onChanged = vi.fn();
+    const openSessions = () => createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe", onChanged });
+    try {
+      const store = openSessions();
+      store.loadLibrary();
+      store.addToLibrary({ id: "1", title: "Existing", type: "windows" });
+      const before = store.getLibrary();
+      const persisted = dataStore.read(sessionsFile);
+      onChanged.mockClear();
+      database.exec("PRAGMA query_only=ON");
+      expect(() => store.importLibrary([{ title: "Restored", type: "windows" }])).toThrow(/readonly|read-only/i);
+      expect(store.getLibrary()).toEqual(before);
+      expect(dataStore.read(sessionsFile)).toEqual(persisted);
+      expect(openSessions().loadLibrary()).toEqual(persisted);
+      expect(onChanged).not.toHaveBeenCalled();
+
+      database.exec("PRAGMA query_only=OFF");
+      const result = store.importLibrary([{ title: "Restored", type: "windows" }]);
+      expect(result.importedCount).toBe(1);
+      expect(result.sessions.map(session => session.id)).toEqual(["1", "2"]);
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      dataStore.close();
+      dataStore.open();
+      expect(openSessions().getLibrary()).toEqual([]);
+      const reopened = openSessions();
+      reopened.loadLibrary();
+      expect(reopened.getLibrary()).toEqual(result.sessions);
+    } finally {
+      dataStore.close();
+    }
+  });
+
+  it("does not consume IDs or import partial data when a later item is invalid", () => {
+    const store = createStore(createTempSessionsFile());
+    expect(() => store.importLibrary([{ title: "Valid" }, null])).toThrow("Each imported session");
+    expect(store.getLibrary()).toEqual([]);
+    expect(store.importLibrary([{ title: "Retry" }]).sessions[0].id).toBe("1");
+  });
+
   it("keeps existing Grok templates terminal-based until explicitly enabled", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

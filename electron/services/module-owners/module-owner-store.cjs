@@ -63,6 +63,7 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
   function directories(values, cwd) {
     const api = /^(?:[A-Za-z]:|\\\\)/.test(cwd || "") ? path.win32 : path.posix;
     return [...new Set(values.map(value => {
+      if (api === path.win32 && /^[A-Za-z]:/.test(value) && !api.isAbsolute(value)) throw new Error("负责目录必须位于项目工作目录内。");
       const relative = api.isAbsolute(value) ? api.relative(cwd || ".", value) : api.normalize(value);
       if (api.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${api.sep}`)) throw new Error("负责目录必须位于项目工作目录内。");
       return (relative || ".").replace(/\\/g, "/");

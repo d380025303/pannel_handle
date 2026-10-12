@@ -405,14 +405,15 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
 
     const imported = [];
+    let importedNextSessionId = nextSessionId;
     const usedIds = new Set(librarySessions.map(session => session.id));
     for (const item of items) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new Error("Each imported session must be an object.");
       }
-      let id = createTemplateId();
+      let id = String(importedNextSessionId++);
       while (usedIds.has(id)) {
-        id = createTemplateId();
+        id = String(importedNextSessionId++);
       }
       usedIds.add(id);
       const template = normalizeTemplate({
@@ -427,8 +428,11 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
 
     if (imported.length > 0) {
-      librarySessions.push(...imported);
-      saveLibrary();
+      const updated = [...librarySessions, ...imported];
+      writeJson(dataStore, sessionsFile, updated);
+      librarySessions = updated;
+      nextSessionId = importedNextSessionId;
+      try { onChanged(); } catch (error) { console.error("Failed to notify library change:", error); }
     }
 
     return {

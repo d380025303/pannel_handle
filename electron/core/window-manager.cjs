@@ -5,6 +5,8 @@ function createWindowManager({ onMainWindowClosed } = {}) {
   let mainWindow = null;
   let allowClose = false;
   let closeRequestPending = false;
+  let closeListenerReady = false;
+  let closeRequestSent = false;
 
   function hasWindow() {
     return mainWindow && !mainWindow.isDestroyed();
@@ -39,18 +41,22 @@ function createWindowManager({ onMainWindowClosed } = {}) {
     });
     allowClose = false;
     closeRequestPending = false;
+    closeListenerReady = false;
+    closeRequestSent = false;
 
     mainWindow.on("close", (event) => {
       if (allowClose) return;
       event.preventDefault();
-      if (!closeRequestPending) {
-        closeRequestPending = true;
-        broadcast("window:close-requested");
-      }
+      requestClose();
     });
     mainWindow.on("closed", () => {
       mainWindow = null;
       onMainWindowClosed?.();
+    });
+    mainWindow.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+      if (!isMainFrame || isInPlace) return;
+      closeListenerReady = false;
+      closeRequestSent = false;
     });
 
     mainWindow.maximize();
@@ -112,14 +118,27 @@ function createWindowManager({ onMainWindowClosed } = {}) {
   }
 
   function requestClose() {
-    if (hasWindow() && !closeRequestPending) {
-      closeRequestPending = true;
+    if (!hasWindow()) return;
+    closeRequestPending = true;
+    sendPendingCloseRequest();
+  }
+
+  function sendPendingCloseRequest() {
+    if (hasWindow() && closeListenerReady && closeRequestPending && !closeRequestSent) {
+      closeRequestSent = true;
       broadcast("window:close-requested");
     }
   }
 
+  function setCloseListenerReady(event, ready) {
+    if (!hasWindow() || event.sender !== mainWindow.webContents) return;
+    closeListenerReady = Boolean(ready);
+    sendPendingCloseRequest();
+  }
+
   function resolveClose(confirmed) {
     closeRequestPending = false;
+    closeRequestSent = false;
     if (!confirmed || !hasWindow()) return;
     allowClose = true;
     mainWindow.close();
@@ -134,6 +153,7 @@ function createWindowManager({ onMainWindowClosed } = {}) {
     broadcast,
     getWindowFromEvent,
     requestClose,
+    setCloseListenerReady,
     resolveClose,
     closeWindowManager
   };

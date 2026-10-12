@@ -69,11 +69,12 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
   async function getSnapshot(id, owner = "desktop") {
     const state = states.get(id);
     if (!state) return null;
-    await state.pending;
+    const { pending, seq } = state;
+    await pending;
     return {
       sessionId: id,
       ansi: state.serializer.serialize({ scrollback: scrollback > 0 }),
-      seq: state.seq,
+      seq,
       cols: state.terminal.cols,
       rows: state.terminal.rows,
       owner
