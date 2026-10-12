@@ -72,6 +72,34 @@ describe("Codex read-only sub-agent observer", () => {
     itemEvent(observer, "root", spawn("b"));
     expect(observer.snapshot().expanded).toBe(false);
   });
+  it("retains streamed command output across incomplete history polls and accepts final output", async () => {
+    let status = "inProgress", aggregatedOutput = "prefix";
+    const { observer } = fixture(async (method, params) => method === "thread/read"
+      ? { thread: { id: params.threadId, turns: [{ id: "turn", status, items: [
+        { id: "cmd", type: "commandExecution", status, aggregatedOutput }
+      ] }] } } : {});
+    observer.reset("root", [spawn("a")]); await settle();
+    const output = () => observer.snapshot().members[0].items.find(item => item.id === "cmd").output;
+    const delta = value => observer.observe("item/commandExecution/outputDelta", { threadId: "a", itemId: "cmd", delta: value });
+    delta(" streamed suffix");
+    expect(output()).toBe("prefix streamed suffix");
+    await observer.refresh();
+    expect(output()).toBe("prefix streamed suffix");
+    delta(" next");
+    expect(output()).toBe("prefix streamed suffix next");
+    await observer.refresh();
+    expect(output()).toBe("prefix streamed suffix next");
+    aggregatedOutput = "replacement";
+    await observer.refresh();
+    expect(output()).toBe("replacement");
+    aggregatedOutput = "replacement caught up";
+    await observer.refresh();
+    expect(output()).toBe("replacement caught up");
+    delta(" pending");
+    status = "completed"; aggregatedOutput = "replacement";
+    await observer.refresh();
+    expect(output()).toBe("replacement");
+  });
   it("falls back on unsupported lists, retains history on read errors and retries", async () => {
     let fail = false;
     const { observer } = fixture(async (method, params) => {

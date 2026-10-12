@@ -75,7 +75,10 @@ function createSubAgentObserver({ request, changed, intervalMs = 2000 }) {
     const value = { ...previous, ...item };
     if (incompleteHistory && previous?.text?.startsWith(item.text || "") && previous.text.length > (item.text || "").length) value.text = previous.text;
     if (item.type === "commandExecution" && !item.aggregatedOutput && previous?.output) value.output = previous.output;
-    if (item.type === "commandExecution" && item.aggregatedOutput) value.output = item.aggregatedOutput;
+    if (item.type === "commandExecution" && item.aggregatedOutput) {
+      value.output = incompleteHistory && previous?.output?.startsWith(item.aggregatedOutput)
+        && previous.output.length > item.aggregatedOutput.length ? previous.output : item.aggregatedOutput;
+    }
     if (index < 0) member.items.push(value); else member.items[index] = value;
   }
   async function run(epoch) {
