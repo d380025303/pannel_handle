@@ -33,6 +33,7 @@ const { createSessionStatusServer } = require("./services/mcp/session-status-ser
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
 const { createConversationArchiveService } = require("./services/conversation-history/conversation-archive-service.cjs");
+const { createGraphicalArchiveScheduler } = require("./services/conversation-history/graphical-archive-scheduler.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
@@ -138,6 +139,7 @@ let terminalStateHub = null;
 let agentConversationManager = null;
 let agentConversationHistoryService = null;
 let conversationArchive = null;
+let graphicalArchiveScheduler = null;
 let ideaModule = null;
 let codexAppServerSessionService = null;
 let questionAnswerStore = null;
@@ -236,12 +238,13 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast
     });
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
+    graphicalArchiveScheduler = createGraphicalArchiveScheduler({
+      broadcast: (channel, payload) => windowManager.broadcast(channel, payload),
+      snapshot: id => codexAppServerSessionService.snapshot(id),
+      archive: (id, snapshot) => conversationArchive?.graphical(id, snapshot)
+    });
     const broadcast = (channel, payload) => {
-      if (channel === "codex-app-server:changed") conversationArchive?.graphical(payload.id, payload.snapshot);
-      if (channel === "codex-app-server:delta") {
-        try { conversationArchive?.graphical(payload.id, codexAppServerSessionService.snapshot(payload.id)); } catch {}
-      }
-      windowManager.broadcast(channel, payload);
+      graphicalArchiveScheduler.broadcast(channel, payload);
       if (channel === "sessions:changed") postgresBackupService?.trackSessions(payload);
       mobileRemoteService?.handleDesktopEvent(channel, payload);
       sessionStatusServer?.handleDesktopEvent(channel, payload);
@@ -253,7 +256,7 @@ if (!gotSingleInstanceLock) {
       onSessionCreated: session => conversationArchive?.start(session),
       onSessionStartFailed: id => conversationArchive?.finish(id, "failed"),
       onSessionClosing: id => {
-        try { conversationArchive?.graphical(id, codexAppServerSessionService.snapshot(id)); } catch {}
+        graphicalArchiveScheduler?.flush(id);
         conversationArchive?.finish(id);
       },
       sessionStore,
@@ -691,8 +694,9 @@ if (!gotSingleInstanceLock) {
 async function flushConversationArchive() {
   for (const session of terminalManager?.listSessions() || []) {
     if (session.runtimeMode !== "app-server") continue;
-    try { conversationArchive?.graphical(session.id, codexAppServerSessionService.snapshot(session.id)); } catch {}
+    graphicalArchiveScheduler?.flush(session.id);
   }
+  graphicalArchiveScheduler?.flushAll();
   await conversationArchive?.flush();
 }
 
@@ -750,6 +754,7 @@ app.on("window-all-closed", async () => {
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();
   }
+  graphicalArchiveScheduler?.shutdown();
   conversationArchive?.shutdown();
   if (agentConversationManager) {
     agentConversationManager.shutdown();
