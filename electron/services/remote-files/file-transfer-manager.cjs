@@ -61,7 +61,11 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
           update(task, { status: "conflict", remotePath: result.remotePath });
           return;
         }
-        if (task.status === "canceled" || result.status === "skipped") return;
+        if (task.status === "canceled") return;
+        if (result.status === "skipped") {
+          update(task, { status: "canceled", remotePath: result.remotePath, error: "Upload skipped." });
+          return;
+        }
         update(task, { status: "completed", remotePath: result.remotePath, transferredBytes: task.totalBytes, percent: 100 });
       } else {
         const localPath = task.request.localPath;

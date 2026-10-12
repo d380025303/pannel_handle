@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFileTransferManager } from "./file-transfer-manager.cjs";
+import { createRemoteFileService } from "./remote-file-service.cjs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -113,6 +114,38 @@ describe("file-transfer-manager", () => {
       "rename",
       expect.objectContaining({ onProgress: expect.any(Function) })
     );
+  });
+
+  it("finishes skipped upload conflicts without overwriting the target and allows cleanup", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "panel-skipped-upload-"));
+    const source = path.join(dir, "a.txt");
+    const targetDir = path.join(dir, "target");
+    const target = path.join(targetDir, "a.txt");
+    try {
+      await fs.mkdir(targetDir);
+      await fs.writeFile(source, "replacement");
+      await fs.writeFile(target, "original");
+      const remoteFileService = createRemoteFileService({
+        terminalManager: { getSession: () => ({ id: "s1", type: "windows", cwd: dir }) }
+      });
+      const manager = createFileTransferManager({ remoteFileService, broadcast: vi.fn() });
+      const [task] = manager.enqueueUploads("s1", [source], targetDir);
+      await vi.waitFor(() => expect(manager.list()[0].status).toBe("conflict"));
+
+      expect(manager.resolveConflict(task.id, "skip")).toBe(true);
+      await vi.waitFor(() => expect(manager.list()[0]).toEqual(expect.objectContaining({
+        status: "canceled",
+        error: "Upload skipped.",
+        remotePath: target,
+        transferredBytes: 0,
+        percent: 0
+      })));
+      expect(await fs.readFile(target, "utf8")).toBe("original");
+      expect(manager.hasActiveForSession("s1")).toBe(false);
+      expect(manager.clear(task.id)).toEqual([]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps only the configured number of completed tasks", async () => {
