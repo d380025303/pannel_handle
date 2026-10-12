@@ -20,6 +20,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
   }
 
   const seenMessageIds = new Set();
+  let recordIndex = 0;
 
   function parseCodex(item) {
     if (item?.type === "compacted") {
@@ -43,7 +44,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     const text = getText(payload.content);
     if (!text) return null;
     return {
-      id: String(payload.id || item.id || `${isUser ? "user" : assistantKind}:${text}`),
+      id: String(payload.id || item.id || `${isUser ? "user" : assistantKind}:${item.timestamp ?? ""}:${recordIndex}:${text}`),
       provider,
       kind: isUser ? "user" : assistantKind,
       text,
@@ -115,6 +116,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
   }
 
   function pushLine(line) {
+    recordIndex += 1;
     let item;
     try {
       item = JSON.parse(line);

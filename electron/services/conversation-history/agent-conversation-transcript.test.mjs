@@ -9,6 +9,32 @@ const require = createRequire(import.meta.url);
 const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it.each([
+    ["2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z"],
+    ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+    [undefined, undefined]
+  ])("preserves identical Codex messages without IDs at %s and %s", (first, second) => {
+    const text = [first, second].map(timestamp => JSON.stringify({
+      type: "response_item", timestamp,
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "继续" }] }
+    })).join("\n");
+    const messages = parseAgentConversationText("codex", text, { includeUser: true });
+    expect(messages.map(message => [message.kind, message.text])).toEqual([["user", "继续"], ["user", "继续"]]);
+    expect(new Set(messages.map(message => message.id)).size).toBe(2);
+    expect(parseAgentConversationText("codex", text, { includeUser: true }).map(message => message.id))
+      .toEqual(messages.map(message => message.id));
+  });
+
+  it.each(["payload", "record"])("deduplicates Codex messages by their original %s ID", source => {
+    const text = ["2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z"].map((timestamp, index) => JSON.stringify({
+      type: "response_item", timestamp, id: source === "record" ? "original" : `record-${index}`,
+      payload: { id: source === "payload" ? "original" : undefined, type: "message", role: "user",
+        content: [{ type: "input_text", text: "继续" }] }
+    })).join("\n");
+    expect(parseAgentConversationText("codex", text, { includeUser: true }))
+      .toEqual([expect.objectContaining({ id: "original", kind: "user", text: "继续" })]);
+  });
+
   it("matches the remote Python summary parser for both CLI providers", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "summary-history-"));
     try {
