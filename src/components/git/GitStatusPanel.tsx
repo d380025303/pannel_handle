@@ -197,7 +197,12 @@ function GitDiffDialog({ state, onRetry, onClose }: {
     const grouped = new Map<string, DiffSearchMatch[]>();
     matches.forEach((match) => {
       const key = `${match.rowIndex}:${match.side}`;
-      grouped.set(key, [...(grouped.get(key) || []), match]);
+      const cellMatches = grouped.get(key);
+      if (cellMatches) {
+        cellMatches.push(match);
+      } else {
+        grouped.set(key, [match]);
+      }
     });
     return grouped;
   }, [matches]);
