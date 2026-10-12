@@ -190,6 +190,7 @@ function createAgentTokenLiveModule({
     if (source.consumePendingLine(tracker)) {
       const result = tracker.parser.getResult();
       tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
+      tracker.rawCapabilities = normalizeCapabilityUsage(result?.capabilities || tracker.rawCapabilities);
       tracker.models = result?.models || tracker.models;
       if (tracker.provider === "copilot") onUsage({ tracker, result });
     }
