@@ -5,6 +5,7 @@ const { sessionOverview } = require("./mobile-session-overview.cjs");
 
 function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getWorkItems = () => null, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
+  const pendingTerminalSubscriptions = new WeakMap();
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, agentSessionLauncher });
 
   function sendReady(socket) {
@@ -45,6 +46,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.subscriptions.clear();
     socket.graphicalSessionId = null;
     socket.subscriptions.add(sessionId);
+    pendingTerminalSubscriptions.delete(socket);
     const deltas = stateHub.getDeltas(sessionId, lastSeq);
     if (deltas !== null && Number.isSafeInteger(lastSeq)) {
       for (const event of deltas) send(socket, { type: "terminal.data", sessionId, data: event.data, seq: event.seq });
@@ -52,8 +54,29 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       send(socket, { type: "terminal.size-owner", sessionId, owner: size.owner, cols: size.cols, rows: size.rows });
       return;
     }
-    const snapshot = await stateHub.getSnapshot(sessionId, getSizeState(sessionId).owner);
-    if (snapshot) send(socket, { type: "terminal.snapshot", snapshot });
+    // Snapshot creation yields; keep newer output behind the snapshot's reset boundary.
+    const pending = { sessionId, events: [] };
+    pendingTerminalSubscriptions.set(socket, pending);
+    try {
+      const snapshot = await stateHub.getSnapshot(sessionId, getSizeState(sessionId).owner);
+      if (pendingTerminalSubscriptions.get(socket) !== pending || !socket.authenticated
+        || !socket.subscriptions.has(sessionId)) return;
+      if (snapshot) {
+        send(socket, { type: "terminal.snapshot", snapshot });
+        for (const event of pending.events) {
+          if (event.seq > snapshot.seq) send(socket, event);
+        }
+      }
+    } finally {
+      if (pendingTerminalSubscriptions.get(socket) === pending) pendingTerminalSubscriptions.delete(socket);
+    }
+  }
+
+  function handleTerminalData(socket, event) {
+    if (!socket.subscriptions?.has(event.sessionId)) return;
+    const pending = pendingTerminalSubscriptions.get(socket);
+    if (pending?.sessionId === event.sessionId) pending.events.push(event);
+    else send(socket, event);
   }
 
   async function handleAuthenticatedMessage(socket, message) {
@@ -197,6 +220,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.on("pong", () => { socket.lastAliveAt = now(); });
     socket.on("message", (raw) => { socket.lastAliveAt = now(); handleSocketMessage(socket, raw); });
     socket.on("close", (code) => {
+      pendingTerminalSubscriptions.delete(socket);
       graphical.release(socket);
       uploads?.releaseSocket(socket);
       files?.releaseSocket(socket);
@@ -204,7 +228,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       auth.handleSocketClosed(socket);
     });
   }
-  return { sendReady, handleWebSocket, handleGraphicalChanged: graphical.handleChanged,
+  return { sendReady, handleWebSocket, handleTerminalData, handleGraphicalChanged: graphical.handleChanged,
     handleGraphicalAuth: graphical.handleAuthEvent, handleGraphicalDelta: graphical.handleDelta };
 }
 

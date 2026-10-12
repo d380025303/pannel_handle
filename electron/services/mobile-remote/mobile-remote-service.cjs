@@ -289,7 +289,7 @@ function createMobileRemoteService({
       const seq = stateHub.write(payload.id, payload.data);
       for (const client of auth.getClients()) {
         const socket = client.socket;
-        if (socket.subscriptions?.has(payload.id)) send(socket, { type: "terminal.data", sessionId: payload.id, data: payload.data, seq });
+        socketHandlers.handleTerminalData(socket, { type: "terminal.data", sessionId: payload.id, data: payload.data, seq });
       }
       queueOverview(payload.id, 300);
     } else if (channel === "terminal:resized") {
