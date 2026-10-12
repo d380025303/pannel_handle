@@ -25,6 +25,61 @@ function createService(fetchImpl, options = {}) {
 }
 
 describe("Responses Chat Completions bridge", () => {
+  it.each(["stream", "fetch", "error body"])("cancels a pending upstream %s and ends the client on shutdown", async phase => {
+    let upstreamSignal;
+    let releaseUpstream;
+    const service = createService(async (_url, { signal }) => {
+      upstreamSignal = signal;
+      const pending = () => new Promise((_resolve, reject) => {
+        releaseUpstream = () => reject(new Error("Test cleanup"));
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+      if (phase === "fetch") return pending();
+      if (phase === "error body") {
+        return { ok: false, status: 429, headers: new Headers(), text: pending };
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'));
+          releaseUpstream = () => controller.error(new Error("Test cleanup"));
+          signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+        }
+      }), { headers: { "content-type": "text/event-stream" } });
+    });
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    let clientEnded = false;
+    let receivedChunk = false;
+    const client = http.request(`${launch.baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" }
+    }, response => {
+      response.on("data", () => { receivedChunk = true; });
+      response.on("end", () => { clientEnded = true; });
+    });
+    client.on("error", () => {});
+    client.end(JSON.stringify({ model: "model-a", input: "hello", stream: true }));
+    try {
+      await vi.waitFor(() => {
+        expect(releaseUpstream).toBeTypeOf("function");
+        if (phase === "stream") expect(receivedChunk).toBe(true);
+      });
+      expect(upstreamSignal.aborted).toBe(false);
+      const shutdown = service.shutdown();
+      expect(service.shutdown()).toBe(shutdown);
+      let closed = false;
+      void shutdown.then(() => { closed = true; });
+      await vi.waitFor(() => {
+        expect(upstreamSignal.aborted).toBe(true);
+        expect(clientEnded).toBe(true);
+        expect(closed).toBe(true);
+      }, { timeout: 1000 });
+      await shutdown;
+    } finally {
+      client.destroy();
+      if (!upstreamSignal?.aborted) releaseUpstream?.();
+    }
+  });
+
   it("shares a listener across concurrent launches and closes it on shutdown", async () => {
     const service = createService(vi.fn());
     const launches = await Promise.all(Array.from({ length: 8 }, () => service.getLaunchConfig(

@@ -78,6 +78,7 @@ function createResponsesChatCompletionsBridgeService({
   const listeners = new Map();
   const pendingListeners = new Map();
   const registrations = new Map();
+  const activeRequests = new Map();
   let shutdownPromise;
 
   function findRegistration(token) {
@@ -96,71 +97,79 @@ function createResponsesChatCompletionsBridgeService({
       return;
     }
 
+    const controller = new AbortController();
+    const abort = () => {
+      controller.abort();
+      activeRequests.delete(response);
+    };
+    activeRequests.set(response, controller);
+    response.once("close", abort);
     let body;
     try {
       body = JSON.parse((await readBody(request)).toString("utf-8"));
+      if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
       const model = String(body?.model || "").trim();
       if (!model || (registration.models.size && !registration.models.has(model))) {
         throw Object.assign(new Error(`${providerName} 模型不可用：${model || "unknown"}`), { statusCode: 400 });
       }
       const converted = responsesToChat(body, { ignoredToolTypes });
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      response.once("close", abort);
-      try {
-        const upstream = await fetchImpl(upstreamUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${registration.apiKey}`,
-            Accept: "text/event-stream",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(requestAdapter(converted.request)),
-          signal: controller.signal
-        });
+      const upstream = await fetchImpl(upstreamUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${registration.apiKey}`,
+          Accept: "text/event-stream",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestAdapter(converted.request)),
+        signal: controller.signal
+      });
+      if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
+      if (!upstream.ok) {
+        const payload = await upstream.text();
         if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
-        if (!upstream.ok) {
-          const payload = await upstream.text();
-          if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
-          const requestId = upstream.headers.get("x-request-id") || upstream.headers.get("cf-ray");
-          response.writeHead(upstream.status, {
-            "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
-            ...(requestId ? { "x-request-id": requestId } : {})
-          });
-          response.end(payload);
-          return;
-        }
-
-        response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
-        const accumulator = createResponseAccumulator({
-          model,
-          customTools: converted.customTools,
-          toolAliases: converted.toolAliases,
-          toolKinds: converted.toolKinds,
-          toolNamespaces: converted.toolNamespaces,
-          requireDone: true,
-          allowFinishReasonAsDone,
-          emit: event => writeSse(response, event)
+        const requestId = upstream.headers.get("x-request-id") || upstream.headers.get("cf-ray");
+        response.writeHead(upstream.status, {
+          "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
+          ...(requestId ? { "x-request-id": requestId } : {})
         });
-        accumulator.start();
-        try {
-          await pipeWebStream(upstream.body, chunk => accumulator.push(chunk));
-        } catch (error) {
-          if (!controller.signal.aborted) accumulator.fail(error);
-        }
-        if (!response.destroyed && !response.writableEnded) {
-          accumulator.finish();
-          response.end();
-        }
-      } finally {
-        response.off("close", abort);
+        response.end(payload);
+        return;
+      }
+
+      response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
+      const accumulator = createResponseAccumulator({
+        model,
+        customTools: converted.customTools,
+        toolAliases: converted.toolAliases,
+        toolKinds: converted.toolKinds,
+        toolNamespaces: converted.toolNamespaces,
+        requireDone: true,
+        allowFinishReasonAsDone,
+        emit: event => writeSse(response, event)
+      });
+      accumulator.start();
+      try {
+        await pipeWebStream(upstream.body, chunk => accumulator.push(chunk));
+      } catch (error) {
+        if (!controller.signal.aborted) accumulator.fail(error);
+      }
+      if (!response.destroyed && !response.writableEnded) {
+        accumulator.finish();
+        response.end();
       }
     } catch (error) {
       errorResponse(response, error.statusCode || 502, error.message || `${providerName} bridge failed.`);
+    } finally {
+      activeRequests.delete(response);
+      response.off("close", abort);
     }
   }
 
   async function route(request, response) {
+    if (shutdownPromise) {
+      errorResponse(response, 503, `${providerName} bridge is shutting down.`);
+      return;
+    }
     const url = new URL(request.url, "http://localhost");
     if (request.method === "POST" && url.pathname === "/v1/responses") return handleResponses(request, response);
     if (request.method === "GET" && url.pathname === "/health") {
@@ -264,6 +273,10 @@ function createResponsesChatCompletionsBridgeService({
   function shutdown() {
     if (!shutdownPromise) shutdownPromise = (async () => {
       await Promise.allSettled([...pendingListeners.values()]);
+      for (const [response, controller] of activeRequests) {
+        controller.abort();
+        response.end();
+      }
       await Promise.all([...listeners.values()].map(({ server }) => new Promise(resolve => server.close(resolve))));
       listeners.clear();
       registrations.clear();
