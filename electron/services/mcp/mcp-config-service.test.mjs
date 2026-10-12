@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -47,11 +47,70 @@ function stdioDraft(name, overrides = {}) {
   };
 }
 
+beforeEach(() => {
+  vi.stubEnv("CODEX_HOME", undefined);
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (roots.length) rmSync(roots.pop(), { recursive: true, force: true });
 });
 
 describe("mcp-config-service", () => {
+  it.each([undefined, "app-server", "terminal"])("uses global CODEX_HOME for user reads, saves and deletes with session %s", (runtimeMode) => {
+    const { root, homeDir } = setup();
+    const codexHome = path.join(root, "custom-codex");
+    vi.stubEnv("CODEX_HOME", codexHome);
+    const filePath = path.join(codexHome, "config.toml");
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(filePath, '[mcp_servers.demo]\ncommand = "old"\n', "utf-8");
+    const defaultPath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(defaultPath), { recursive: true });
+    const defaultText = '[mcp_servers.default]\ncommand = "keep"\n';
+    writeFileSync(defaultPath, defaultText, "utf-8");
+    const session = { id: "windows", type: "windows", runtimeMode };
+    const resolve = vi.fn(() => ({}));
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session }, environmentService: { resolve } });
+    const target = { provider: "codex", scope: "user", ...(runtimeMode ? { sessionId: session.id } : {}) };
+
+    const first = service.list(target);
+    expect(first.path).toBe(filePath);
+    expect(first.servers).toHaveLength(1);
+    expect(first.servers[0]).toMatchObject({ name: "demo", command: "old" });
+    const saved = service.save({ ...target, originalName: "demo", expectedVersion: first.version,
+      draft: stdioDraft("demo", { command: "new" }) });
+    expect(saved.status).toBe("saved");
+    expect(saved.document.path).toBe(filePath);
+    expect(parseToml(readFileSync(filePath, "utf-8")).mcp_servers.demo.command).toBe("new");
+    const removed = service.remove({ ...target, name: "demo", expectedVersion: saved.document.version });
+    expect(removed.status).toBe("removed");
+    expect(removed.document.path).toBe(filePath);
+    expect(removed.document.servers).toEqual([]);
+    expect(parseToml(readFileSync(filePath, "utf-8")).mcp_servers?.demo).toBeUndefined();
+    expect(readFileSync(defaultPath, "utf-8")).toBe(defaultText);
+    if (runtimeMode !== "app-server") expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it.each(["app-server", "terminal"])("applies session CODEX_HOME only for runtime %s", (runtimeMode) => {
+    const { root, homeDir } = setup();
+    const globalHome = path.join(root, "global-codex");
+    const sessionHome = path.join(root, "session-codex");
+    vi.stubEnv("CODEX_HOME", globalHome);
+    const session = { id: "windows", type: "windows", runtimeMode };
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session },
+      environmentService: { resolve: () => ({ CODEX_HOME: sessionHome }) } });
+    expect(service.list({ provider: "codex", scope: "user", sessionId: session.id }).path)
+      .toBe(path.join(runtimeMode === "app-server" ? sessionHome : globalHome, "config.toml"));
+  });
+
+  it("uses the default Codex directory when CODEX_HOME is unset", () => {
+    const { homeDir, service } = setup();
+    expect(service.list({ provider: "codex", scope: "user" }).path)
+      .toBe(path.join(homeDir, ".codex", "config.toml"));
+  });
+
   it.each(["tools[prod]", 'tools["prod"].path\\', "tools['prod']"])("creates, edits and deletes Codex server %s while preserving other configuration", (name) => {
     const { homeDir, service } = setup();
     const filePath = path.join(homeDir, ".codex", "config.toml");

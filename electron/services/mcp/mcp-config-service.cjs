@@ -78,8 +78,9 @@ function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManage
   validateProviderScope(provider, scope);
   const projectDirectory = scope === "user" ? undefined : resolveProjectDirectory(homeDir, terminalManager, graphicalService, sessionId);
   const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
-  const codexHome = provider === "codex" && session?.runtimeMode === "app-server"
-    ? environmentService?.resolve?.(session)?.CODEX_HOME || process.env.CODEX_HOME : undefined;
+  const sessionCodexHome = provider === "codex" && session?.runtimeMode === "app-server"
+    ? environmentService?.resolve?.(session)?.CODEX_HOME : undefined;
+  const codexHome = sessionCodexHome || process.env.CODEX_HOME;
   if (provider === "codex") {
     return {
       provider,
