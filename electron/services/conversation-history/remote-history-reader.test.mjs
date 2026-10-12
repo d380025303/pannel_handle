@@ -14,6 +14,56 @@ function fixture() {
   return { child, spawn, exec, read, fsApi };
 }
 
+const unicodeResponse = { messages: [{ text: "中文回复😀🚀" }] };
+const unicodeBytes = Buffer.from(JSON.stringify(unicodeResponse), "utf8");
+
+it.each(Array.from({ length: unicodeBytes.length - 1 }, (_, index) => index + 1))(
+  "preserves Chinese and emoji when WSL stdout is split at byte %i",
+  async split => {
+    const f = fixture();
+    const result = f.read({ type: "wsl", wslDistro: "Ubuntu" }, "messages", {});
+    f.child.stdout.emit("data", unicodeBytes.subarray(0, split));
+    f.child.stdout.emit("data", unicodeBytes.subarray(split));
+    f.child.emit("close", 0);
+    await expect(result).resolves.toEqual(unicodeResponse);
+    expect(f.child.kill).not.toHaveBeenCalled();
+  }
+);
+
+it("preserves Unicode when every stdout chunk contains just one byte", async () => {
+  const f = fixture();
+  const result = f.read({ type: "wsl", wslDistro: "Ubuntu" }, "messages", {});
+  for (const byte of unicodeBytes) f.child.stdout.emit("data", Buffer.from([byte]));
+  f.child.emit("close", 0);
+  await expect(result).resolves.toEqual(unicodeResponse);
+});
+
+it("flushes incomplete UTF-8 on close instead of silently dropping it", async () => {
+  const f = fixture();
+  const result = f.read({ type: "wsl", wslDistro: "Ubuntu" }, "messages", {});
+  f.child.stdout.emit("data", Buffer.from("{}"));
+  f.child.stdout.emit("data", Buffer.from([0xe4]));
+  f.child.emit("close", 0);
+  await expect(result).rejects.toThrow("invalid response");
+});
+
+it.each([0, 1])("enforces the raw stdout byte limit with %i excess bytes", async excess => {
+  const f = fixture();
+  const result = f.read({ type: "wsl", wslDistro: "Ubuntu" }, "messages", {});
+  const text = "a".repeat(limits.MAX_REMOTE_OUTPUT_BYTES - 5 + excess) + "中";
+  const bytes = Buffer.from(JSON.stringify(text), "utf8");
+  f.child.stdout.emit("data", bytes.subarray(0, bytes.length - 3));
+  f.child.stdout.emit("data", bytes.subarray(bytes.length - 3));
+  f.child.emit("close", 0);
+  if (excess) {
+    await expect(result).rejects.toThrow("query failed");
+    expect(f.child.kill).toHaveBeenCalled();
+  } else {
+    await expect(result).resolves.toBe(text);
+    expect(f.child.kill).not.toHaveBeenCalled();
+  }
+});
+
 it("routes WSL through its distribution and keeps the encoded script and request intact", async () => {
   const f = fixture();
   const result = f.read({ type: "wsl", wslDistro: "Ubuntu", id: "wsl-1" }, "list", { cwd: "/work/a b", limit: 50 });

@@ -1,4 +1,5 @@
 const { spawn: defaultSpawn } = require("node:child_process");
+const { StringDecoder } = require("node:string_decoder");
 const { REMOTE_TIMEOUT_MS, MAX_REMOTE_OUTPUT_BYTES } = require("./history-limits.cjs");
 
 function shellQuote(value) {
@@ -9,6 +10,8 @@ function runProcess(command, args, spawn = defaultSpawn) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    let stdoutBytes = 0;
     let stderr = "";
     let settled = false;
     const timer = setTimeout(() => {
@@ -18,8 +21,9 @@ function runProcess(command, args, spawn = defaultSpawn) {
       reject(new Error("Agent conversation history query timed out."));
     }, REMOTE_TIMEOUT_MS);
     child.stdout.on("data", chunk => {
-      stdout += chunk.toString("utf-8");
-      if (Buffer.byteLength(stdout, "utf-8") > MAX_REMOTE_OUTPUT_BYTES) child.kill();
+      stdoutBytes += chunk.length;
+      stdout += stdoutDecoder.write(chunk);
+      if (stdoutBytes > MAX_REMOTE_OUTPUT_BYTES) child.kill();
     });
     child.stderr.on("data", chunk => { stderr += chunk.toString("utf-8"); });
     child.once("error", error => {
@@ -32,7 +36,8 @@ function runProcess(command, args, spawn = defaultSpawn) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (code === 0 && Buffer.byteLength(stdout, "utf-8") <= MAX_REMOTE_OUTPUT_BYTES) resolve(stdout);
+      stdout += stdoutDecoder.end();
+      if (code === 0 && stdoutBytes <= MAX_REMOTE_OUTPUT_BYTES) resolve(stdout);
       else reject(new Error(stderr.trim() || "Agent conversation history query failed."));
     });
   });
