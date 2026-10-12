@@ -333,8 +333,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function snapshot(id) {
     const entry = entryFor(id);
-    if (entry.historySnapshot) return { ...entry.historySnapshot, busy: true };
-    return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
+    if (entry.historySnapshot) return { ...entry.historySnapshot, streamId: entry.streamId, revision: entry.revision, busy: true };
+    return { streamId: entry.streamId, revision: entry.revision, threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
       busy: entry.busy || Boolean(entry.mainAgentChanging) || historyOperations.has(id) || Boolean(auth?.isActive(id)), error: entry.error, pendingPlan: entry.pendingPlan
         ? { itemId: entry.pendingPlan.itemId } : null, model: entry.model,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
@@ -368,12 +368,34 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       promotions: getPromotionDisplay(model.promotions)
     }));
   }
-  function publish(id) { if (sessions.has(id)) broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
-  // 会话重放/流式输出会密集触发 session/update；逐条全量广播会让主进程与渲染进程
-  // 陷入 O(N^2) 的序列化与重渲染，导致窗口冻结。此处将 onUpdate 的广播按短窗口合并。
-  function schedulePublish(id) {
-    if (!sessions.has(id) || publishTimers.has(id)) return;
-    const timer = setTimeout(() => { publishTimers.delete(id); publish(id); }, PUBLISH_COALESCE_MS);
+  function publish(id) {
+    clearPendingPublish(id);
+    const entry = sessions.get(id);
+    if (!entry) return;
+    entry.streamText.clear(); entry.pendingFullSnapshot = false;
+    entry.revision += 1;
+    broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
+  }
+  // 结构变化保留快照；已有消息的纯文本追加只发送合并后的增量。
+  function schedulePublish(id, textAppend) {
+    const entry = sessions.get(id);
+    if (!entry) return;
+    if (textAppend) entry.streamText.set(textAppend.itemId,
+      (entry.streamText.get(textAppend.itemId) || "") + textAppend.delta);
+    else entry.pendingFullSnapshot = true;
+    if (publishTimers.has(id)) return;
+    const timer = setTimeout(() => {
+      publishTimers.delete(id);
+      if (sessions.get(id) !== entry) return;
+      if (entry.pendingFullSnapshot) { publish(id); return; }
+      const textDeltas = [...entry.streamText].map(([itemId, delta]) => ({ itemId, delta }));
+      entry.streamText.clear();
+      if (!textDeltas.length) return;
+      const baseRevision = entry.revision;
+      entry.revision += 1;
+      broadcast("codex-app-server:delta", { id, streamId: entry.streamId, threadId: entry.threadId,
+        baseRevision, revision: entry.revision, items: [], turnDiffs: [], textDeltas });
+    }, PUBLISH_COALESCE_MS);
     publishTimers.set(id, timer);
   }
   function clearPendingPublish(id) {
@@ -405,13 +427,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!text) return;
     if (provider === "claude" && type === "agentMessage") {
       const previous = items.at(-1);
-      if (previous?.type === type && previous.turnId === turnId && previous.streaming) previous.text += text;
+      if (previous?.type === type && previous.turnId === turnId && previous.streaming) { previous.text += text; return previous; }
       else items.push({ id: messageId && !items.some(item => item.id === messageId) ? messageId : randomUUID(),
         type, turnId, text, streaming: true });
       return;
     }
     const existing = messageId ? items.find(item => item.id === messageId) : items.at(-1);
-    if (existing?.type === type && existing.turnId === turnId && (messageId || existing.streaming)) existing.text += text;
+    if (existing?.type === type && existing.turnId === turnId && (messageId || existing.streaming)) { existing.text += text; return existing; }
     else items.push({ id: messageId || randomUUID(), type, turnId, text, streaming: true });
   }
   function appendTurnError(entry, turnId, detail) {
@@ -473,6 +495,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       return;
     }
     if (value.sessionId !== entry.threadId && value.sessionId !== entry.loadingThreadId) return;
+    let textAppend;
     const kind = update.sessionUpdate;
     if (provider === "opencode" && kind === "session_info_update"
       && value.sessionId === entry.threadId && entry.foregroundBusy && !entry.openCodeRetryCancelled
@@ -544,8 +567,19 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             if (!loaded.attachments.some(file => file.path === attachment.path)) loaded.attachments.push(attachment);
           }
         }
-        appendText(items, kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
+        const appended = appendText(items, kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
           update.content?.text, update.messageId, turnId);
+        if (appended && !member && !unsolicited && !entry.loadingThreadId && !entry.historySnapshot
+          && kind !== "user_message_chunk" && typeof update.content?.text === "string") {
+          let target = appended;
+          // Claude 快照会合并相邻回复，增量必须使用合并后保留的首条消息 ID。
+          if (provider === "claude" && appended.type === "agentMessage") {
+            let index = items.indexOf(appended);
+            while (index > 0 && items[index - 1].type === "agentMessage" && items[index - 1].turnId === appended.turnId)
+              target = items[--index];
+          }
+          textAppend = { itemId: target.id, delta: update.content.text };
+        }
         if (kind === "user_message_chunk" && (provider === "opencode" ? isOpenCodeMessageId(update.messageId) : isRewindMessageId(update.messageId))) {
           const loaded = items.findLast(item => item.type === "userMessage" && item.id === update.messageId);
           if (loaded) loaded.rewindMessageId = update.messageId;
@@ -612,7 +646,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
           && !entry.forkReplay && !historyOperations.has(id)) void recordTokenUsage(entry, { live: true });
       }
     }
-    schedulePublish(id);
+    schedulePublish(id, textAppend);
   }
   function replayContextUsage(entry) {
     const update = entry.earlyContextUsage.get(entry.threadId)?.update;
@@ -796,6 +830,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
     if (loginClosed()) { stopAgentChild(child, provider); throw new Error("原图形会话已关闭。"); }
     const entry = { child, session, runtime, environment, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
+      streamId: randomUUID(), revision: 0, streamText: new Map(), pendingFullSnapshot: false,
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
       error: null, pendingPlan: null, queuedPlans: [], items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       authMethods: [], authRequired: false,

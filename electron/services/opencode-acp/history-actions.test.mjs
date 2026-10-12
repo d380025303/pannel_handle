@@ -106,7 +106,9 @@ describe("OpenCode graphical history actions", () => {
     await f.start(); await f.service.submit("one", "keep original");
     const before = f.service.snapshot("one");
     await expect(f.service.forkThread("one", "history")).rejects.toThrow("fork failed");
-    expect(f.service.snapshot("one")).toEqual(before);
+    const after = f.service.snapshot("one");
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(after).toEqual({ ...before, revision: after.revision });
   });
 
   it("keeps failed deletions in history and unlocks for retry", async () => {

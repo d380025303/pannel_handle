@@ -16,6 +16,76 @@ function fakeChild(onMessage) {
 }
 
 describe("Claude ACP sessions", () => {
+  it.each([0, 2 * 1024 * 1024])("streams 20 appends without retransmitting %i bytes of tool history", async outputSize => {
+    let emitMessage; let prompt;
+    const child = fakeChild((message, emit) => {
+      emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") prompt = message;
+    });
+    const broadcasts = [];
+    const service = createClaudeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, spawnProcess: () => child,
+      broadcast: (channel, value) => broadcasts.push([channel, JSON.parse(JSON.stringify(value))]) });
+    const update = value => emitMessage({ method: "session/update", params: { sessionId: "thread", update: value } });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      const turn = service.submit("one", "test");
+      await vi.waitFor(() => expect(prompt).toBeTruthy());
+      vi.useFakeTimers();
+      update({ sessionUpdate: "tool_call", toolCallId: "tool", status: "completed",
+        content: [{ content: { text: "x".repeat(outputSize) } }] });
+      update({ sessionUpdate: "agent_message_chunk", messageId: "reply", content: { type: "text", text: "seed" } });
+      await vi.advanceTimersByTimeAsync(65);
+      const baseline = service.snapshot("one");
+      const streamId = baseline.streamId;
+      let revision = baseline.revision;
+      broadcasts.length = 0;
+      for (let index = 0; index < 20; index++) {
+        update({ sessionUpdate: "agent_message_chunk", messageId: `chunk-${index}`, content: { type: "text", text: "a" } });
+        await vi.advanceTimersByTimeAsync(65);
+      }
+      expect(broadcasts).toHaveLength(20);
+      let text = "seed";
+      for (const [channel, delta] of broadcasts) {
+        expect(channel).toBe("codex-app-server:delta");
+        expect(delta).toMatchObject({ streamId, baseRevision: revision, revision: revision + 1,
+          items: [], turnDiffs: [], textDeltas: [{ itemId: "reply", delta: "a" }] });
+        revision = delta.revision;
+        text += delta.textDeltas[0].delta;
+      }
+      const bytes = broadcasts.reduce((sum, [, value]) => sum + Buffer.byteLength(JSON.stringify(value)), 0);
+      expect(bytes).toBeLessThan(6000);
+      // 缺失版本后的 snapshot 重同步包含全部文本及当前版本。
+      expect(service.snapshot("one")).toMatchObject({ streamId, revision,
+        items: expect.arrayContaining([expect.objectContaining({ id: "reply", text })]) });
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "b" } });
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "c" } });
+      await vi.advanceTimersByTimeAsync(49);
+      expect(broadcasts).toHaveLength(20);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(broadcasts.at(-1)[1].textDeltas).toEqual([{ itemId: "reply", delta: "bc" }]);
+      text += "bc";
+      // 同一合并窗口出现结构变化时，快照吸收待发送文本。
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "d" } });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "tool", status: "completed" });
+      await vi.advanceTimersByTimeAsync(50);
+      expect(broadcasts.at(-1)[0]).toBe("codex-app-server:changed");
+      text += "d";
+      // 完成前尚未广播的追加必须由最终快照吸收，不能随后重复发送。
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "!" } });
+      emitMessage({ id: prompt.id, result: { stopReason: "end_turn" } });
+      await turn;
+      expect(broadcasts.at(-1)[0]).toBe("codex-app-server:changed");
+      expect(broadcasts.at(-1)[1].snapshot).toMatchObject({ busy: false,
+        items: expect.arrayContaining([expect.objectContaining({ id: "reply", text: text + "!" })]) });
+      const count = broadcasts.length;
+      await vi.advanceTimersByTimeAsync(65);
+      expect(broadcasts).toHaveLength(count);
+    } finally { vi.useRealTimers(); service.shutdown(); }
+  });
+
   it("launches the adapter on Windows and WSL and routes graphical calls", () => {
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1)).toContain("claude-agent-acp");
     expect(buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, {}, {}).args.at(-1)).toContain("exec claude-agent-acp");
