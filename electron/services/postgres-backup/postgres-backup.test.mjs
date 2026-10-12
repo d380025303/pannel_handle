@@ -153,8 +153,8 @@ describe("PostgreSQL backup service", () => {
       expect(policyWrites.every(write => write.parameters[0] === second.deviceId)).toBe(true);
       expect(policyWrites[0].parameters[4].item).toBeUndefined();
       expect(inserted).toHaveLength(1);
-      expect(inserted[0][3]).toBe(longId);
-      expect(inserted[0][4]).toBe(existingHash);
+      expect(JSON.parse(inserted[0][3])[0].message_id).toBe(longId);
+      expect(JSON.parse(inserted[0][3])[0].message_hash).toBe(existingHash);
       expect(queries.some(sql => sql.includes("DROP CONSTRAINT ph_messages_pkey"))).toBe(true);
       expect(queries.filter(sql => sql.includes("ADD CONSTRAINT ph_messages_pkey"))).toHaveLength(1);
     } finally {
@@ -166,6 +166,103 @@ describe("PostgreSQL backup service", () => {
   });
 });
 
+
+describe("conversation batch synchronization", () => {
+  it("writes 1000 messages in five delayed batches, deduplicates, skips unchanged backups and rolls back failures", async () => {
+    let remote = { conversation: null, messages: new Map() };
+    let beforeTransaction;
+    let updatedAt = 1;
+    let failBatch = 0;
+    const batches = [];
+    const queries = [];
+    const messages = Array.from({ length: 1000 }, (_, i) => ({
+      id: `message-${i}`, kind: "reply", text: `answer-${i}`, timestamp: i,
+      item: { type: "agentMessage", output: "private protocol" }
+    }));
+    const client = { release() {}, async query(sql, params = []) {
+      queries.push(sql);
+      if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
+      if (sql === "ROLLBACK") remote = beforeTransaction;
+      if (sql.includes("SELECT version FROM ph_conversation_rules")) return { rows: [{ version: 2 }] };
+      if (sql.includes("SELECT updated_at, message_rule_version")) return { rows: remote.conversation ? [remote.conversation] : [] };
+      if (sql.includes("INSERT INTO ph_conversations(")) remote.conversation = { updated_at: params[4], message_rule_version: 0 };
+      if (sql.includes("UPDATE ph_conversations SET message_rule_version")) remote.conversation.message_rule_version = params[0];
+      if (sql.includes("INSERT INTO ph_messages(")) {
+        expect(sql).toContain("jsonb_to_recordset($4::jsonb)");
+        expect(sql).toContain("ON CONFLICT(device_id,source_key,conversation_ref,message_hash)");
+        expect(sql).toContain("DO UPDATE SET message_id=excluded.message_id,data=excluded.data");
+        const batch = JSON.parse(params[3]);
+        expect(new Set(batch.map(row => row.message_hash)).size).toBe(batch.length);
+        batches.push(batch);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        if (batches.length === failBatch) throw new Error("message batch failed");
+        for (const row of batch) remote.messages.set(JSON.stringify([...params.slice(0, 3), row.message_hash]), row);
+      }
+      return { rows: [] };
+    } };
+    class FakePool { async connect() { return client; } async end() {} }
+    const session = { id: "local", type: "windows", cwd: "C:\\work" };
+    const historyService = {
+      listHistoryForSession: async () => ({ items: [{ ref: "codex:conversation", updatedAt }], nextCursor: null }),
+      getHistoryMessagesForSession: vi.fn(async (_session, { cursor, limit }) => {
+        expect(limit).toBe(200);
+        const offset = Number(cursor || 0);
+        return { messages: messages.slice(offset, offset + limit), nextCursor: offset + limit < messages.length ? String(offset + limit) : null };
+      })
+    };
+    const service = createPostgresBackupService({ userData: tmpdir(),
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value), decryptString: value => value.toString("utf8") },
+      sessionStore: { exportLibrary: () => [] }, statsFile: "missing", fsApi: { existsSync: () => false },
+      dataStore: { read: () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); }, write() {} },
+      terminalManager: { listSessions: () => [session], getSession: () => session }, historyService, PoolClass: FakePool
+    });
+    try {
+      service.load();
+      await service.saveConfig({ enabled: true, host: "localhost", database: "backup", user: "user", password: "password", passphrase: "passphrase" });
+      await service.shutdown();
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(batches.map(batch => batch.length)).toEqual([200, 200, 200, 200, 200]);
+      expect([...remote.messages.values()].map(row => row.data)).toEqual(messages.map(({ item, ...message }) => message));
+      const original = structuredClone(remote);
+      await service.backupNow();
+      expect(batches).toHaveLength(5);
+      expect(historyService.getHistoryMessagesForSession).toHaveBeenCalledTimes(5);
+      expect(remote).toEqual(original);
+
+      updatedAt = 2;
+      messages[0].text = "updated answer";
+      batches.length = 0;
+      failBatch = 2;
+      expect((await service.backupNow()).lastError).toContain("message batch failed");
+      expect(remote).toEqual(original);
+      expect(queries.at(-1)).toBe("ROLLBACK");
+      failBatch = 0;
+      batches.length = 0;
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(remote.messages.size).toBe(1000);
+      expect([...remote.messages.values()][0].data.text).toBe("updated answer");
+
+      // Last duplicate wins both inside a page and across page boundaries.
+      updatedAt = 3;
+      messages.splice(0, messages.length,
+        { id: "duplicate", kind: "user", text: "first" },
+        { id: "duplicate", kind: "user", text: "last in page" },
+        ...Array.from({ length: 198 }, () => ({ id: "tool", kind: "tool", text: "filtered" })),
+        { id: "duplicate", kind: "user", text: "last across pages" });
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches.map(batch => batch.length)).toEqual([1, 1]);
+      expect(batches[0][0].data.text).toBe("last in page");
+      expect([...remote.messages.values()].at(-1).data.text).toBe("last across pages");
+      updatedAt = 4;
+      messages.splice(0, messages.length, { id: "tool", kind: "tool", text: "filtered" });
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches).toEqual([]);
+      expect(remote.conversation.message_rule_version).toBe(2);
+    } finally { await service.shutdown(); }
+  });
+});
 
 describe("statistics snapshot synchronization", () => {
   it("removes deleted details, preserves other devices and epochs, and rolls back failed snapshots", async () => {

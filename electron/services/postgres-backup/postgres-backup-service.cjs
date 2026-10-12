@@ -309,14 +309,21 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
               do {
                 const messages = await historyService.getHistoryMessagesForSession(session, {
                   conversationRef: item.ref, cursor: messageCursor, limit: 200 });
+                const batch = new Map();
                 for (const value of messages.messages) {
                   const message = savedMessage(value);
                   if (!message) continue;
+                  const hash = crypto.createHash("sha256").update(message.id).digest("hex");
+                  // Keep the last value, matching sequential UPSERTs for duplicate IDs.
+                  batch.set(hash, { message_id: message.id, message_hash: hash, data: message });
+                }
+                if (batch.size) {
                   await client.query(`INSERT INTO ph_messages(device_id,source_key,conversation_ref,message_id,message_hash,data)
-                    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(device_id,source_key,conversation_ref,message_hash)
+                    SELECT $1, $2, $3, batch.message_id, batch.message_hash, batch.data
+                    FROM jsonb_to_recordset($4::jsonb) AS batch(message_id TEXT, message_hash TEXT, data JSONB)
+                    ON CONFLICT(device_id,source_key,conversation_ref,message_hash)
                     DO UPDATE SET message_id=excluded.message_id,data=excluded.data`,
-                  [state.deviceId, key, item.ref, message.id,
-                    crypto.createHash("sha256").update(message.id).digest("hex"), message]);
+                  [state.deviceId, key, item.ref, JSON.stringify([...batch.values()])]);
                 }
                 messageCursor = messages.nextCursor;
               } while (messageCursor);
