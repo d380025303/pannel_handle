@@ -369,11 +369,38 @@ function parseTomlHeaderPath(header) {
   });
 }
 
+function scanTomlStringState(line, state) {
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (state) {
+      if (state[0] === '"' && char === "\\") { index += 1; continue; }
+      if (line.startsWith(state, index)) {
+        // Closing multiline delimiters may include one or two literal quotes.
+        let end = index + state.length;
+        if (state.length === 3) while (line[end] === state[0]) end += 1;
+        index = end - 1;
+        state = "";
+      }
+    } else {
+      if (char === "#") break;
+      if (char === '"' || char === "'") {
+        state = line.startsWith(char.repeat(3), index) ? char.repeat(3) : char;
+        index += state.length - 1;
+      }
+    }
+  }
+  return state;
+}
+
 function replaceCodexServer(text, originalName, name, config) {
   const lines = text.match(/.*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) || [];
   const matches = [];
+  const boundaries = new Set();
+  let stringState = "";
   for (let index = 0; index < lines.length; index += 1) {
-    const header = lines[index].match(/^\s*\[((?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|[^\[\]"'\r\n])+)\]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
+    const header = !stringState && lines[index].match(/^\s*\[((?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|[^\[\]"'\r\n])+)\]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/);
+    if (!stringState && /^\s*\[[^\r\n]+]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/.test(lines[index])) boundaries.add(index);
+    stringState = scanTomlStringState(lines[index], stringState);
     if (!header) continue;
     const parts = parseTomlHeaderPath(header[1]);
     if (parts[0] === "mcp_servers" && parts[1] === originalName) matches.push(index);
@@ -387,14 +414,15 @@ function replaceCodexServer(text, originalName, name, config) {
   const remove = new Set();
   for (const start of matches) {
     let end = start + 1;
-    while (end < lines.length && !/^\s*\[[^\r\n]+]\s*(?:#.*)?(?:\r\n|\n|\r|$)$/.test(lines[end])) end += 1;
+    while (end < lines.length && !boundaries.has(end)) end += 1;
     for (let index = start; index < end; index += 1) remove.add(index);
   }
-  let output = lines.filter((_line, index) => !remove.has(index)).join("").replace(/[\t ]+$/gm, "").replace(/(?:\r?\n){3,}$/g, "\n\n");
+  let output = lines.filter((_line, index) => !remove.has(index)).join("");
   if (name && config) {
     const block = stringifyToml({ mcp_servers: { [name]: config } }).trim();
     output = `${output.trimEnd()}${output.trim() ? "\n\n" : ""}${block}\n`;
   }
+  parseTomlDocument(output);
   return output;
 }
 

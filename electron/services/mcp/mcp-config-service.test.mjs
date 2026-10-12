@@ -76,6 +76,50 @@ describe("mcp-config-service", () => {
     expect(parseToml(readFileSync(filePath, "utf-8")).mcp_servers).toEqual({ other: { command: "other" } });
   });
 
+  it.each(["'''", '"""'])("removes Codex servers containing %s multiline strings without changing other values", (delimiter) => {
+    const { homeDir, service } = setup();
+    const filePath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const text = `model = "keep"\nnotes = ${delimiter}\n[mcp_servers.demo]\nkeep trailing spaces   \n${delimiter}\n`
+      + '# ignored delimiter """ and \'\'\'\n'
+      + '[mcp_servers.demo]\ncommand = "node"\n[mcp_servers.demo.env]\n'
+      + `CONFIG = ${delimiter}\n[section]\nkey=value\n[mcp_servers.other]\n${delimiter}\n`
+      + '[mcp_servers.other]\ncommand = "other"\n'
+      + `description = ${delimiter}\n[mcp_servers.demo.env]\nunchanged   \n${delimiter}\n`
+      + '[[unrelated.items]]\nname = "keep"\n';
+    const expected = parseToml(text);
+    delete expected.mcp_servers.demo;
+    writeFileSync(filePath, text, "utf-8");
+    const target = { provider: "codex", scope: "user" };
+    const result = service.remove({ ...target, name: "demo", expectedVersion: service.list(target).version });
+    expect(result.status).toBe("removed");
+    expect(parseToml(readFileSync(filePath, "utf-8"))).toEqual(expected);
+    expect(readFileSync(`${filePath}.pannel-handle.bak`, "utf-8")).toBe(text);
+  });
+
+  it("handles escaped quotes and closing quote runs in multiline basic strings", () => {
+    const text = '[mcp_servers.demo]\ncommand = "node"\nCONFIG = """\n\\"""\n[section]\nkey=value\n"""""\n'
+      + '[mcp_servers.other]\ncommand = "keep"\n';
+    expect(parseToml(text).mcp_servers.demo.CONFIG).toContain('[section]');
+    expect(parseToml(replaceCodexServer(text, "demo"))).toEqual({ mcp_servers: { other: { command: "keep" } } });
+  });
+
+  it("rejects invalid generated TOML and leaves unsupported inline entries untouched", () => {
+    const { homeDir, service } = setup();
+    const filePath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const text = '[mcp_servers]\ndemo = { command = "node" }\n';
+    writeFileSync(filePath, text, "utf-8");
+    expect(() => replaceCodexServer('[mcp_servers.demo]\ncommand = "old"\n', undefined, "demo", { command: "new" }))
+      .toThrow(/Invalid Codex MCP TOML/);
+    const target = { provider: "codex", scope: "user" };
+    expect(() => service.remove({ ...target, name: "demo", expectedVersion: service.list(target).version }))
+      .toThrow(/cannot be edited safely/);
+    expect(readFileSync(filePath, "utf-8")).toBe(text);
+    expect(existsSync(`${filePath}.pannel-handle.bak`)).toBe(false);
+    expect(existsSync(`${filePath}.pannel-handle.tmp`)).toBe(false);
+  });
+
   it("recognizes literal quoted Codex table names and preserves following tables", () => {
     const unrelated = '[mcp_servers.other]\r\ncommand = "keep"\r\n';
     const text = "[mcp_servers.'tools[prod]'] # server\r\ncommand = \"old\"\r\n"
