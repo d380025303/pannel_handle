@@ -119,11 +119,13 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     const method = methods[request.kind]?.[operation.type];
     if (!method) throw new Error("无效的处理操作。");
     if (operation.type === "approve") {
-      const decision = operation.decision;
+      const isCodex = current.provider === "codex" || !current.provider;
+      const decision = isCodex && typeof operation.decision === "boolean"
+        ? operation.decision ? "accept" : "decline" : operation.decision;
       const params = request.request.params;
       if (typeof decision !== "boolean" && typeof decision !== "string") throw new Error("无效的授权选择。");
       if (params.choices?.length && !params.choices.some(choice => choice.id === decision)) throw new Error("授权选择已失效。");
-      if (current.provider === "codex" || !current.provider) {
+      if (isCodex) {
         const allowed = params.availableDecisions || ["accept", "decline", "cancel", "acceptForSession", "acceptWithExecpolicyAmendment"];
         if (!allowed.some(value => value === decision || decision === "acceptWithExecpolicyAmendment" && value && typeof value === "object" && Object.hasOwn(value, decision))) throw new Error("授权选择已失效。");
         if (decision === "acceptWithExecpolicyAmendment" && (request.request.method !== "item/commandExecution/requestApproval" || !Array.isArray(params.proposedExecpolicyAmendment) || !params.proposedExecpolicyAmendment.length || !params.proposedExecpolicyAmendment.every(part => typeof part === "string" && part.trim()))) throw new Error("无效的命令规则。");

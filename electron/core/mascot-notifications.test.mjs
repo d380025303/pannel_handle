@@ -113,6 +113,38 @@ describe("mascot task notifications", () => {
     await manager.processAction(head().id, { type: "answer", answers: { q: { answers: ["A"] } } });
     expect(graphical.answerQuestion).toHaveBeenCalledWith("a", 8, { q: { answers: ["A"] } }); expect(head()).toBeNull();
   });
+  it.each(["codex", undefined])("accepts equivalent boolean and string approvals for provider %s", async provider => {
+    pending.provider = provider;
+    for (const decision of [true, "accept", false, "decline"]) {
+      pending.approvals = [{ requestId: 7, method: "item/commandExecution/requestApproval",
+        params: { availableDecisions: ["accept", "decline"], choices: [{ id: "accept" }, { id: "decline" }] } }];
+      graphical.resolveApproval = vi.fn(async () => { pending.approvals = []; });
+      manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
+      await manager.processAction(head().id, { type: "approve", decision });
+      expect(graphical.resolveApproval).toHaveBeenCalledWith("a", 7, decision);
+      expect(head()).toBeNull();
+    }
+  });
+  it.each([[true, "decline"], [false, "accept"], ["accept", "decline"], ["decline", "accept"]])(
+    "rejects approval %s when only %s is allowed", async (decision, allowed) => {
+      pending.approvals = [{ requestId: 7, method: "item/commandExecution/requestApproval",
+        params: { availableDecisions: [allowed] } }];
+      graphical.resolveApproval = vi.fn();
+      manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
+      const id = head().id;
+      await expect(manager.processAction(id, { type: "approve", decision })).rejects.toThrow("授权选择已失效");
+      expect(graphical.resolveApproval).not.toHaveBeenCalled();
+      expect(head().id).toBe(id);
+    });
+  it.each([true, false, "allow-once"])("preserves other providers' approval decision %s", async decision => {
+    pending.provider = "codebuddy";
+    pending.approvals = [{ requestId: 7, params: { choices: [{ id: decision }] } }];
+    graphical.resolveApproval = vi.fn(async () => { pending.approvals = []; });
+    manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
+    await manager.processAction(head().id, { type: "approve", decision });
+    expect(graphical.resolveApproval).toHaveBeenCalledWith("a", 7, decision);
+    expect(head()).toBeNull();
+  });
   it("clears result and pending notifications when sessions close or clear", async () => {
     status("a", "running"); status("a", "completed"); await settle();
     status("a", "cleared"); expect(head()).toBeNull();
