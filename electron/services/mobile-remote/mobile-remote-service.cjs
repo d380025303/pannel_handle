@@ -57,7 +57,10 @@ function createMobileRemoteService({
   const auth = createMobileAuth({
     accessStore, now, send, sendError, notifyConnection, broadcastState, currentState,
     releaseDeviceSizes: sizes.releaseDeviceSizes,
-    sendReady: socket => socketHandlers.sendReady(socket)
+    sendReady: socket => {
+      if (auth.getClients().length === 1) lastOverviews.clear();
+      socketHandlers.sendReady(socket);
+    }
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now,
@@ -122,14 +125,17 @@ function createMobileRemoteService({
   }
 
   function queueOverview(sessionId, delay = 0) {
+    if (!auth.getClients().length) return;
     if (overviewTimers.has(sessionId)) return;
     overviewTimers.set(sessionId, setTimeout(() => {
       overviewTimers.delete(sessionId);
+      if (!auth.getClients().length) return;
       const session = terminalManager.getSession(sessionId);
       if (!session) return;
       const revision = (overviewRevisions.get(sessionId) || 0) + 1;
       overviewRevisions.set(sessionId, revision);
       void sessionOverview(session, graphicalService, stateHub, agentStatuses.get(sessionId)).then(overview => {
+        if (!auth.getClients().length) return;
         if (!terminalManager.getSession(sessionId) || overviewRevisions.get(sessionId) !== revision) return;
         const serialized = JSON.stringify(overview);
         if (lastOverviews.get(sessionId) === serialized) return;
