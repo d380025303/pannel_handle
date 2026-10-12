@@ -2,6 +2,51 @@ import { describe, expect, it, vi } from "vitest";
 import { createTerminalStateHub, MAX_WRITE_BATCH_CHARS } from "./terminal-state-hub.cjs";
 
 describe("terminal state hub", () => {
+  it("preserves delta boundaries through repeated eviction and compaction", async () => {
+    const hub = createTerminalStateHub({ maxDeltaBytes: 24 });
+    try {
+      const state = hub.start("run-1", 40, 3);
+      const data = "日志\r\n";
+      const count = 3100;
+      for (let seq = 1; seq <= count; seq += 1) {
+        expect(hub.write("run-1", data)).toBe(seq);
+        const first = Math.max(1, seq - 2);
+        expect(hub.getDeltas("run-1", first - 1)).toEqual(
+          Array.from({ length: seq - first + 1 }, (_, index) => ({ seq: first + index, data }))
+        );
+        if (first > 1) expect(hub.getDeltas("run-1", first - 2)).toBeNull();
+        expect(hub.getDeltas("run-1", seq)).toEqual([]);
+        expect(state.deltaBytes).toBe(Math.min(seq, 3) * Buffer.byteLength(data, "utf8"));
+      }
+      expect(state.deltas.length).toBeLessThan(1027);
+      expect(state.deltas.slice(0, state.deltaHead).every((event) => event === null)).toBe(true);
+      expect(hub.getDeltas("run-1", count - 1)).toEqual([{ seq: count, data }]);
+      expect(await hub.getSnapshot("run-1")).toMatchObject({ seq: count });
+      expect(await hub.getText("run-1", 200)).toContain("日志");
+      hub.start("run-1");
+      expect(hub.getSequence("run-1")).toBe(0);
+      expect(hub.getDeltas("run-1", 0)).toEqual([]);
+    } finally {
+      hub.shutdown();
+    }
+  });
+
+  it("keeps the newest oversized delta and evicts it on subsequent output", async () => {
+    const hub = createTerminalStateHub({ maxDeltaBytes: 4 });
+    try {
+      hub.write("run-1", "hello");
+      expect(hub.getDeltas("run-1", 0)).toEqual([{ seq: 1, data: "hello" }]);
+      expect(hub.ensure("run-1").deltaBytes).toBe(5);
+      hub.write("run-1", "界");
+      expect(hub.getDeltas("run-1", 0)).toBeNull();
+      expect(hub.getDeltas("run-1", 1)).toEqual([{ seq: 2, data: "界" }]);
+      expect(hub.ensure("run-1").deltaBytes).toBe(3);
+      expect(await hub.getSnapshot("run-1")).toMatchObject({ ansi: "hello界", seq: 2 });
+    } finally {
+      hub.shutdown();
+    }
+  });
+
   it.each([1000, 3000])("batches %i small writes while preserving every delta", async (count) => {
     const hub = createTerminalStateHub();
     try {

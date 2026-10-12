@@ -5,6 +5,7 @@ const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const DEFAULT_SCROLLBACK = 5000;
 const MAX_DELTA_BYTES = 2 * 1024 * 1024;
+const MIN_DELTA_COMPACT_COUNT = 1024;
 const MAX_WRITE_BATCH_CHARS = 64 * 1024;
 
 function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes = MAX_DELTA_BYTES } = {}) {
@@ -25,6 +26,7 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
       serializer,
       seq: 0,
       deltas: [],
+      deltaHead: 0,
       deltaBytes: 0,
       pending: Promise.resolve(),
       writeBatch: null
@@ -51,9 +53,17 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     const event = { seq: state.seq, data: text };
     state.deltas.push(event);
     state.deltaBytes += Buffer.byteLength(text, "utf8");
-    while (state.deltas.length > 1 && state.deltaBytes > maxDeltaBytes) {
-      const removed = state.deltas.shift();
+    while (state.deltas.length - state.deltaHead > 1 && state.deltaBytes > maxDeltaBytes) {
+      const removed = state.deltas[state.deltaHead];
+      state.deltas[state.deltaHead] = null;
+      state.deltaHead += 1;
       state.deltaBytes -= Buffer.byteLength(removed.data, "utf8");
+    }
+    // Release evicted data immediately; only copy survivors once the discarded
+    // prefix is large enough to amortize compaction across preceding writes.
+    if (state.deltaHead >= MIN_DELTA_COMPACT_COUNT && state.deltaHead * 2 >= state.deltas.length) {
+      state.deltas = state.deltas.slice(state.deltaHead);
+      state.deltaHead = 0;
     }
     // Queue one callback per bounded batch, letting adjacent output share xterm's
     // asynchronous parser turn. Seal a batch as soon as it starts executing.
@@ -119,9 +129,9 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     const state = states.get(id);
     if (!state || !Number.isSafeInteger(afterSeq) || afterSeq < 0 || afterSeq > state.seq) return null;
     if (afterSeq === state.seq) return [];
-    const first = state.deltas[0]?.seq;
+    const first = state.deltas[state.deltaHead]?.seq;
     if (!first || afterSeq < first - 1) return null;
-    return state.deltas.filter((event) => event.seq > afterSeq);
+    return state.deltas.slice(state.deltaHead + afterSeq + 1 - first);
   }
 
   function getSequence(id) {
