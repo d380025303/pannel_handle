@@ -1,3 +1,4 @@
+import http from "node:http";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -105,6 +106,64 @@ describe("Responses Chat Completions bridge", () => {
     const response = await service.fetchResponses({ apiKey: "secret", body: { model: "model-a", input: "hello", stream: true } });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: { type: "telegram_required", message: "Relink your account", request_id: "req-nara" } });
+  });
+
+  it("aborts a pending upstream error body when the HTTP client disconnects", async () => {
+    let upstreamSignal;
+    let rejectBody;
+    let bodyStarted = false;
+    let bodyExited = false;
+    const service = createService(async (_url, { signal }) => {
+      upstreamSignal = signal;
+      return {
+        ok: false,
+        status: 429,
+        headers: new Headers({ "content-type": "application/json" }),
+        async text() {
+          bodyStarted = true;
+          try {
+            return await new Promise((_resolve, reject) => {
+              rejectBody = reject;
+              signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            });
+          } finally {
+            bodyExited = true;
+          }
+        }
+      };
+    });
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    const client = http.request(`${launch.baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" }
+    });
+    client.on("error", () => {});
+    client.end(JSON.stringify({ model: "model-a", input: "hello", stream: true }));
+    try {
+      await vi.waitFor(() => expect(bodyStarted).toBe(true));
+      expect(upstreamSignal.aborted).toBe(false);
+      client.destroy();
+      await vi.waitFor(() => {
+        expect(upstreamSignal.aborted).toBe(true);
+        expect(bodyExited).toBe(true);
+      });
+    } finally {
+      client.destroy();
+      rejectBody?.(new Error("Test cleanup"));
+    }
+  });
+
+  it("preserves a completed upstream 429 body and diagnostic headers", async () => {
+    const payload = '{"error":{"message":"Rate limit exceeded"}}';
+    const service = createService(async () => new Response(payload, {
+      status: 429,
+      headers: { "content-type": "application/json", "x-request-id": "req-rate-limit" }
+    }));
+    const response = await service.fetchResponses({ apiKey: "secret", body: { model: "model-a", input: "hello" } });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(response.headers.get("x-request-id")).toBe("req-rate-limit");
+    expect(await response.text()).toBe(payload);
   });
 
   it("accepts an explicit finish_reason when the provider omits [DONE]", async () => {

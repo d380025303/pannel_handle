@@ -107,9 +107,8 @@ function createResponsesChatCompletionsBridgeService({
       const controller = new AbortController();
       const abort = () => controller.abort();
       response.once("close", abort);
-      let upstream;
       try {
-        upstream = await fetchImpl(upstreamUrl, {
+        const upstream = await fetchImpl(upstreamUrl, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${registration.apiKey}`,
@@ -119,43 +118,42 @@ function createResponsesChatCompletionsBridgeService({
           body: JSON.stringify(requestAdapter(converted.request)),
           signal: controller.signal
         });
-      } finally {
-        response.off("close", abort);
-      }
-      if (!upstream.ok) {
-        const payload = await upstream.text();
-        const requestId = upstream.headers.get("x-request-id") || upstream.headers.get("cf-ray");
-        response.writeHead(upstream.status, {
-          "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
-          ...(requestId ? { "x-request-id": requestId } : {})
-        });
-        response.end(payload);
-        return;
-      }
+        if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
+        if (!upstream.ok) {
+          const payload = await upstream.text();
+          if (controller.signal.aborted || response.destroyed || response.writableEnded) return;
+          const requestId = upstream.headers.get("x-request-id") || upstream.headers.get("cf-ray");
+          response.writeHead(upstream.status, {
+            "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
+            ...(requestId ? { "x-request-id": requestId } : {})
+          });
+          response.end(payload);
+          return;
+        }
 
-      response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
-      const accumulator = createResponseAccumulator({
-        model,
-        customTools: converted.customTools,
-        toolAliases: converted.toolAliases,
-        toolKinds: converted.toolKinds,
-        toolNamespaces: converted.toolNamespaces,
-        requireDone: true,
-        allowFinishReasonAsDone,
-        emit: event => writeSse(response, event)
-      });
-      accumulator.start();
-      response.once("close", abort);
-      try {
-        await pipeWebStream(upstream.body, chunk => accumulator.push(chunk));
-      } catch (error) {
-        if (!controller.signal.aborted) accumulator.fail(error);
+        response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
+        const accumulator = createResponseAccumulator({
+          model,
+          customTools: converted.customTools,
+          toolAliases: converted.toolAliases,
+          toolKinds: converted.toolKinds,
+          toolNamespaces: converted.toolNamespaces,
+          requireDone: true,
+          allowFinishReasonAsDone,
+          emit: event => writeSse(response, event)
+        });
+        accumulator.start();
+        try {
+          await pipeWebStream(upstream.body, chunk => accumulator.push(chunk));
+        } catch (error) {
+          if (!controller.signal.aborted) accumulator.fail(error);
+        }
+        if (!response.destroyed && !response.writableEnded) {
+          accumulator.finish();
+          response.end();
+        }
       } finally {
         response.off("close", abort);
-      }
-      if (!response.destroyed && !response.writableEnded) {
-        accumulator.finish();
-        response.end();
       }
     } catch (error) {
       errorResponse(response, error.statusCode || 502, error.message || `${providerName} bridge failed.`);
