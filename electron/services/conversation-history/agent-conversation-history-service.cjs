@@ -89,7 +89,7 @@ function createAgentConversationHistoryService({
             ? listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
             : provider === "grok"
               ? listLocalGrok({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
-              : listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
+              : await listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
         );
       } catch (error) {
         console.error(`Failed to list ${provider} conversation history:`, error);

@@ -171,21 +171,21 @@ describe("Agent conversation history service", () => {
     const homeDir = createFixture();
     const projectRoot = path.join(homeDir, ".codebuddy", "projects", "c-work");
     fs.copyFileSync(path.join(projectRoot, "buddy-one.jsonl"), path.join(projectRoot, "buddy-two.jsonl"));
-    const readdirSync = vi.fn((...args) => fs.readdirSync(...args));
+    const readdir = vi.fn((...args) => fs.promises.readdir(...args));
     const service = createAgentConversationHistoryService({ homeDir,
-      fsApi: { ...fs, readdirSync },
+      fsApi: { ...fs, promises: { ...fs.promises, readdir } },
       terminalManager: { getSession: () => ({ id: "run-1", type: "windows", cwd: "C:\\work" }) } });
     const request = { panelSessionId: "run-1", providers: ["codebuddy"], scope: "cwd", limit: 1 };
     const first = await service.listHistory(request);
     expect(first.nextCursor).toBe("1");
-    const scans = readdirSync.mock.calls.length;
+    const scans = readdir.mock.calls.length;
     const second = await service.listHistory({ ...request, cursor: first.nextCursor });
     expect(second.items).toHaveLength(1);
     expect(second.items[0].ref).not.toBe(first.items[0].ref);
-    expect(readdirSync).toHaveBeenCalledTimes(scans);
+    expect(readdir).toHaveBeenCalledTimes(scans);
     fs.copyFileSync(path.join(projectRoot, "buddy-one.jsonl"), path.join(projectRoot, "buddy-three.jsonl"));
     const refreshed = await service.listHistory({ ...request, limit: 3 });
-    expect(readdirSync.mock.calls.length).toBeGreaterThan(scans);
+    expect(readdir.mock.calls.length).toBeGreaterThan(scans);
     expect(refreshed.items.map(item => item.ref)).toContain("codebuddy:buddy-three");
   });
 

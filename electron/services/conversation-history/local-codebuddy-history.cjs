@@ -1,6 +1,6 @@
 const path = require("node:path");
 const { getText, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
-const { readJsonLines, timestampMs, normalizeCwd } = require("./history-values.cjs");
+const { timestampMs, normalizeCwd } = require("./history-values.cjs");
 
 function getCodeBuddyProjectFiles(fsApi, root) {
   if (!fsApi.existsSync(root)) return [];
@@ -17,14 +17,60 @@ function getCodeBuddyProjectFiles(fsApi, root) {
   return files;
 }
 
-function codeBuddyMetadata(fsApi, filePath) {
+async function getCodeBuddyProjectFilesAsync(fsApi, root) {
+  let directories;
+  try {
+    directories = await fsApi.promises.readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  const files = [];
+  for (const directory of directories) {
+    if (!directory.isDirectory()) continue;
+    const projectRoot = path.join(root, directory.name);
+    for (const entry of await fsApi.promises.readdir(projectRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(".jsonl")) {
+        files.push(path.join(projectRoot, entry.name));
+      }
+    }
+  }
+  return files;
+}
+
+async function readCodeBuddyJsonLines(text, visit) {
+  // Avoid splitting the entire transcript synchronously; bound each parsing batch.
+  let offset = 0;
+  let lines = 0;
+  let batchStart = 0;
+  while (offset < text.length) {
+    const newline = text.indexOf("\n", offset);
+    const end = newline < 0 ? text.length : newline;
+    const line = text.slice(offset, end);
+    offset = end + 1;
+    if (line.trim()) {
+      try {
+        visit(JSON.parse(line));
+      } catch {
+        // Ignore a partially written or obsolete line while the provider owns the file.
+      }
+    }
+    if (++lines >= 128 || offset - batchStart >= 256 * 1024) {
+      await new Promise(resolve => setImmediate(resolve));
+      lines = 0;
+      batchStart = offset;
+    }
+  }
+}
+
+async function codeBuddyMetadata(fsApi, filePath) {
   const id = path.basename(filePath, ".jsonl");
   let cwd = "";
   let title = "";
   let preview = "";
   let createdAt = 0;
   let updatedAt = 0;
-  readJsonLines(fsApi.readFileSync(filePath, "utf-8"), item => {
+  await readCodeBuddyJsonLines(await fsApi.promises.readFile(filePath, "utf-8"), item => {
     const timestamp = timestampMs(item?.timestamp);
     if (timestamp) {
       if (!createdAt || timestamp < createdAt) createdAt = timestamp;
@@ -50,19 +96,19 @@ function codeBuddyMetadata(fsApi, filePath) {
   };
 }
 
-function listLocalCodeBuddy({ homeDir, cwd, scope, fsApi, metadataCache }) {
+async function listLocalCodeBuddy({ homeDir, cwd, scope, fsApi, metadataCache }) {
   const expectedCwd = normalizeCwd(cwd, process.platform === "win32");
-  return getCodeBuddyProjectFiles(fsApi, path.join(homeDir, ".codebuddy", "projects"))
-    .map(filePath => {
-      const stat = fsApi.statSync(filePath);
-      const signature = `${stat.size}:${stat.mtimeMs}`;
-      const cached = metadataCache?.get(filePath);
-      if (cached?.signature === signature) return cached.item;
-      const item = codeBuddyMetadata(fsApi, filePath);
-      metadataCache?.set(filePath, { signature, item });
-      return item;
-    })
-    .filter(item => scope === "all" || normalizeCwd(item.cwd, process.platform === "win32") === expectedCwd);
+  const files = await getCodeBuddyProjectFilesAsync(fsApi, path.join(homeDir, ".codebuddy", "projects"));
+  const items = [];
+  for (const filePath of files) {
+    const stat = await fsApi.promises.stat(filePath);
+    const signature = `${stat.size}:${stat.mtimeMs}`;
+    const cached = metadataCache?.get(filePath);
+    const item = cached?.signature === signature ? cached.item : await codeBuddyMetadata(fsApi, filePath);
+    metadataCache?.set(filePath, { signature, item });
+    if (scope === "all" || normalizeCwd(item.cwd, process.platform === "win32") === expectedCwd) items.push(item);
+  }
+  return items;
 }
 
 function getLocalCodeBuddyMessages({ homeDir, id, fsApi }) {
