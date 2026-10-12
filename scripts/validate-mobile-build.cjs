@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { PROTOCOL_VERSION } = require("../electron/services/mobile-remote/mobile-protocol.cjs");
 
 const mobileDist = path.resolve(__dirname, "..", "mobile", "dist");
 const manifestPath = path.join(mobileDist, "build-manifest.json");
@@ -18,8 +19,8 @@ try {
   process.exit(1);
 }
 
-if (manifest.application !== "pannel-handle-mobile" || manifest.protocolVersion !== 8) {
-  console.error("Mobile build manifest is incompatible with desktop remote protocol v2.");
+if (manifest.application !== "pannel-handle-mobile" || manifest.protocolVersion !== PROTOCOL_VERSION) {
+  console.error(`Mobile build manifest is incompatible: application ${manifest.application}, protocol v${manifest.protocolVersion}; desktop requires pannel-handle-mobile protocol v${PROTOCOL_VERSION}.`);
   process.exit(1);
 }
 

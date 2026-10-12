@@ -2,8 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-
-const PROTOCOL_VERSION = 8;
+import { PROTOCOL_VERSION } from "./src/types";
 
 export default defineConfig({
   plugins: [
