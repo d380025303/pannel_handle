@@ -34,6 +34,62 @@ function createFakeClient(stream = createFakeStream()) {
 }
 
 describe("ssh2 terminal", () => {
+  describe.each(["shell", "exec"])("%s PTY resize during connection", (method) => {
+    function setup() {
+      const { client, stream } = createFakeClient();
+      let finishShell;
+      client[method] = vi.fn((...args) => {
+        finishShell = args.at(-1);
+      });
+      const term = createSsh2Terminal({
+        environment: method === "exec" ? { FOO: "bar" } : {},
+        connectionConfig: { host: "example.com" },
+        cols: 100,
+        rows: 30,
+        clientFactory: () => client
+      });
+      const requestedWindow = () => method === "exec"
+        ? client.exec.mock.calls[0][1].pty
+        : client.shell.mock.calls[0][0];
+      return { client, stream, term, requestedWindow, finish: () => finishShell(undefined, stream) };
+    }
+
+    it("creates the PTY with the latest size received before ready", () => {
+      const { client, stream, term, requestedWindow, finish } = setup();
+      term.resize(140, 42);
+      term.resize(160, 48);
+      client.emit("ready");
+      expect(requestedWindow()).toEqual({ term: "xterm-256color", cols: 160, rows: 48 });
+      finish();
+      expect(stream.windows).toEqual([]);
+    });
+
+    it("applies the last size received while the shell callback is pending", () => {
+      const { client, stream, term, requestedWindow, finish } = setup();
+      client.emit("ready");
+      expect(requestedWindow()).toEqual({ term: "xterm-256color", cols: 100, rows: 30 });
+      term.resize(140, 42);
+      term.resize(160, 48);
+      expect(stream.windows).toEqual([]);
+      finish();
+      expect(stream.windows).toEqual([[48, 160, 0, 0]]);
+    });
+
+    it("keeps the final size across ready, shell callback, and later resizes", () => {
+      const { client, stream, term, requestedWindow, finish } = setup();
+      term.resize(120, 36);
+      client.emit("ready");
+      expect(requestedWindow()).toEqual({ term: "xterm-256color", cols: 120, rows: 36 });
+      term.write("queued");
+      term.resize(140, 42);
+      term.resize(160, 48);
+      finish();
+      expect(stream.setWindow.mock.invocationCallOrder[0]).toBeLessThan(stream.write.mock.invocationCallOrder[0]);
+      term.resize(180, 54);
+      expect(stream.windows).toEqual([[48, 160, 0, 0], [54, 180, 0, 0]]);
+    });
+  });
+
   function captureOutput() {
     const { client, stream } = createFakeClient();
     const term = createSsh2Terminal({

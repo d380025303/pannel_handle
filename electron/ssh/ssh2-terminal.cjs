@@ -12,6 +12,8 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   const emitter = new EventEmitter();
   const client = clientFactory();
   let stream = null;
+  let latestCols = cols;
+  let latestRows = rows;
   let closed = false;
   let exitCode = 0;
   let connected = false;
@@ -59,6 +61,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   }
 
   function openShell() {
+    const window = { term: "xterm-256color", cols: latestCols, rows: latestRows };
     const onShell = (err, nextStream) => {
       if (err) {
         exitCode = 1;
@@ -101,11 +104,13 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
             : { reason: "connection-close", retryable: true });
       });
 
+      if ((latestCols !== window.cols || latestRows !== window.rows) && typeof stream.setWindow === "function") {
+        stream.setWindow(latestRows, latestCols, 0, 0);
+      }
       for (const data of pendingWrites.splice(0)) {
         stream.write(data);
       }
     };
-    const window = { term: "xterm-256color", cols, rows };
     if (Object.keys(environment).length) client.exec(buildEnvironmentCommand(environment), { pty: window }, onShell);
     else client.shell(window, onShell);
   }
@@ -174,6 +179,8 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
       }
     },
     resize(nextCols, nextRows) {
+      latestCols = nextCols;
+      latestRows = nextRows;
       if (stream && typeof stream.setWindow === "function") {
         stream.setWindow(nextRows, nextCols, 0, 0);
       }
