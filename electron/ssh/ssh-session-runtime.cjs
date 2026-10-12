@@ -1,4 +1,5 @@
 const { Client } = require("ssh2");
+const { StringDecoder } = require("node:string_decoder");
 const SftpClient = require("ssh2-sftp-client");
 const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
 
@@ -149,21 +150,27 @@ function createSshSessionRuntime({
           finish(err);
           return;
         }
-        stream.on("data", (data) => {
-          const chunk = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+        const stdoutDecoder = new StringDecoder("utf8");
+        const stderrDecoder = new StringDecoder("utf8");
+        function emitStdout(chunk) {
+          if (!chunk) return;
           stdout += chunk;
           options.onStdout?.(chunk);
-        });
-        stream.stderr?.on("data", (data) => {
-          const chunk = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+        }
+        function emitStderr(chunk) {
+          if (!chunk) return;
           stderr += chunk;
           options.onStderr?.(chunk);
-        });
+        }
+        stream.on("data", data => emitStdout(Buffer.isBuffer(data) ? stdoutDecoder.write(data) : String(data)));
+        stream.stderr?.on("data", data => emitStderr(Buffer.isBuffer(data) ? stderrDecoder.write(data) : String(data)));
         if (options.stdin !== undefined) {
           stream.on("error", finish);
           stream.end(options.stdin);
         }
         stream.on("close", (code) => {
+          emitStdout(stdoutDecoder.end());
+          emitStderr(stderrDecoder.end());
           if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
             finish(new Error(stderr.trim() || `${actionName} failed with exit code ${code}.`));
             return;
@@ -197,10 +204,20 @@ function createSshSessionRuntime({
           return;
         }
         stream = remoteStream;
-        remoteStream.on("data", data => options.onStdout?.(String(data)));
-        remoteStream.stderr?.on("data", data => options.onStderr?.(String(data)));
+        const stdoutDecoder = new StringDecoder("utf8");
+        const stderrDecoder = new StringDecoder("utf8");
+        function emitStdout(chunk) {
+          if (chunk) options.onStdout?.(chunk);
+        }
+        function emitStderr(chunk) {
+          if (chunk) options.onStderr?.(chunk);
+        }
+        remoteStream.on("data", data => emitStdout(Buffer.isBuffer(data) ? stdoutDecoder.write(data) : String(data)));
+        remoteStream.stderr?.on("data", data => emitStderr(Buffer.isBuffer(data) ? stderrDecoder.write(data) : String(data)));
         remoteStream.once("error", error => settle(error));
         remoteStream.once("close", (code, signal) => {
+          emitStdout(stdoutDecoder.end());
+          emitStderr(stderrDecoder.end());
           settle(undefined, { exitCode: Number.isInteger(code) ? code : canceled ? -1 : 0, signal });
         });
         if (options.stdin) remoteStream.end(options.stdin); else remoteStream.end();

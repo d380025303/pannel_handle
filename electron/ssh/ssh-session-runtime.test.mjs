@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createKnownHostStore } = require("../stores/known-host-store.cjs");
+const { createSshGitExecutor } = require("./ssh-git-executor.cjs");
 const {
   answerKeyboardInteractive,
   createSshSessionRuntime
@@ -46,6 +47,75 @@ function createKnownHostStoreForTest() {
 }
 
 describe("ssh-session-runtime", () => {
+  const text = "中文🙂🚀 Git 输出\n";
+  const bytes = Buffer.from(text);
+  const splits = Array.from({ length: bytes.length - 1 }, (_, index) => index + 1);
+
+  function createOutputRuntime(stdoutChunks, stderrChunks, exitCode = 0) {
+    const client = createClient();
+    client.exec = vi.fn((_command, callback) => {
+      const stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      stream.end = vi.fn();
+      callback(undefined, stream);
+      queueMicrotask(() => {
+        for (let index = 0; index < Math.max(stdoutChunks.length, stderrChunks.length); index++) {
+          if (stdoutChunks[index]) stream.emit("data", stdoutChunks[index]);
+          if (stderrChunks[index]) stream.stderr.emit("data", stderrChunks[index]);
+        }
+        stream.emit("close", exitCode);
+      });
+    });
+    return createRuntime({ type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
+  }
+
+  it.each(splits)("decodes stdout and stderr across UTF-8 byte split %i", async split => {
+    const chunks = [bytes.subarray(0, split), bytes.subarray(split)];
+    for (const method of ["exec", "execStreaming"]) {
+      const runtime = createOutputRuntime(chunks, chunks);
+      const stdout = [];
+      const stderr = [];
+      const result = await runtime[method]("run-1", "command", {
+        onStdout: chunk => stdout.push(chunk),
+        onStderr: chunk => stderr.push(chunk)
+      });
+      if (method === "exec") expect(result).toBe(text);
+      else await expect(result.promise).resolves.toMatchObject({ exitCode: 0 });
+      expect(stdout.join("")).toBe(text);
+      expect(stderr.join("")).toBe(text);
+    }
+    const executor = createSshGitExecutor({ sshSessionRuntime: createOutputRuntime(chunks, chunks) });
+    await expect(executor.runGit("run-1", "/repo", ["status"]))
+      .resolves.toEqual({ stdout: text, stderr: text, truncated: false });
+  });
+
+  it("keeps decoders independent with byte-at-a-time output and decodes error details", async () => {
+    const chunks = Array.from(bytes, byte => Buffer.from([byte]));
+    const errorText = "错误🚀";
+    const errorChunks = Array.from(Buffer.from(errorText), byte => Buffer.from([byte]));
+    const runtime = createOutputRuntime(chunks, errorChunks, 1);
+    const stdout = [];
+    const stderr = [];
+    await expect(runtime.exec("run-1", "command", {
+      onStdout: chunk => stdout.push(chunk), onStderr: chunk => stderr.push(chunk)
+    })).rejects.toThrow(errorText);
+    expect(stdout.join("")).toBe(text);
+    expect(stderr.join("")).toBe(errorText);
+  });
+
+  it.each(["exec", "execStreaming"])("flushes incomplete trailing bytes on %s completion", async method => {
+    const runtime = createOutputRuntime([Buffer.from([0xe4])], [Buffer.from([0xf0, 0x9f])]);
+    const stdout = [];
+    const stderr = [];
+    const result = await runtime[method]("run-1", "command", {
+      onStdout: chunk => stdout.push(chunk), onStderr: chunk => stderr.push(chunk)
+    });
+    if (method === "exec") expect(result).toBe("�");
+    else await result.promise;
+    expect(stdout.join("")).toBe("�");
+    expect(stderr.join("")).toBe("�");
+  });
+
   it("builds password, private-key passphrase, and no-secret configs", () => {
     const keyPath = path.join(os.tmpdir(), `pannel-runtime-key-${Date.now()}`);
     fs.writeFileSync(keyPath, "private-key", "utf-8");
