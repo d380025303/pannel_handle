@@ -295,10 +295,13 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
         do {
           const page = await historyService.listHistoryForSession(session, { scope: "cwd", includeArchived: true, cursor, limit: 200 });
           if (page.errors?.length) failed.push(...page.errors.map(error => `${key}: ${error.message}`));
+          const existing = page.items.length ? await client.query(`SELECT conversation_ref, updated_at, message_rule_version
+            FROM ph_conversations WHERE device_id=$1 AND source_key=$2 AND conversation_ref = ANY($3::text[])`,
+          [state.deviceId, key, page.items.map(item => item.ref)]) : { rows: [] };
+          const existingByRef = new Map(existing.rows.map(row => [row.conversation_ref, row]));
           for (const item of page.items) {
-            const old = await client.query("SELECT updated_at, message_rule_version FROM ph_conversations WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3",
-              [state.deviceId, key, item.ref]);
-            if (Number(old.rows[0]?.updated_at) === item.updatedAt && Number(old.rows[0]?.message_rule_version) === SAVED_MESSAGE_VERSION) continue;
+            const old = existingByRef.get(item.ref);
+            if (Number(old?.updated_at) === item.updatedAt && Number(old?.message_rule_version) === SAVED_MESSAGE_VERSION) continue;
             await client.query("BEGIN");
             try {
               await client.query(`INSERT INTO ph_conversations(device_id,source_key,conversation_ref,metadata,updated_at)

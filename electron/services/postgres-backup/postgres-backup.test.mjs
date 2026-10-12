@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
 const { getRemoteDashboard } = require("./remote-dashboard.cjs");
 const { createPostgresBackupService } = require("./postgres-backup-service.cjs");
+const { SAVED_MESSAGE_VERSION } = require("../conversation-history/saved-message.cjs");
 
 describe("portable session backup", () => {
   it("restores a secret with the backup passphrase and rejects a different one", () => {
@@ -168,6 +169,73 @@ describe("PostgreSQL backup service", () => {
 
 
 describe("conversation batch synchronization", () => {
+  it("checks each history page once and uploads only changed, outdated or missing conversations", async () => {
+    const items = Array.from({ length: 203 }, (_, i) => ({ ref: `conversation-${i}`, updatedAt: 10 }));
+    const checks = [];
+    const uploads = [];
+    const ruleWrites = [];
+    let mixed = false;
+    let empty = false;
+    const client = { release() {}, async query(sql, params = []) {
+      if (sql.includes("SELECT version FROM ph_conversation_rules")) return { rows: [{ version: SAVED_MESSAGE_VERSION }] };
+      if (sql.includes("FROM ph_conversations WHERE")) {
+        expect(sql).toContain("device_id=$1 AND source_key=$2 AND conversation_ref = ANY($3::text[])");
+        checks.push(params);
+        // Reverse rows to ensure matching uses the reference, not the result order.
+        return { rows: params[2].filter(ref => !mixed || ref !== items[202].ref).map(ref => ({
+          conversation_ref: ref,
+          updated_at: String(mixed && ref === items[200].ref ? 9 : 10),
+          message_rule_version: mixed && ref === items[201].ref ? SAVED_MESSAGE_VERSION - 1 : SAVED_MESSAGE_VERSION
+        })).reverse() };
+      }
+      if (sql.includes("INSERT INTO ph_conversations(")) uploads.push(params[2]);
+      if (sql.includes("UPDATE ph_conversations SET message_rule_version")) ruleWrites.push(params);
+      return { rows: [] };
+    } };
+    class FakePool { async connect() { return client; } async end() {} }
+    const session = { id: "local", type: "windows", cwd: "C:\\work" };
+    const historyService = {
+      listHistoryForSession: vi.fn(async (_session, { cursor, limit }) => {
+        expect(limit).toBe(200);
+        const offset = Number(cursor || 0);
+        return { items: empty ? [] : items.slice(offset, offset + limit),
+          nextCursor: !empty && offset === 0 ? "200" : null };
+      }),
+      getHistoryMessagesForSession: vi.fn(async (_session, { conversationRef }) => ({
+        messages: [{ id: conversationRef, kind: "user", text: "content" }], nextCursor: null
+      }))
+    };
+    const service = createPostgresBackupService({ userData: tmpdir(),
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value), decryptString: value => value.toString("utf8") },
+      sessionStore: { exportLibrary: () => [] }, statsFile: "missing", fsApi: { existsSync: () => false },
+      dataStore: { read: () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); }, write() {} },
+      terminalManager: { listSessions: () => [session], getSession: () => session }, historyService, PoolClass: FakePool
+    });
+    try {
+      service.load();
+      await service.saveConfig({ enabled: true, host: "localhost", database: "backup", user: "user", password: "password", passphrase: "passphrase" });
+      await service.shutdown();
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(checks).toHaveLength(2);
+      expect(checks.map(params => params[2])).toEqual([items.slice(0, 200).map(item => item.ref), items.slice(200).map(item => item.ref)]);
+      expect(checks.every(params => params[0] === service.publicState().deviceId && params[1] === JSON.stringify(["windows", "", "", null, "", "c:/work"]))).toBe(true);
+      expect(historyService.getHistoryMessagesForSession).not.toHaveBeenCalled();
+      expect(uploads).toEqual([]);
+      checks.length = 0;
+      mixed = true;
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(checks).toHaveLength(2);
+      expect(uploads).toEqual(items.slice(200).map(item => item.ref));
+      expect(historyService.getHistoryMessagesForSession.mock.calls.map(([, options]) => options.conversationRef)).toEqual(uploads);
+      expect(ruleWrites.map(params => [params[0], params[3]])).toEqual(uploads.map(ref => [SAVED_MESSAGE_VERSION, ref]));
+      checks.length = 0;
+      empty = true;
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(checks).toEqual([]);
+      expect(historyService.getHistoryMessagesForSession).toHaveBeenCalledTimes(3);
+    } finally { await service.shutdown(); }
+  });
+
   it("writes 1000 messages in five delayed batches, deduplicates, skips unchanged backups and rolls back failures", async () => {
     let remote = { conversation: null, messages: new Map() };
     let beforeTransaction;
@@ -184,8 +252,8 @@ describe("conversation batch synchronization", () => {
       if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
       if (sql === "ROLLBACK") remote = beforeTransaction;
       if (sql.includes("SELECT version FROM ph_conversation_rules")) return { rows: [{ version: 2 }] };
-      if (sql.includes("SELECT updated_at, message_rule_version")) return { rows: remote.conversation ? [remote.conversation] : [] };
-      if (sql.includes("INSERT INTO ph_conversations(")) remote.conversation = { updated_at: params[4], message_rule_version: 0 };
+      if (sql.includes("SELECT conversation_ref, updated_at, message_rule_version")) return { rows: remote.conversation ? [remote.conversation] : [] };
+      if (sql.includes("INSERT INTO ph_conversations(")) remote.conversation = { conversation_ref: params[2], updated_at: params[4], message_rule_version: 0 };
       if (sql.includes("UPDATE ph_conversations SET message_rule_version")) remote.conversation.message_rule_version = params[0];
       if (sql.includes("INSERT INTO ph_messages(")) {
         expect(sql).toContain("jsonb_to_recordset($4::jsonb)");
