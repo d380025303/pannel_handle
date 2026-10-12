@@ -108,6 +108,37 @@ describe("Responses to Chat Completions protocol", () => {
     expect(() => responsesToChat({ tools: [{ type: "function", name: "exec_command" }], tool_choice: { type: "function", name: "missing" } })).toThrow("tool_choice references an unavailable tool");
   });
 
+  it.each([false, true])("validates forced tools against current definitions (with history: %s)", withHistory => {
+    const input = withHistory ? [
+      { type: "function_call", call_id: "removed-1", name: "removed", arguments: "{}" },
+      { type: "function_call_output", call_id: "removed-1", output: "done" }
+    ] : [];
+    const tools = [{ type: "function", name: "available" }];
+    expect(() => responsesToChat({ input, tools, tool_choice: { type: "function", name: "removed" } })).toThrow(expect.objectContaining({
+      statusCode: 400,
+      message: "Codex tool_choice references an unavailable tool: removed."
+    }));
+
+    const selected = responsesToChat({ input, tools, tool_choice: { type: "function", name: "available" } });
+    expect(selected.request.tools).toHaveLength(1);
+    expect(selected.toolAliases.get(selected.request.tools[0].function.name)).toBe("available");
+    expect(selected.request.tool_choice).toBe("required");
+  });
+
+  it("rejects forced tool search when only its historical alias exists", () => {
+    expect(() => responsesToChat({
+      input: [
+        { type: "tool_search_call", call_id: "search-1", arguments: { query: "tools" } },
+        { type: "tool_search_output", call_id: "search-1", tools: [] }
+      ],
+      tools: [{ type: "function", name: "available" }],
+      tool_choice: { type: "tool_search" }
+    })).toThrow(expect.objectContaining({
+      statusCode: 400,
+      message: "Codex tool_choice references an unavailable tool: tool_search."
+    }));
+  });
+
   it("rejects stateful, non-streaming, and non-text Responses features", () => {
     expect(() => responsesToChat({ stream: false, input: "hello" })).toThrow("requires stream=true");
     expect(() => responsesToChat({ store: true, input: "hello" })).toThrow("stored Responses");

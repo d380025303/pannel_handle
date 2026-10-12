@@ -164,12 +164,12 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
   if (toolChoice && typeof toolChoice === "object" && toolChoice.name) {
     const qualifiedName = toolChoice.namespace ? `${toolChoice.namespace}__${toolChoice.name}` : String(toolChoice.name);
     const alias = aliasesByToolIdentity.get(toolIdentity(toolChoice.name, toolChoice.namespace));
-    if (!alias) throw invalidRequest(`Codex tool_choice references an unavailable tool: ${qualifiedName}.`);
+    if (!alias || !convertedToolNames.has(alias)) throw invalidRequest(`Codex tool_choice references an unavailable tool: ${qualifiedName}.`);
     selectedToolAlias = alias;
     toolChoice = "required";
   } else if (toolChoice?.type === "tool_search") {
     const alias = aliasesByToolIdentity.get(toolIdentity("tool_search"));
-    if (!alias) throw invalidRequest("Codex tool_choice references an unavailable tool: tool_search.");
+    if (!alias || !convertedToolNames.has(alias)) throw invalidRequest("Codex tool_choice references an unavailable tool: tool_search.");
     selectedToolAlias = alias;
     toolChoice = "required";
   } else if (toolChoice && typeof toolChoice === "object") {
