@@ -681,10 +681,11 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
   }
   function remotePath(target) { return target.path ? bashQuote(target.path) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'; }
   async function remoteRecord(target) {
-    const output = await remoteExec(target, `target=${remotePath(target)}; if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi`);
-    const buffer = Buffer.from(output.trim(), "base64");
+    const output = await remoteExec(target, `target=${remotePath(target)}; if [ -f "$target" ]; then printf 'exists:'; base64 < "$target" | tr -d '\\n'; else printf 'missing:'; fi`);
+    const exists = output.trim().startsWith("exists:");
+    const buffer = exists ? Buffer.from(output.trim().slice("exists:".length), "base64") : Buffer.alloc(0);
     if (buffer.length > MAX_CONFIG_BYTES) throw new Error("MCP 配置文件过大。");
-    return { buffer, text: buffer.toString("utf8"), version: output.trim() ? versionOf(buffer) : "missing" };
+    return { buffer, text: buffer.toString("utf8"), version: exists ? versionOf(buffer) : "missing", exists };
   }
   async function remoteWrite(target, record, text) {
     const current = record.version === "missing" ? "missing" : record.version;

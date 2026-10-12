@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const require = createRequire(import.meta.url);
 const { createMcpConfigService, replaceCodexServer } = require("./mcp-config-service.cjs");
@@ -162,7 +163,7 @@ describe("mcp-config-service", () => {
       agentProvider: "codex", cwd: "/srv/app" };
     let text = 'model = "keep"\n[mcp_servers.demo]\ncommand = "old"\n';
     const exec = vi.fn(async (_id, command) => {
-      if (command.includes("base64 <")) return Buffer.from(text).toString("base64");
+      if (command.includes("base64 <")) return `exists:${Buffer.from(text).toString("base64")}`;
       if (command.includes("printf %s")) return "/srv/app/.codex/config.toml";
       return "";
     });
@@ -183,6 +184,50 @@ describe("mcp-config-service", () => {
     expect(exec.mock.calls.some(([, command]) => command.includes("sha256sum") && command.includes(".pannel-handle.bak"))).toBe(true);
     expect(sshFileSystem.put).toHaveBeenCalledOnce();
   });
+  it.each(["empty", "missing", "changed", "changed-before-write"])("handles %s remote Codex files without overwriting external changes", async (state) => {
+    const { homeDir } = setup();
+    const session = { id: "ssh", type: "ssh", agentLocation: "remote", runtimeMode: "app-server",
+      agentProvider: "codex", cwd: "/srv/app" };
+    let text = state === "missing" ? null : "";
+    let staged;
+    const version = () => text === null ? "missing" : createHash("sha256").update(text).digest("hex");
+    const exec = vi.fn(async (_id, command) => {
+      if (command.includes("base64 <")) return text === null ? "missing:" : `exists:${Buffer.from(text).toString("base64")}`;
+      if (command.includes("printf %s")) return "/srv/app/.codex/config.toml";
+      if (command.includes("sha256sum")) {
+        if (state === "changed-before-write") text = 'model = "external"\n';
+        if (!command.includes(version())) throw new Error("MCP 配置已变化，请刷新后重试。");
+        text = staged;
+      }
+      return "";
+    });
+    const sshFileSystem = { mkdir: vi.fn(async () => {}),
+      put: vi.fn(async (_id, content) => { staged = content.toString(); }), remove: vi.fn(async () => {}) };
+    const service = createMcpConfigService({ homeDir, terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => "/srv/app" }, sshAgentTransport: { exec }, sshFileSystem });
+    const target = { provider: "codex", scope: "project", sessionId: session.id };
+    const first = await service.list(target);
+    expect(first.servers).toEqual([]);
+    expect(first.version).toBe(version());
+    if (state === "changed") text = 'model = "external"\n';
+    const saving = service.save({ ...target, expectedVersion: first.version, draft: stdioDraft("demo") });
+    if (state === "changed-before-write") {
+      await expect(saving).rejects.toThrow(/配置已变化/);
+      expect(text).toBe('model = "external"\n');
+      expect(sshFileSystem.remove).toHaveBeenCalledOnce();
+    } else if (state === "changed") {
+      expect(await saving).toEqual({ status: "conflict" });
+      expect(text).toBe('model = "external"\n');
+      expect(sshFileSystem.put).not.toHaveBeenCalled();
+    } else {
+      const saved = await saving;
+      expect(saved.status).toBe("saved");
+      expect(saved.document.servers[0]).toMatchObject({ name: "demo", command: "npx" });
+      expect(parseToml(text).mcp_servers.demo.command).toBe("npx");
+      expect(sshFileSystem.put).toHaveBeenCalledOnce();
+    }
+  });
+
   it("creates and edits Codex user servers without rewriting unrelated TOML", () => {
     const { homeDir, service } = setup();
     const filePath = path.join(homeDir, ".codex", "config.toml");
