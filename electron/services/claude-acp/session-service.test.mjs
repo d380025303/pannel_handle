@@ -68,6 +68,35 @@ describe("Claude ACP sessions", () => {
     service.shutdown();
   });
 
+  it.each([
+    ["selected options and a custom answer", "array", ["Logging", "Tracing"], { features: ["logging"], features_custom: "Tracing" }],
+    ["selected options only", "array", ["Logging", "Metrics"], { features: ["logging", "metrics"] }],
+    ["a custom answer only", "array", ["Tracing"], { features_custom: "Tracing" }],
+    ["a single selected option", "string", ["Logging"], { features: "logging" }],
+    ["a single custom answer", "string", ["Tracing"], { features_custom: "Tracing" }],
+  ])("preserves elicitation answers for %s", async (_name, type, answers, content) => {
+    const messages = [];
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+    });
+    const service = createClaudeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      const options = { oneOf: [{ const: "logging", title: "Logging" }, { const: "metrics", title: "Metrics" }] };
+      emitMessage({ id: 42, method: "elicitation/create", params: { sessionId: "thread", mode: "form", message: "Choose features",
+        requestedSchema: { type: "object", properties: {
+          features: { type, title: "Features", ...(type === "array" ? { items: { type: "string", ...options } } : options) },
+          features_custom: { type: "string", title: "Other", _meta: { _askUserQuestionCustomAnswer: { questionId: "features", isCustomAnswer: true } } }
+        } } } });
+      await service.answerQuestion("one", 42, { features: { answers } });
+      expect(messages.find(value => value.id === 42).result).toEqual({ action: "accept", content });
+    } finally { service.shutdown(); }
+  });
+
   it("shows adjacent Claude text chunks as one message without crossing tools or turns", async () => {
     let promptCount = 0;
     let emitMessage;

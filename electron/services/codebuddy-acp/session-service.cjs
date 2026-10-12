@@ -1806,7 +1806,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             throw new Error("问题答案必须是数字。");
           if (customField && custom) {
             content[customField] = custom;
-            continue;
+            if (schema.type !== "array" || !chosen.length) continue;
           }
           const convert = value => {
             const choice = choices.find(item => typeof item === "object" ? (item.title || String(item.const)) === value : String(item) === value);
