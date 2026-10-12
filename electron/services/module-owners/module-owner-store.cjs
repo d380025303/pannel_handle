@@ -124,9 +124,15 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     return persist(templateId, value);
   }
   function tasks(templateId, values) {
-    const value = get(templateId);
-    value.tasks = structuredClone(values);
-    return persist(templateId, value);
+    if (loadError) throw loadError;
+    const current = Object.hasOwn(state.templates, templateId) ? state.templates[templateId] : empty();
+    const value = { ...current, tasks: structuredClone(values) };
+    if (!dataStore?.writeModuleOwnerTaskMetadata) return persist(templateId, value);
+    const { records, history, ...metadata } = value;
+    dataStore.writeModuleOwnerTaskMetadata(templateId, metadata);
+    state = { ...state, templates: { ...state.templates, [templateId]: value } };
+    broadcast("module-owners:changed", { templateId });
+    return get(templateId);
   }
   function promptTemplates() {
     if (loadError) throw loadError;

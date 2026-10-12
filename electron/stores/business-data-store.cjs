@@ -225,6 +225,16 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     transaction(() => writeDocument(sourceName(filePath), value));
   }
   function close() { if (db) { db.close(); db = null; } }
+  function writeModuleOwnerTaskMetadata(templateId, metadata) {
+    ensureOpen();
+    if (typeof templateId !== "string" || !metadata || !Number.isInteger(metadata.revision) || metadata.revision < 0 ||
+      !metadata.settings || typeof metadata.settings !== "object" || !Array.isArray(metadata.tasks) ||
+      Object.hasOwn(metadata, "records") || Object.hasOwn(metadata, "history")) throw new Error("Invalid module owner task metadata.");
+    transaction(() => {
+      db.prepare(`INSERT INTO app_module_owner_templates(template_id, value_json) VALUES (?, ?)
+        ON CONFLICT(template_id) DO UPDATE SET value_json=excluded.value_json`).run(templateId, JSON.stringify(metadata));
+    });
+  }
   function saveTaskRun(value) {
     ensureOpen();
     db.prepare(`INSERT INTO app_module_owner_task_runs(id, template_id, task_id, called_at, status, value_json)
@@ -278,7 +288,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };
