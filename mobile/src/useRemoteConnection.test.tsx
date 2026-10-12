@@ -297,3 +297,23 @@ it("loads mobile preferences, accepts updates and restores computer values on re
   act(() => reconnected.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone", sessions: [], templates: [], mobileGraphicalSessionMinimalMode: true } }));
   expect(hook.result.current.mobileGraphicalSessionMinimalMode).toBe(true);
 });
+
+it("routes batch closing responses separately from graphical messages", () => {
+  const hook = setup();
+  act(() => hook.result.current.login("password"));
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  const sessionListener = vi.fn();
+  const graphicalListener = vi.fn();
+  const unsubscribe = hook.result.current.onSessionMessage(sessionListener);
+  hook.result.current.onGraphicalMessage(graphicalListener);
+  act(() => socket.receive("sessions.close-completed.result", { requestId: "batch", closed: 1, skipped: 2, failed: 0 }));
+  expect(sessionListener).toHaveBeenCalledWith(expect.objectContaining({ requestId: "batch", closed: 1 }));
+  expect(graphicalListener).not.toHaveBeenCalled();
+  act(() => socket.receive("graphical.snapshot", { sessionId: "one", snapshot: {} }));
+  expect(graphicalListener).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.snapshot" }));
+  unsubscribe();
+  act(() => socket.receive("sessions.close-completed.result", { requestId: "batch", closed: 1, skipped: 0, failed: 0 }));
+  expect(sessionListener).toHaveBeenCalledTimes(1);
+});

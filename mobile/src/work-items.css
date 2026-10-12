@@ -23,7 +23,27 @@
   min-width: 0;
 }
 .work-items-heading h2 {
-  margin: 8px 0 0;
+  margin: 0;
+  font-size: 22px;
+}
+.work-items-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.work-items-count {
+  color: #a9b8cf;
+  font-size: 13px;
+}
+.work-items-refresh {
+  margin-left: auto;
+}
+.work-items-toolbar {
+  gap: 8px;
+}
+.work-items-filter-actions {
+  display: flex;
+  gap: 8px;
 }
 .work-items-search,
 .work-items-select-filters,
@@ -39,11 +59,20 @@
   flex: 1;
   min-width: 0;
 }
-.work-items-select-filters label {
+.work-items-select-filters > label {
   display: grid;
   gap: 4px;
   flex: 1 1 120px;
   min-width: 0;
+}
+.work-items-select-filters[hidden] {
+  display: none;
+}
+.work-items-select-filters {
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #101827;
 }
 .work-items-select-filters select {
   width: 100%;
@@ -53,17 +82,34 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  border: 1px solid #334155;
-  border-radius: 12px;
+  flex: 1 0 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.work-items-status-filter legend {
+  margin-bottom: 8px;
 }
 .work-items-status-option {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-height: 40px;
+  padding: 0 8px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.work-items-status-option[data-selected="true"] {
+  border-color: #579ad8;
+  background: #203b58;
 }
 .work-items-status-option input {
   width: auto;
+  margin: 0;
+  accent-color: #80bfff;
 }
 .work-items-card {
   display: grid;
@@ -76,14 +122,20 @@
   min-width: 0;
 }
 .work-items-summary {
-  max-height: 180px;
-  overflow: auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  max-height: 6em;
+  overflow: hidden;
+  line-height: 1.5;
+  font-size: 14px;
 }
 .work-items-summary p {
   margin: 4px 0;
 }
 .work-items-summary pre,
 .work-items-summary table {
+  display: block;
   max-width: 100%;
   overflow: auto;
 }
@@ -94,7 +146,67 @@
   font-size: 13px;
 }
 .work-items-status {
+  flex: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #26364b;
+  font-size: 12px;
   font-weight: 700;
+}
+.work-items-status[data-status="completed"] {
+  color: #9be4be;
+  background: #193a32;
+}
+.work-items-status[data-status="running"],
+.work-items-status[data-status="creating"] {
+  color: #a6d5ff;
+  background: #203b58;
+}
+.work-items-status[data-status="failed"],
+.work-items-status[data-status="uncertain"] {
+  color: #ffd29c;
+  background: #493521;
+}
+.work-items-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.work-items-card-heading strong {
+  flex: 1;
+  min-width: 0;
+}
+.work-items-follow-up {
+  justify-self: start;
+  font-size: 12px;
+  color: #a9b8cf;
+}
+.work-items-follow-up[data-needed="true"] {
+  color: #ffd29c;
+}
+.work-items-actions {
+  padding-top: 8px;
+  border-top: 1px solid #334155;
+}
+.work-items-actions > button:first-child {
+  margin-right: auto;
+}
+.mobile-work-items-page button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mobile-work-items-page button:focus-visible,
+.work-items-status-option:focus-within {
+  outline: 2px solid #80bfff;
+  outline-offset: 2px;
+}
+.mobile-work-items-page button:not(:disabled):hover {
+  border-color: #579ad8;
+}
+.mobile-work-items-page .work-items-execute:not(:disabled) {
+  background: #203b58;
+  border-color: #579ad8;
 }
 .mobile-work-items-error {
   color: #ffb4b4;
@@ -118,6 +230,7 @@
   width: min(100%, 640px);
   max-height: 100%;
   min-height: 0;
+  min-width: 0;
   border: 1px solid #334155;
   border-radius: 16px;
   background: #111827;
@@ -200,6 +313,8 @@
 .work-items-help summary {
   min-height: 40px;
   padding: 8px 0;
+  font-size: 13px;
+  color: #a9b8cf;
   cursor: pointer;
 }
 .work-items-help p {
@@ -230,7 +345,6 @@
 .work-items-quick-manager,
 .work-items-quick-form,
 .work-items-quick-form label {
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;

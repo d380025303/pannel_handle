@@ -1,3 +1,4 @@
+import { useCloseCompleted } from "./useCloseCompleted";
 import { MobileWorkItems } from "./MobileWorkItems";
 import { useEffect, useState } from "react";
 import { TerminalView } from "./TerminalView";
@@ -11,6 +12,7 @@ import { useRemoteConnection } from "./useRemoteConnection";
 
 export default function App() {
   const remote = useRemoteConnection();
+  const closeCompleted = useCloseCompleted(remote);
   const navigation = useSessionNavigation(remote.sessions, remote.status, remote.lastLaunchedId);
   const drafts = useSessionDrafts(remote.sessions, remote.status, remote.onGraphicalMessage);
   const dialog = useSessionActionDialog(remote.send);
@@ -62,7 +64,7 @@ export default function App() {
 
     {tasksOpen ? <MobileWorkItems remote={remote} onClose={() => { setTasksOpen(false); setTaskSessionId(null); }} onOpenSession={openTaskSession} />
       : filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} />
-      : view === "home" ? <SessionHome sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
+      : view === "home" ? <SessionHome closeCompleted={closeCompleted} sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
         onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} onOpenTasks={() => setTasksOpen(true)} />
       : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession} graphicalMenuConfig={remote.graphicalMenuConfig}
         minimalMode={remote.mobileGraphicalSessionMinimalMode}
@@ -80,7 +82,7 @@ export default function App() {
       : <section className="empty-terminal"><h2>没有运行中的会话</h2><p>从电脑已保存的模板启动一个会话。</p>
           <button className="primary large" type="button" onClick={chooseTemplate}>选择模板</button></section>}
 
-    {drawerOpen && <SessionDrawer sessions={remote.sessions} templates={remote.templates} activeId={activeId}
+    {drawerOpen && <SessionDrawer closeCompleted={closeCompleted} sessions={remote.sessions} templates={remote.templates} activeId={activeId}
       tab={drawerTab} onTabChange={setDrawerTab} send={remote.send} onOpen={openTaskSession}
       onAction={dialog.open} onClose={() => setDrawerOpen(false)} />}
     <SessionActionDialog dialog={dialog} />

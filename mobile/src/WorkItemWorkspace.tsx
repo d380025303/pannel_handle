@@ -10,6 +10,22 @@ import "./work-items.css";
 
 export const WORK_ITEM_STATUS: Record<WorkItemStatus, string> = { pending: "待执行", creating: "创建中", running: "执行中", uncertain: "待核对", completed: "已完成", failed: "失败", stopped: "中断", void: "已作废" };
 const defaultStatuses = () => (Object.keys(WORK_ITEM_STATUS) as WorkItemStatus[]).filter(status => status !== "void");
+const FILTER_STORAGE_KEY = "pannel-handle-mobile-work-item-filters";
+function readFilters() {
+  const defaults = { templateId: "", ownerId: "", statuses: defaultStatuses(), keyword: "", followUp: "" };
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return defaults;
+    return {
+      templateId: typeof saved.templateId === "string" ? saved.templateId : "",
+      ownerId: typeof saved.ownerId === "string" ? saved.ownerId : "",
+      keyword: typeof saved.keyword === "string" ? saved.keyword.slice(0, 1000) : "",
+      followUp: saved.followUp === "true" || saved.followUp === "false" ? saved.followUp : "",
+      statuses: Array.isArray(saved.statuses) && saved.statuses.every((status: unknown) => typeof status === "string" && Object.hasOwn(WORK_ITEM_STATUS, status))
+        ? [...new Set<WorkItemStatus>(saved.statuses)] : defaults.statuses,
+    };
+  } catch { return defaults; }
+}
 const active = (status: WorkItemStatus) => ["creating", "running", "uncertain"].includes(status);
 const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
 type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
@@ -22,9 +38,11 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   const [prompt, setPrompt] = useState("");
   const [promptMode, setPromptMode] = useState<"preview" | "edit">("preview");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
-  const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
-  const [statuses, setStatuses] = useState<WorkItemStatus[]>(defaultStatuses); const [keyword, setKeyword] = useState("");
-  const [followUp, setFollowUp] = useState("");
+  const [initialFilters] = useState(readFilters);
+  const [templateId, setTemplateId] = useState(initialFilters.templateId); const [ownerId, setOwnerId] = useState(initialFilters.ownerId);
+  const [statuses, setStatuses] = useState<WorkItemStatus[]>(initialFilters.statuses); const [keyword, setKeyword] = useState(initialFilters.keyword);
+  const [followUp, setFollowUp] = useState(initialFilters.followUp);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
@@ -33,6 +51,17 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   const [busy, setBusy] = useState(false); const [reason, setReason] = useState("");
   const [attemptPage, setAttemptPage] = useState(0); const [attempts, setAttempts] = useState<Awaited<ReturnType<typeof api.listAttempts>> | null>(null);
   const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
+
+  useEffect(() => {
+    try {
+      const defaults = defaultStatuses();
+      if (!templateId && !ownerId && !keyword && !followUp && statuses.length === defaults.length && defaults.every(status => statuses.includes(status))) {
+        localStorage.removeItem(FILTER_STORAGE_KEY);
+      } else {
+        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ templateId, ownerId, statuses, keyword, followUp }));
+      }
+    } catch { /* Filtering remains available when browser storage is unavailable. */ }
+  }, [templateId, ownerId, statuses, keyword, followUp]);
 
   useEffect(() => {
     if (!visible) { setDialog(null); return; }
@@ -118,6 +147,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
     finally { submitting.current = false; setBusy(false); }
   }
   const followUpAction = (needed: boolean) => needed ? "标记为不需要后续处理" : "标记为需要后续处理";
+  const filterCount = [Boolean(templateId), Boolean(ownerId), Boolean(followUp), statuses.length !== 7 || statuses.includes("void")].filter(Boolean).length;
   const filtered = Boolean(followUp || templateId || ownerId || keyword || statuses.length !== 7 || statuses.includes("void"));
   function resetFilters() { setFollowUp(""); setTemplateId(""); setOwnerId(""); setKeyword(""); setStatuses(defaultStatuses()); setPage(0); }
   if (!visible) return null;
@@ -126,28 +156,28 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
       <header className="work-items-toolbar">
         <div className="work-items-heading">
           <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
-          <details className="work-items-help"><summary>任务生成与完成规则</summary><p>定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。</p></details>
+          <button type="button" className="work-items-refresh" disabled={loading} onClick={() => setReload(value => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
         </div>
-        <div className="work-items-select-filters">
-          <div className="work-items-search">
-            <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
-          </div>
+        <details className="work-items-help"><summary>任务生成与完成规则</summary><p>定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。</p></details>
+        <div className="work-items-search">
+          <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
+        </div>
+        <div className="work-items-filter-actions"><button type="button" aria-expanded={filtersOpen} aria-controls="mobile-work-items-filters" onClick={() => setFiltersOpen(value => !value)}>筛选{filterCount > 0 ? ` · ${filterCount}` : ""}{filtersOpen ? " ▴" : " ▾"}</button>{filtered && <button type="button" className="work-items-reset" onClick={resetFilters}>重置筛选</button>}</div>
+        <div id="mobile-work-items-filters" className="work-items-select-filters" hidden={!filtersOpen}>
           <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
           <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
           <label>后续处理<select value={followUp} onChange={event => { setFollowUp(event.target.value); setPage(0); }}><option value="">全部</option><option value="true">需要</option><option value="false">不需要</option></select></label>
           <fieldset className="work-items-status-filter"><legend>状态</legend>{(Object.entries(WORK_ITEM_STATUS) as [WorkItemStatus, string][]).map(([id, name]) => <label key={id} className="work-items-status-option" data-selected={statuses.includes(id)}><input type="checkbox" checked={statuses.includes(id)} onChange={event => { setStatuses(values => event.target.checked ? [...values, id] : values.filter(value => value !== id)); setPage(0); }} /><span>{name}</span></label>)}</fieldset>
-          <button type="button" disabled={loading} onClick={() => setReload(value => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
-          {filtered && <button type="button" className="work-items-reset" onClick={resetFilters}>重置筛选</button>}
         </div>
       </header>
       {error && <p className="mobile-work-items-error" role="alert">{error}</p>}
       {data.storageErrors?.map((value, index) => <p key={index} className="mobile-work-items-error" role="alert">{value}</p>)}
       <div className="mobile-work-items-card work-items-scroll" aria-busy={loading}>
         {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <div className="work-items-cards" aria-label="任务列表">{data.records.map(value => <article className="work-items-card" key={value.id}>
-          <div><strong title={value.taskName}>{value.taskName}</strong><div className={`work-items-source-meta${value.unavailable ? " mobile-work-items-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}</div></div>
+          <div className="work-items-card-heading"><strong title={value.taskName}>{value.taskName}</strong><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span></div><div className={`work-items-source-meta${value.unavailable ? " mobile-work-items-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}</div>
           <div><div className="work-items-summary"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{value.summary}</ReactMarkdown></div></div>
-          <div><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.error && <div className="mobile-work-items-error work-items-row-error" title={value.error}>{value.error}</div>}</div>
-          <div>后续处理：{value.needsFollowUp ? "需要" : "不需要"}</div>
+          {value.error && <div className="mobile-work-items-error work-items-row-error" title={value.error}>{value.error}</div>}
+          <div className="work-items-follow-up" data-needed={value.needsFollowUp}>后续处理：{value.needsFollowUp ? "需要" : "不需要"}</div>
           <div className="work-items-time"><div title={`创建：${time(value.createdAt)}`}>创建：{time(value.createdAt)}</div><div title={`最近执行：${time(value.lastStartedAt)}`}>最近：{time(value.lastStartedAt)}</div></div>
           <div><div className="work-items-actions">
             <button type="button" onClick={() => open(value.id, "detail")}>详情</button>

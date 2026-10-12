@@ -143,6 +143,27 @@ describe("GitStatusPanel", () => {
     vi.restoreAllMocks();
   });
 
+  it.each(["R", "M", "C"])("unstages the correct paths for index status %s", async (indexStatus) => {
+    const session = createSession("unstage-panel");
+    const snapshot = createSnapshot(session.cwd, "staged");
+    snapshot.status.files = [{
+      status: indexStatus, label: indexStatus, indexStatus, worktreeStatus: ".",
+      conflicted: false, path: "after.txt", oldPath: "before.txt"
+    }];
+    const api = createGitApi({ [session.id]: snapshot });
+    window.gitApi = api;
+    const user = userEvent.setup();
+
+    renderPanel(session);
+    await user.click(await screen.findByRole("button", { name: "取消暂存" }));
+
+    await waitFor(() => expect(api.unstageFiles).toHaveBeenCalledWith(
+      { sessionId: session.id, cwd: snapshot.cwd },
+      indexStatus === "R" ? ["before.txt", "after.txt"] : ["after.txt"],
+      expect.any(String)
+    ));
+  });
+
   it("shows every repository change and keeps clean repositories collapsed", async () => {
     const session = createSession("aggregate-panel");
     const alpha = createSnapshot(`${session.cwd}\\alpha`, "working");

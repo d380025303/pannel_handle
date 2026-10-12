@@ -322,7 +322,7 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "graphical-menu.changed", config: menuConfig }));
 
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
-    overview: { sessionId: "run-1", status: "运行中", summary: "暂无最近内容" } }));
+    overview: { sessionId: "run-1", status: "运行中", summary: "暂无最近内容", canCloseCompleted: false } }));
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
   terminalText = "latest output";
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "output" });
@@ -332,16 +332,16 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "more data" });
   await vi.advanceTimersByTimeAsync(200);
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
-    overview: { sessionId: "run-1", status: "运行中", summary: "latest output after more data" } }));
+    overview: { sessionId: "run-1", status: "运行中", summary: "latest output after more data", canCloseCompleted: false } }));
   service.handleTerminalEvent("agent:status", { id: "run-1", provider: "claude", status: "e_prompt",
     eventName: "PostToolUse", resolution: "provide_input", activitySummary: "请选择下一步" });
   await vi.advanceTimersByTimeAsync(0);
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
-    overview: { sessionId: "run-1", status: "待确认", detail: "需要用户输入", summary: "请选择下一步" } }));
+    overview: { sessionId: "run-1", status: "待确认", detail: "需要用户输入", summary: "请选择下一步", canCloseCompleted: false } }));
   service.handleTerminalEvent("agent:status", { id: "run-1", provider: "claude", status: "cleared", eventName: "Clear" });
   await vi.advanceTimersByTimeAsync(0);
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
-    overview: { sessionId: "run-1", status: "运行中", summary: "latest output after more data" } }));
+    overview: { sessionId: "run-1", status: "运行中", summary: "latest output after more data", canCloseCompleted: false } }));
   await vi.advanceTimersByTimeAsync(29_700);
   expect(client.ping).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(30_000);

@@ -1,8 +1,82 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkItemWorkspace } from "./WorkItemWorkspace";
 import type { WorkItem, WorkItemApi } from "../../src/vite-env";
-afterEach(cleanup);
+const filterStorageKey = "pannel-handle-mobile-work-item-filters";
+beforeEach(() => localStorage.clear());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
+
+it("saves filters and restores them for the first query after reentering", async () => {
+  const saved = { templateId: "template", ownerId: "owner", followUp: "false", statuses: ["failed", "void"], keyword: "检查" };
+  localStorage.setItem(filterStorageKey, JSON.stringify({ ...saved, page: 4 }));
+  const f = fixture();
+  expect(f.api.list).toHaveBeenNthCalledWith(1, { templateId: "template", ownerId: "owner", needsFollowUp: false, statuses: saved.statuses, keyword: "检查", page: 0 });
+  await screen.findByText("检查代码");
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("检查");
+  vi.mocked(f.api.list).mockResolvedValue({ records: [], total: 0, templates: [{ id: "template", name: "模板一" }, { id: "other", name: "模板二" }], owners: [{ id: "owner", templateId: "template", name: "负责人一" }] });
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await screen.findByText("没有符合筛选条件的任务");
+  fireEvent.click(screen.getByRole("button", { name: "筛选 · 4 ▾" }));
+  expect((screen.getByRole("combobox", { name: "模板" }) as HTMLSelectElement).value).toBe("template");
+  expect((screen.getByRole("combobox", { name: "负责人" }) as HTMLSelectElement).value).toBe("owner");
+  expect((screen.getByRole("combobox", { name: "后续处理" }) as HTMLSelectElement).value).toBe("false");
+  expect((screen.getByRole("checkbox", { name: "失败" }) as HTMLInputElement).checked).toBe(true);
+  fireEvent.change(screen.getByRole("combobox", { name: "模板" }), { target: { value: "other" } });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "新关键词" } });
+  expect(JSON.parse(localStorage.getItem(filterStorageKey)!)).toEqual({ ...saved, templateId: "other", ownerId: "", keyword: "新关键词" });
+  cleanup();
+  const next = fixture();
+  expect(next.api.list).toHaveBeenNthCalledWith(1, { templateId: "other", needsFollowUp: false, statuses: saved.statuses, keyword: "新关键词", page: 0 });
+});
+
+it("clears saved filters on reset and reenters with defaults", async () => {
+  localStorage.setItem(filterStorageKey, JSON.stringify({ keyword: "保存" }));
+  fixture(); await screen.findByText("检查代码");
+  fireEvent.click(screen.getByRole("button", { name: "重置筛选" }));
+  expect(localStorage.getItem(filterStorageKey)).toBeNull();
+  cleanup();
+  const f = fixture();
+  expect(f.api.list).toHaveBeenNthCalledWith(1, { statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"], keyword: "", page: 0 });
+});
+
+it.each(["broken JSON", JSON.stringify({ templateId: 1, ownerId: [], keyword: false, followUp: "invalid", statuses: ["unknown"] })])("uses defaults for invalid stored filters: %s", saved => {
+  localStorage.setItem(filterStorageKey, saved);
+  const f = fixture();
+  expect(f.api.list).toHaveBeenNthCalledWith(1, { statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"], keyword: "", page: 0 });
+});
+
+it("preserves an empty status selection and valid fields alongside invalid fields", () => {
+  localStorage.setItem(filterStorageKey, JSON.stringify({ statuses: [], keyword: "保留", ownerId: 123 }));
+  const f = fixture();
+  expect(f.api.list).toHaveBeenNthCalledWith(1, { statuses: [], keyword: "保留", page: 0 });
+});
+
+it("continues querying when storage reads and writes fail", async () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("unavailable"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("unavailable"); });
+  vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("unavailable"); });
+  const f = fixture(); await screen.findByText("检查代码");
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "仍可查询" } });
+  await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "仍可查询", page: 0 })));
+});
+it("keeps advanced filters collapsed, preserves selections and resets them", async () => {
+  const f = fixture();
+  await screen.findByText("检查代码");
+  expect(screen.queryByRole("combobox", { name: "模板" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "筛选 ▾" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "后续处理" }), { target: { value: "true" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "待执行" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "已作废" }));
+  await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith(expect.objectContaining({ needsFollowUp: true, statuses: expect.arrayContaining(["void", "running"]), page: 0 })));
+  expect(vi.mocked(f.api.list).mock.calls.at(-1)?.[0]?.statuses).not.toContain("pending");
+  fireEvent.click(screen.getByRole("button", { name: "筛选 · 2 ▴" }));
+  expect(screen.queryByRole("checkbox", { name: "已作废" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "筛选 · 2 ▾" }));
+  expect((screen.getByRole("checkbox", { name: "已作废" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("combobox", { name: "后续处理" }) as HTMLSelectElement).value).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "重置筛选" }));
+  await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith({ statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"], keyword: "", page: 0 }));
+});
 function fixture(status = "pending") {
   const item = { id: "task", taskName: "检查代码", owner: { name: "开发" }, template: { title: "项目" }, status, version: 2, output: "修复问题", summary: "修复问题", needsFollowUp: true, createdAt: 1 } as unknown as WorkItem;
   const api = { listQuickPrompts: vi.fn(async () => []), mutateQuickPrompt: vi.fn(async () => []), list: vi.fn(async () => ({ records: [item], total: 1, templates: [], owners: [] })), get: vi.fn(async () => item), preview: vi.fn(async () => ({ body: { prompt: item.output }, configuration: {} })), execute: vi.fn(async () => ({ ...item, sessionId: "new" })), markCompleted: vi.fn(async () => ({ ...item, status: "completed" as const })), setFollowUp: vi.fn(async () => item), void: vi.fn(async () => item), restore: vi.fn(async () => item), resolveUncertain: vi.fn(async () => item), listAttempts: vi.fn(async () => ({ records: [], total: 0 })), getAttempt: vi.fn(), onChanged: vi.fn(() => () => {}) } as unknown as WorkItemApi;
@@ -14,6 +88,7 @@ it("filters tasks and submits edited input once before opening the new session",
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "问题" } });
   await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "问题", page: 0 })));
   fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   const input = await screen.findByRole("textbox", { name: "实际提示词" });
   expect((input as HTMLTextAreaElement).value).toBe("修复问题");
   fireEvent.change(input, { target: { value: "只修复这一项" } });
@@ -32,7 +107,6 @@ it("keeps active tasks locked and offers result verification for uncertain tasks
 });
 
 it("supports follow-up changes, execution records and confirmed voiding", async () => {
-  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   const f = fixture(); await screen.findByText("检查代码");
   const menu = () => fireEvent.click(screen.getByRole("button", { name: "检查代码：更多操作" }));
   menu(); fireEvent.click(screen.getByRole("menuitem", { name: "标记为不需要后续处理" }));
@@ -61,6 +135,7 @@ it("appends quick prompts to edited input and resets when reopening", async () =
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
   const quick = await screen.findByRole("button", { name: "补充验证" });
 
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   const input = await screen.findByRole("textbox", { name: "实际提示词" });
   fireEvent.change(input, { target: { value: "手动修改" } });
   fireEvent.click(quick); fireEvent.click(quick);
@@ -69,6 +144,8 @@ it("appends quick prompts to edited input and resets when reopening", async () =
   fireEvent.click(screen.getByRole("button", { name: "执行" }));
   await screen.findByRole("button", { name: "补充验证" });
 
+  expect(screen.queryByRole("textbox", { name: "实际提示词" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("修复问题");
   fireEvent.click(screen.getByRole("button", { name: "补充验证" }));
   fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
@@ -79,7 +156,6 @@ it.each(["pending", "failed", "stopped"] as const)("manually completes %s withou
   const f = fixture(status);
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
   const button = await screen.findByRole("button", { name: "标记完成" });
-  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button); fireEvent.click(button);
   await waitFor(() => expect(f.api.markCompleted).toHaveBeenCalledExactlyOnceWith({ id: "task", version: 2 }));
@@ -88,8 +164,6 @@ it.each(["pending", "failed", "stopped"] as const)("manually completes %s withou
 });
 it("allows manual completion when execution preview fails", async () => {
   const status = "pending" as const; const f = fixture(status);
-  expect(screen.queryByRole("textbox", { name: "实际提示词" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   vi.mocked(f.api.preview).mockRejectedValueOnce(new Error("来源模板已删除"));
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
   await screen.findByText("Error: 来源模板已删除");
@@ -110,6 +184,7 @@ it("keeps edited prompt on manual completion conflict", async () => {
   vi.mocked(f.api.markCompleted).mockRejectedValueOnce(new Error("任务已变更，请刷新后重试。"));
   fireEvent.click(await screen.findByRole("button", { name: "执行" }));
 
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   const input = await screen.findByRole("textbox", { name: "实际提示词" });
   fireEvent.change(input, { target: { value: "保留编辑" } });
   const button = screen.getByRole("button", { name: "标记完成" });
@@ -119,7 +194,6 @@ it("keeps edited prompt on manual completion conflict", async () => {
   expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("保留编辑");
   expect(screen.getByRole("dialog", { name: "执行任务" })).toBeTruthy();
 });
-  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
 
 it("previews markdown, folds configuration and preserves edits across modes", async () => {
   const f = fixture();

@@ -1,3 +1,4 @@
+import { CloseCompletedAction, type useCloseCompleted } from "./useCloseCompleted";
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, X } from "lucide-react";
 import { createRequestId } from "./protocol";
@@ -21,12 +22,13 @@ function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
     .some(value => value?.toLowerCase().includes(query));
 }
 
-export function SessionHome({ sessions, overviews, activeId, onOpen, onAction, onChooseTemplate, onOpenTasks }: {
-  sessions: RuntimeSession[]; overviews: Record<string, SessionOverview>; activeId: string | null;
+export function SessionHome({ closeCompleted, sessions, overviews, activeId, onOpen, onAction, onChooseTemplate, onOpenTasks }: {
+  closeCompleted: ReturnType<typeof useCloseCompleted>; sessions: RuntimeSession[]; overviews: Record<string, SessionOverview>; activeId: string | null;
   onOpen: (id: string) => void; onAction: SessionAction; onChooseTemplate: () => void; onOpenTasks: () => void;
 }) {
   return <section className="mobile-home">
     <div className="mobile-home-heading mobile-home-heading-with-tasks"><div><span>会话总览</span><h1>运行中的会话</h1></div><strong>{sessions.length}</strong><button type="button" className="mobile-files-button" onClick={onOpenTasks}>任务列表</button></div>
+    <CloseCompletedAction controller={closeCompleted} />
     {sessions.length ? <div className="mobile-home-list">{sessions.map(session => {
       const overview = overviews[session.id];
       return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>
@@ -46,8 +48,8 @@ export function SessionHome({ sessions, overviews, activeId, onOpen, onAction, o
   </section>;
 }
 
-export function SessionDrawer({ sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose }: {
-  sessions: RuntimeSession[]; templates: SavedTemplate[]; activeId: string | null;
+export function SessionDrawer({ closeCompleted, sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose }: {
+  closeCompleted: ReturnType<typeof useCloseCompleted>; sessions: RuntimeSession[]; templates: SavedTemplate[]; activeId: string | null;
   tab: "running" | "templates"; onTabChange: (tab: "running" | "templates") => void;
   send: (message: ClientMessage) => boolean; onOpen: (id: string) => void; onAction: SessionAction; onClose: () => void;
 }) {
@@ -67,6 +69,7 @@ export function SessionDrawer({ sessions, templates, activeId, tab, onTabChange,
         <button className={tab === "running" ? "active" : ""} type="button" onClick={() => onTabChange("running")}>运行中 ({sessions.length})</button>
         <button className={tab === "templates" ? "active" : ""} type="button" onClick={() => onTabChange("templates")}>已保存模板 ({templates.length})</button>
       </nav>
+      {tab === "running" && <CloseCompletedAction controller={closeCompleted} />}
       {tab === "templates" && <div className="template-search">
         <input type="search" aria-label="搜索已保存模板" placeholder="搜索模板或标签..." value={query} onChange={event => setQuery(event.target.value)} />
         {query && <button type="button" onClick={() => setQuery("")} aria-label="清除模板搜索">清除</button>}

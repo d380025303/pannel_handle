@@ -20,6 +20,7 @@ export function useRemoteConnection() {
   const terminalListenersRef = useRef(new Set<(message: TerminalMessage) => void>());
   const graphicalListenersRef = useRef(new Set<(message: GraphicalMessage) => void>());
   const workItemListenersRef = useRef(new Set<(message: WorkItemMessage) => void>());
+  const sessionListenersRef = useRef(new Set<(message: Extract<ServerMessage, { type: "sessions.close-completed.result" | "error" }>) => void>());
   const fileListenersRef = useRef(new Set<(message: FileMessage) => void>());
 
   const onMessage = useCallback((message: ServerMessage) => {
@@ -68,6 +69,9 @@ export function useRemoteConnection() {
       case "command.ok":
         graphicalListenersRef.current.forEach(listener => listener(message));
         break;
+      case "sessions.close-completed.result":
+        sessionListenersRef.current.forEach(listener => listener(message));
+        break;
       case "work-items.result":
       case "work-items.changed":
         workItemListenersRef.current.forEach(listener => listener(message));
@@ -77,6 +81,7 @@ export function useRemoteConnection() {
         fileListenersRef.current.forEach(listener => listener(message));
         break;
       case "error":
+        sessionListenersRef.current.forEach(listener => listener(message));
         workItemListenersRef.current.forEach(listener => listener(message));
         graphicalListenersRef.current.forEach(listener => listener(message));
         fileListenersRef.current.forEach(listener => listener(message));
@@ -105,6 +110,10 @@ export function useRemoteConnection() {
     workItemListenersRef.current.add(listener);
     return () => { workItemListenersRef.current.delete(listener); };
   }, []);
-  return { ...transport, mobileGraphicalSessionMinimalMode, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
+  const onSessionMessage = useCallback((listener: (message: Extract<ServerMessage, { type: "sessions.close-completed.result" | "error" }>) => void) => {
+    sessionListenersRef.current.add(listener);
+    return () => { sessionListenersRef.current.delete(listener); };
+  }, []);
+  return { ...transport, onSessionMessage, mobileGraphicalSessionMinimalMode, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
     onWorkItemMessage, onTerminalMessage, onGraphicalMessage, onFileMessage };
 }

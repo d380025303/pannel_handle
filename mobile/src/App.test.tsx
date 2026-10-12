@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from "./App";
 import { useRemoteConnection } from "./useRemoteConnection";
@@ -29,7 +29,7 @@ beforeEach(() => {
     status: "connected", statusMessage: "已连接", sessions: [first, second], overviews: {}, templates: [],
     device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
-    onWorkItemMessage: vi.fn(() => () => {}), onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
+    onSessionMessage: vi.fn(() => () => {}), onWorkItemMessage: vi.fn(() => () => {}), onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
   };
   vi.mocked(useRemoteConnection).mockImplementation(() => remote);
 });
@@ -290,4 +290,50 @@ it("opens tasks from the home heading and returns to sessions", () => {
   expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "work-items.request", operation: "list" }));
   fireEvent.click(screen.getByRole("button", { name: "返回会话首页" }));
   expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
+});
+
+it("shares completed closing controls across home and drawer and reports results", () => {
+  let receive: Parameters<typeof remote.onSessionMessage>[0] = () => {};
+  remote.onSessionMessage = vi.fn(listener => { receive = listener; return () => {}; });
+  remote.overviews = { first: { sessionId: "first", status: "运行中", detail: "已完成", summary: "done", canCloseCompleted: true },
+    second: { sessionId: "second", status: "空闲", detail: "已完成", summary: "unknown" } };
+  const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
+  expect(screen.getAllByRole("button", { name: "关闭已完成（1）" })).toHaveLength(2);
+  fireEvent.click(screen.getAllByRole("button", { name: "关闭已完成（1）" })[1]);
+  const request = vi.mocked(remote.send).mock.calls.find(([message]) => message.type === "sessions.close-completed")![0];
+  expect(request).toMatchObject({ sessionIds: ["first"] });
+  for (const button of screen.getAllByRole("button", { name: "正在关闭…" })) {
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+  }
+  expect(vi.mocked(remote.send).mock.calls.filter(([message]) => message.type === "sessions.close-completed")).toHaveLength(1);
+  act(() => receive({ v: 8, type: "sessions.close-completed.result", requestId: "requestId" in request ? request.requestId : "", closed: 1, skipped: 0, failed: 0 }));
+  expect(screen.getAllByText("已关闭 1，跳过 0，失败 0")).toHaveLength(2);
+  remote = { ...remote, sessions: [second] };
+  page.rerender(<App />);
+  expect((screen.getAllByRole("button", { name: "关闭已完成（0）" })[0] as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("stops waiting after disconnect without resending", () => {
+  remote = { ...remote, device: { deviceId: "phone", deviceName: "Phone" },
+    overviews: { first: { sessionId: "first", status: "空闲", summary: "", canCloseCompleted: true } } };
+  const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "关闭已完成（1）" }));
+  remote = { ...remote, status: "disconnected" };
+  page.rerender(<App />);
+  expect(screen.getByText("连接已断开，请核对当前会话列表。")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "关闭已完成（1）" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("times out without automatically retrying", () => {
+  vi.useFakeTimers();
+  try {
+    remote.overviews = { first: { sessionId: "first", status: "空闲", summary: "", canCloseCompleted: true } };
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "关闭已完成（1）" }));
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(screen.getByText("关闭请求超时，请核对当前会话列表。")).toBeTruthy();
+    expect(vi.mocked(remote.send).mock.calls.filter(([message]) => message.type === "sessions.close-completed")).toHaveLength(1);
+  } finally { vi.useRealTimers(); }
 });

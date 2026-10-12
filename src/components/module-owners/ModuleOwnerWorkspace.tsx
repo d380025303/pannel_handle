@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { OwnerCell } from "./OwnerCell";
 import { OwnerDialog } from "./OwnerDialog";
-import type { ModuleOwnerHistory, ModuleOwnerRecord, ModuleOwnerSettings, ModuleOwnerState, ModuleOwnerTemplate, SessionApiResult, SessionApiState } from "../../vite-env";
+import type { ModuleOwnerHistory, ModuleOwnerRecord, ModuleOwnerSettings, ModuleOwnerState, ModuleOwnerTask, ModuleOwnerTemplate, SessionApiResult, SessionApiState } from "../../vite-env";
 import "./module-owners.css";
 import { PromptTemplates } from "./PromptTemplates";
 import { ModuleOwnerTasks } from "./ModuleOwnerTasks";
@@ -26,6 +26,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
   const [templates, setTemplates] = useState<ModuleOwnerTemplate[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [state, setState] = useState<ModuleOwnerState | null>(null);
+  const [tasks, setTasks] = useState<ModuleOwnerTask[] | null>(null);
   const [settings, setSettings] = useState<ModuleOwnerSettings>({ mode: "plan", prompt: "" });
   const [apiState, setApiState] = useState<SessionApiState | null>(null);
   const [draft, setDraft] = useState(blank);
@@ -46,6 +47,24 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
   currentId.current = templateId;
   const selected = templates.find(item => item.templateId === templateId);
   const generating = Boolean(state?.generation && activeStatuses.includes(state.generation.status));
+  const taskCounts = new Map<string, { enabled: number; disabled: number }>();
+  for (const task of tasks ?? []) {
+    const counts = taskCounts.get(task.ownerId) ?? { enabled: 0, disabled: 0 };
+    if (task.enabled) counts.enabled += 1;
+    else counts.disabled += 1;
+    taskCounts.set(task.ownerId, counts);
+  }
+
+  useEffect(() => {
+    let live = true;
+    setTasks(null);
+    if (!visible || !templateId) return;
+    const load = () => { void window.moduleOwnerApi.listTasks(templateId).then(value => { if (live) setTasks(value); }).catch(err => { if (live) setError(String(err)); }); };
+    load();
+    const timer = window.setInterval(load, 2000);
+    const unsubscribe = window.moduleOwnerApi.onChanged(event => { if (event.templateId === templateId) load(); });
+    return () => { live = false; window.clearInterval(timer); unsubscribe(); };
+  }, [templateId, visible]);
 
   useEffect(() => {
     let live = true;
@@ -158,8 +177,8 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
     {!templates.length && <p>请先创建会话模板。</p>}
     {state && <>
       <section className="module-owners-card">
-        <div className="module-owners-table-scroll"><table><colgroup><col className="module-owners-name-column" /><col /><col /><col className="module-owners-directory-column" /><col className="module-owners-action-column" /></colgroup><thead><tr><th>负责模块名称</th><th>职责</th><th>近期行为</th><th>主要负责目录</th><th>操作</th></tr></thead><tbody>
-          {state.records.map(record => <tr key={record.id}><td><OwnerCell label="负责模块名称" text={record.name} /></td><td><OwnerCell label="职责" text={record.responsibilities} /></td><td><OwnerCell label="近期行为" text={record.recentActivity ?? ""} /></td><td><OwnerCell label="主要负责目录" text={record.directories.join("\n")} code /></td><td><div className="module-owners-row-actions">
+        <div className="module-owners-table-scroll"><table><colgroup><col className="module-owners-name-column" /><col /><col /><col className="module-owners-directory-column" /><col className="module-owners-task-count-column" /><col className="module-owners-action-column" /></colgroup><thead><tr><th>负责模块名称</th><th>职责</th><th>近期行为</th><th>主要负责目录</th><th>定时任务</th><th>操作</th></tr></thead><tbody>
+          {state.records.map(record => <tr key={record.id}><td><OwnerCell label="负责模块名称" text={record.name} /></td><td><OwnerCell label="职责" text={record.responsibilities} /></td><td><OwnerCell label="近期行为" text={record.recentActivity ?? ""} /></td><td><OwnerCell label="主要负责目录" text={record.directories.join("\n")} code /></td><td>{tasks ? <>已启用 {taskCounts.get(record.id)?.enabled ?? 0}<br />已停用 {taskCounts.get(record.id)?.disabled ?? 0}</> : "—"}</td><td><div className="module-owners-row-actions">
             <button type="button" aria-label={`编辑 ${record.name}`} disabled={busy} onClick={() => { openDialog("edit"); setEditing(record); setDraft({ name: record.name, responsibilities: record.responsibilities, recentActivity: record.recentActivity ?? "", directories: record.directories.join("\n") }); }}>编辑</button>
             <button type="button" aria-label={`定时任务 ${record.name}`} disabled={busy} onClick={() => { setTaskOwner(record); openDialog("tasks"); }}>定时任务</button>
             <button type="button" className="module-owners-history-link" aria-label={`历史记录 ${record.name}`} disabled={busy} onClick={() => openDialog("history", record)}>历史记录</button>

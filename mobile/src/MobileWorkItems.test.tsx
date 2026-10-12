@@ -8,7 +8,7 @@ it("correlates responses, ignores stale results and re-queries after reconnect w
   let receive: (message: WorkItemMessage) => void = () => {};
   const send = vi.fn((_message: import("./types").ClientMessage) => true);
   const remote = { status: "connected", connectionEpoch: 1, sessions: [], send,
-    onWorkItemMessage: (listener: typeof receive) => { receive = listener; return () => {}; }
+    onSessionMessage: vi.fn(() => () => {}), onWorkItemMessage: (listener: typeof receive) => { receive = listener; return () => {}; }
   } as unknown as ReturnType<typeof useRemoteConnection>;
   const props = { remote, onClose: vi.fn(), onOpenSession: vi.fn() };
   const page = render(<MobileWorkItems {...props} />);

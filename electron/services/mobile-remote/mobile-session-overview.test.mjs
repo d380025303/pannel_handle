@@ -46,3 +46,17 @@ it("uses terminal Agent status and activity, then restores the ordinary status w
   session.sshConnectionState = "disconnected";
   expect(await terminalOverview(session, stateHub, waiting)).toMatchObject({ status: "已断开" });
 });
+
+it("only allows completed sessions without pending interaction", async () => {
+  const terminal = { id: "one", runtimeMode: "terminal", agentStatus: "completed" };
+  expect((await sessionOverview(terminal, null, {})).canCloseCompleted).toBe(true);
+  for (const status of [{ status: "running" }, { status: "e_prompt" }, { status: "failed" },
+    { status: "completed", eventName: "AppServerPlanPending" }, { status: "completed", eventName: "AppServerQuestion" },
+    { status: "completed", eventName: "AcpQuestion" }, { status: "completed", resolution: "provide_input" }])
+    expect(overviewModule.canCloseCompleted(terminal, null, status)).toBe(false);
+  const session = { ...terminal, runtimeMode: "app-server" };
+  expect(overviewModule.canCloseCompleted(session, { snapshot: () => ({}) })).toBe(true);
+  for (const snapshot of [null, { busy: true }, { error: "failed" }, { pendingPlan: {} }, { approvals: [{}] }, { questions: [{}] }])
+    expect(overviewModule.canCloseCompleted(session, { snapshot: () => snapshot })).toBe(false);
+  expect(overviewModule.canCloseCompleted(session, { snapshot: () => { throw new Error(); } })).toBe(false);
+});

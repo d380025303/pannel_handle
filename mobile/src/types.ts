@@ -51,7 +51,7 @@ export type ReadyPayload = {
   sessions: RuntimeSession[];
   templates: SavedTemplate[];
 };
-export type SessionOverview = { sessionId: string; status: "运行中" | "空闲" | "处理中" | "待确认" | "连接中" | "重连中" | "已断开" | "错误"; detail?: string; summary: string };
+export type SessionOverview = { sessionId: string; status: "运行中" | "空闲" | "处理中" | "待确认" | "连接中" | "重连中" | "已断开" | "错误"; detail?: string; summary: string; canCloseCompleted?: boolean };
 
 export type ComputerFileEntry = { name: string; path: string; type: "drive" | "directory" | "file"; size: number | null };
 
@@ -116,6 +116,7 @@ export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qo
 export type WorkItemOperation = Exclude<keyof import("../../src/vite-env").WorkItemApi, "onChanged">;
 export type WorkItemMessage = Extract<ServerMessage, { type: "work-items.result" | "work-items.changed" | "error" }>;
 export type ServerMessage =
+  | { v: 8; type: "sessions.close-completed.result"; requestId: string; closed: number; skipped: number; failed: number }
   | { v: 8; type: "work-items.result"; requestId: string; result: unknown }
   | { v: 8; type: "work-items.changed" }
   | { v: 8; type: "mobile-preferences.changed"; mobileGraphicalSessionMinimalMode: boolean }
@@ -145,6 +146,7 @@ export type ServerMessage =
   | { v: 8; type: "error"; code: string; message: string; requestId?: string };
 
 export type ClientMessage =
+  | { v: 8; type: "sessions.close-completed"; requestId: string; sessionIds: string[] }
   | { v: 8; type: "work-items.request"; requestId: string; operation: WorkItemOperation; input: unknown }
   | { v: 8; type: `graphical.opencode.${OpenCodeCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }
   | { v: 8; type: `graphical.codebuddy.${CodeBuddyCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }

@@ -376,6 +376,27 @@ describe("real temporary repository workflow", () => {
     expect((await service.getStatus(target)).files.map((file) => file.path)).toEqual([otherName]);
   });
 
+  it("unstages both rename paths while preserving the renamed worktree file", async () => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    const content = "rename content\n";
+    fs.writeFileSync(path.join(directory, "before.txt"), content);
+    git(directory, "add", "before.txt");
+    git(directory, "commit", "-m", "Base");
+    git(directory, "mv", "before.txt", "after.txt");
+
+    const { files } = await service.getStatus(target);
+    expect(files).toEqual([
+      expect.objectContaining({ indexStatus: "R", oldPath: "before.txt", path: "after.txt" })
+    ]);
+    expect((await service.unstageFiles(target, [files[0].oldPath, files[0].path], "unstage-renamed")).ok).toBe(true);
+
+    expect(git(directory, "diff", "--cached", "--name-status")).toBe("");
+    expect(fs.existsSync(path.join(directory, "before.txt"))).toBe(false);
+    expect(fs.readFileSync(path.join(directory, "after.txt"), "utf-8")).toBe(content);
+  });
+
   it("discards worktree edits while preserving a staged rename", async () => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");

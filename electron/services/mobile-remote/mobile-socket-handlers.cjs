@@ -1,7 +1,7 @@
 const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = require("./mobile-protocol.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
-const { sessionOverview } = require("./mobile-session-overview.cjs");
+const { sessionOverview, canCloseCompleted } = require("./mobile-session-overview.cjs");
 
 function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getWorkItems = () => null, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
@@ -169,6 +169,23 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         const title = String(message.title || "").trim();
         if (!title || title.length > 120) throw new Error("会话名称必须为 1 到 120 个字符。");
         terminalManager.updateSession(String(message.sessionId || ""), { title });
+      } else if (message.type === "sessions.close-completed") {
+        if (!requestId || !Array.isArray(message.sessionIds) || message.sessionIds.some(id => typeof id !== "string" || !id))
+          throw new Error("批量关闭请求无效。");
+        const counts = { closed: 0, skipped: 0, failed: 0 };
+        for (const id of new Set(message.sessionIds)) {
+          const session = terminalManager.getSession(id);
+          if (!session || !canCloseCompleted(session, graphicalService, getAgentStatus?.(id))) {
+            counts.skipped++;
+            continue;
+          }
+          try {
+            uploads?.releaseSession(id);
+            await terminalManager.closeSession(id);
+            counts.closed++;
+          } catch { counts.failed++; }
+        }
+        send(socket, { type: "sessions.close-completed.result", requestId, ...counts });
       } else if (message.type === "session.close") {
         uploads?.releaseSession(String(message.sessionId || ""));
         terminalManager.closeSession(String(message.sessionId || ""));

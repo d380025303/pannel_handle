@@ -1,3 +1,15 @@
+function canCloseCompleted(session, graphicalService, agentStatus) {
+  const status = agentStatus || (session.agentStatus ? { status: session.agentStatus } : null);
+  if (status?.status !== "completed" || ["AppServerPlanPending", "AppServerQuestion", "AcpQuestion"].includes(status.eventName)
+    || status.resolution === "provide_input") return false;
+  if (session.runtimeMode !== "app-server") return true;
+  try {
+    const snapshot = graphicalService?.snapshot(session.id);
+    return Boolean(snapshot && !snapshot.busy && !snapshot.error && !snapshot.pendingPlan
+      && !snapshot.approvals?.length && !snapshot.questions?.length);
+  } catch { return false; }
+}
+
 function cleanSummary(value) {
   return String(value || "").replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
 }
@@ -56,7 +68,7 @@ async function terminalOverview(session, stateHub, agentStatus) {
     ...(detail ? { detail } : {}), summary: cleanSummary(agentStatus?.activitySummary || recent) || fallbackSummary(session) };
 }
 
-async function sessionOverview(session, graphicalService, stateHub, agentStatus) {
+async function buildSessionOverview(session, graphicalService, stateHub, agentStatus) {
   if (session.runtimeMode !== "app-server") {
     try { return await terminalOverview(session, stateHub, agentStatus); }
     catch { return terminalOverview(session, {}, agentStatus); }
@@ -65,4 +77,9 @@ async function sessionOverview(session, graphicalService, stateHub, agentStatus)
   catch { return { sessionId: session.id, status: connectionState(session) || "空闲", summary: fallbackSummary(session) }; }
 }
 
-module.exports = { cleanSummary, graphicalOverview, terminalOverview, sessionOverview };
+async function sessionOverview(session, graphicalService, stateHub, agentStatus) {
+  const overview = await buildSessionOverview(session, graphicalService, stateHub, agentStatus);
+  return { ...overview, canCloseCompleted: canCloseCompleted(session, graphicalService, agentStatus) };
+}
+
+module.exports = { canCloseCompleted, cleanSummary, graphicalOverview, terminalOverview, sessionOverview };

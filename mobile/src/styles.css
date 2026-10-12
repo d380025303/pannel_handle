@@ -641,3 +641,24 @@ button.danger { color: #fda4af; }
   .graphical-composer { gap: 4px; padding-top: 5px; }
   .graphical-shell > .mobile-quick-commands .mobile-quick-direct { padding-top: 4px; padding-bottom: 4px; }
 }
+
+.mobile-close-completed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 12px;
+}
+.session-drawer .mobile-close-completed {
+  padding: 12px;
+  border-bottom: 1px solid #263244;
+}
+.mobile-close-completed > button {
+  min-height: 40px;
+}
+.mobile-close-completed > p {
+  margin: 0;
+  width: 100%;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

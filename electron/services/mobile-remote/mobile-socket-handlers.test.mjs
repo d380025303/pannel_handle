@@ -188,3 +188,23 @@ describe("mobile terminal subscription ordering", () => {
     expect(f.messages.filter(message => message.type === "terminal.data").map(message => message.seq)).toEqual([2, 3]);
   });
 });
+
+it("rechecks batch candidates, skips stale sessions and continues after failures", async () => {
+  const messages = [];
+  const uploads = { releaseSession: vi.fn() };
+  const closeSession = vi.fn(id => { if (id === "bad") throw new Error("failure"); });
+  const handlers = socketModule.createMobileSocketHandlers({
+    terminalManager: { getSession: id => id === "missing" ? null : ({ id, runtimeMode: "terminal" }), closeSession },
+    getAgentStatus: id => ({ status: id === "running" ? "running" : "completed" }),
+    stateHub: {}, now: Date.now, auth: {}, sizes: {}, uploads,
+    send: (_socket, message) => messages.push(message), sendError: vi.fn()
+  });
+  const socket = new EventEmitter();
+  handlers.handleWebSocket(socket, { socket: { remoteAddress: "127.0.0.1" } });
+  socket.authenticated = true;
+  socket.emit("message", JSON.stringify({ v: 8, type: "sessions.close-completed", requestId: "batch",
+    sessionIds: ["running", "missing", "bad", "done", "done"] }));
+  await vi.waitFor(() => expect(messages).toContainEqual({ type: "sessions.close-completed.result", requestId: "batch", closed: 1, skipped: 2, failed: 1 }));
+  expect(closeSession.mock.calls.map(([id]) => id)).toEqual(["bad", "done"]);
+  expect(uploads.releaseSession.mock.calls.map(([id]) => id)).toEqual(["bad", "done"]);
+});

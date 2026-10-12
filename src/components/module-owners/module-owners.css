@@ -126,6 +126,9 @@
 .module-owners-name-column {
   width: 16%;
 }
+.module-owners-task-count-column {
+  width: 100px;
+}
 .module-owners-directory-column {
   width: 22%;
 }

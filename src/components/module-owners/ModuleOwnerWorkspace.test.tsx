@@ -28,6 +28,21 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("module owner workspace", () => {
+  it("counts enabled and disabled tasks for each owner and refreshes changes", async () => {
+    const other = { ...record, id: "other", name: "移动端" };
+    vi.mocked(ownerApi.get).mockResolvedValue({ ...initial, records: [record, other] });
+    const task: ModuleOwnerTask = { id: "task", ownerId: record.id, name: "巡检", prompt: "检查", mode: "default", enabled: true, tools: [], schedule: { kind: "cron", cron: "0 * * * *" }, executedCount: 0, nextRunAt: null };
+    vi.mocked(ownerApi.listTasks).mockResolvedValue([task, { ...task, id: "disabled", enabled: false }, { ...task, id: "deleted-owner", ownerId: "deleted" }]);
+    const listeners = new Set<(event: { templateId: string }) => void>();
+    vi.mocked(ownerApi.onChanged).mockImplementation(callback => { listeners.add(callback); return () => { listeners.delete(callback); }; });
+    render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+    const row = (name: string) => screen.getByRole("button", { name: `编辑 ${name}` }).closest("tr")!;
+    await waitFor(() => expect(within(row("桌面")).getByText(/已启用 1/).textContent).toBe("已启用 1已停用 1"));
+    expect(within(row("移动端")).getByText(/已启用 0/).textContent).toBe("已启用 0已停用 0");
+    vi.mocked(ownerApi.listTasks).mockResolvedValue([{ ...task, enabled: false }]);
+    listeners.forEach(callback => callback({ templateId: "one" }));
+    await waitFor(() => expect(within(row("桌面")).getByText(/已启用 0/).textContent).toBe("已启用 0已停用 1"));
+  });
   it("edits fields with the displayed version and refuses to hide conflict errors", async () => {
     render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑 桌面" }));
