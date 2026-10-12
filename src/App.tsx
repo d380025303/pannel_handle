@@ -521,11 +521,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const handleCloseSession = useCallback(async (id: string) => {
     if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
-      return;
+      return false;
     }
     const closingSession = terminalSessions.sessions.find((session) => session.id === id);
     const hasActiveTransfer = fileTransfers.some((task) => task.sessionId === id && (task.status === "queued" || task.status === "running"));
-    if (closingSession?.type === "ssh" && hasActiveTransfer && !window.confirm(t("files.closeSshTransfers"))) return;
+    if (closingSession?.type === "ssh" && hasActiveTransfer && !window.confirm(t("files.closeSshTransfers"))) return false;
     if (closingSession?.type === "ssh" && hasActiveTransfer) {
       await Promise.all(fileTransfers.filter((task) => task.sessionId === id && (task.status === "queued" || task.status === "running")).map((task) => window.fileTransferApi.cancel(task.id)));
     }
@@ -534,6 +534,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     workspaceTabBySessionRef.current.delete(id);
     if (id === terminalSessions.activeId && workspaceTabRef.current === "session-shell") setWorkspaceTab("terminal");
     terminalInstances.disposeTerminal(id);
+    return true;
   }, [fileTransfers, remoteFilesDirty, terminalInstances, terminalSessions, t]);
 
   const handleSelectSession = useCallback((id: string) => {

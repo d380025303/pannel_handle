@@ -276,10 +276,69 @@ describe("git command routing", () => {
     const target = repositoryTarget("win", "C:\\work\\repo");
     expect(() => service.applyStash(target, "stash@{x}", "bad-stash")).toThrow("stash reference");
     await expect(service.discardWorkingTree(target, { path: "../secret" }, "bad-path")).rejects.toThrow("repository-relative path");
+    for (const invalidPath of [undefined, null, 123, {}, "", "a\0.txt", "/absolute.txt", "C:\\absolute.txt", "dir/../secret", "dir\\..\\secret"]) {
+      await expect(service.discardWorkingTree(target, { path: invalidPath }, "bad-path")).rejects.toThrow("repository-relative path");
+    }
+  });
+
+  it("preserves leading and trailing spaces in repository path arguments", async () => {
+    const spawn = createSpawnMock();
+    const service = createGitService({
+      terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn
+    });
+    const target = repositoryTarget("win", "C:\\work\\repo");
+    for (const repoPath of [" a.txt", "a.txt ", " a.txt "]) {
+      await service.stageFiles(target, [repoPath], "stage-spaces");
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      await service.unstageFiles(target, [repoPath], "unstage-spaces");
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      await service.getDiff(target, { scope: "working", path: repoPath });
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+      await service.discardWorkingTree(target, { path: repoPath }, "discard-spaces");
+      expect(spawn.calls.at(-1).args.at(-1)).toBe(repoPath);
+    }
   });
 });
 
 describe("real temporary repository workflow", () => {
+  it("isolates diff, stage, unstage, and discard for a filename with a leading space", async () => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    const plainPath = path.join(directory, "a.txt");
+    const spacedPath = path.join(directory, " a.txt");
+    fs.writeFileSync(plainPath, "plain base\n");
+    fs.writeFileSync(spacedPath, "spaced base\n");
+    git(directory, "add", "--", "a.txt", " a.txt");
+    git(directory, "commit", "-m", "Base");
+    fs.writeFileSync(plainPath, "plain modified\n");
+    fs.writeFileSync(spacedPath, "spaced modified\n");
+
+    const workingDiff = await service.getDiff(target, { scope: "working", path: " a.txt" });
+    expect(workingDiff.rows).toContainEqual(expect.objectContaining({ oldText: "spaced base", newText: "spaced modified" }));
+    expect(workingDiff.rows.some((row) => row.newText === "plain modified")).toBe(false);
+
+    expect((await service.stageFiles(target, [" a.txt"], "stage-spaced")).ok).toBe(true);
+    expect(git(directory, "show", ":a.txt")).toBe("plain base");
+    expect(git(directory, "show", ": a.txt")).toBe("spaced modified");
+    const stagedDiff = await service.getDiff(target, { scope: "staged", path: " a.txt" });
+    expect(stagedDiff.rows).toContainEqual(expect.objectContaining({ oldText: "spaced base", newText: "spaced modified" }));
+
+    git(directory, "add", "--", "a.txt");
+    expect((await service.unstageFiles(target, [" a.txt"], "unstage-spaced")).ok).toBe(true);
+    expect(git(directory, "show", ":a.txt")).toBe("plain modified");
+    expect(git(directory, "show", ": a.txt")).toBe("spaced base");
+    expect(fs.readFileSync(spacedPath, "utf-8")).toBe("spaced modified\n");
+    git(directory, "restore", "--staged", "--", "a.txt");
+
+    expect((await service.discardWorkingTree(target, { path: " a.txt", status: "M", indexStatus: "." }, "discard-spaced")).ok).toBe(true);
+    expect(fs.readFileSync(spacedPath, "utf-8")).toBe("spaced base\n");
+    expect(fs.readFileSync(plainPath, "utf-8")).toBe("plain modified\n");
+    expect(git(directory, "show", ":a.txt")).toBe("plain base");
+  });
+
   it("discovers only the current directory and immediate child working trees", async () => {
     const aggregate = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-aggregate-"));
     temporaryDirectories.push(aggregate);

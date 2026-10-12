@@ -351,6 +351,9 @@ export type TranslationKey =
   | "sidebar.searchPlaceholder"
   | "sidebar.clearSearch"
   | "sidebar.empty"
+  | "sidebar.closeCompleted"
+  | "sidebar.closingCompleted"
+  | "sidebar.closeCompletedResult"
   | "sidebar.installHooks"
   | "sidebar.duplicateSession"
   | "sidebar.duplicatingSession"
@@ -1448,6 +1451,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.searchPlaceholder": "搜索会话...",
     "sidebar.clearSearch": "清除搜索",
     "sidebar.empty": "没有匹配的会话",
+    "sidebar.closeCompleted": "关闭已完成（{count}）",
+    "sidebar.closingCompleted": "正在关闭…",
+    "sidebar.closeCompletedResult": "已关闭 {closed}，跳过 {skipped}，失败 {failed}",
     "sidebar.installHooks": "安装项目 Hook",
     "sidebar.duplicateSession": "复制并在后台启动新会话",
     "sidebar.duplicatingSession": "正在复制会话",
@@ -2537,6 +2543,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.searchPlaceholder": "Search sessions...",
     "sidebar.clearSearch": "Clear search",
     "sidebar.empty": "No matching sessions",
+    "sidebar.closeCompleted": "Close completed ({count})",
+    "sidebar.closingCompleted": "Closing…",
+    "sidebar.closeCompletedResult": "Closed {closed}, skipped {skipped}, failed {failed}",
     "sidebar.installHooks": "Install project hooks",
     "sidebar.duplicateSession": "Duplicate and start in background",
     "sidebar.duplicatingSession": "Duplicating session",

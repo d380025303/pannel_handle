@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
@@ -191,5 +191,64 @@ describe("SessionSidebar Agent summary", () => {
     expect(screen.getByText("SSH 重连中（第 2 次）")).toBeTruthy();
     fireEvent.click(screen.getByTitle("立即重连 SSH"));
     await waitFor(() => expect(onReconnectSession).toHaveBeenCalledWith(session.id));
+  });
+});
+
+
+describe("SessionSidebar close completed", () => {
+  afterEach(cleanup);
+  const completed = (id: string): AgentStatusPayload => ({ id, provider: "codex", status: "completed", eventName: "Stop", timestamp: 1 });
+  function view(sessions: TerminalSession[], statuses: Record<string, AgentStatusPayload>, close: (id: string) => Promise<boolean>) {
+    return <I18nProvider locale="zh-CN"><SessionSidebar sessions={sessions} agentStatusesBySessionId={statuses}
+      onSelectSession={vi.fn()} onEditSession={vi.fn()} onDuplicateSession={async () => undefined}
+      onInstallHooks={vi.fn()} onReconnectSession={async () => undefined} onCloseSession={close} onReorder={vi.fn()} /></I18nProvider>;
+  }
+
+  it("only closes completed search matches and excludes pending plans and input", async () => {
+    const sessions = ["match", "hidden", "plan", "input", "running", "idle", "failed", "exited", "unknown"].map(id => ({ ...session, id, title: id === "hidden" ? "other" : `match ${id}` }));
+    const statuses = Object.fromEntries(sessions.slice(0, -1).map(s => [s.id, completed(s.id)]));
+    statuses.plan.eventName = "AppServerPlanPending";
+    statuses.input.resolution = "provide_input";
+    statuses.running.status = "running";
+    statuses.idle.status = "e_prompt";
+    statuses.failed.status = "failed";
+    statuses.exited.status = "exited";
+    const close = vi.fn(async () => true);
+    render(view(sessions, statuses, close));
+    fireEvent.change(screen.getByPlaceholderText("搜索会话..."), { target: { value: "match" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭已完成（1）" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("已关闭 1，跳过 0，失败 0"));
+    expect(close.mock.calls).toEqual([["match"]]);
+  });
+
+  it("locks repeated clicks and skips candidates that restart or disappear", async () => {
+    const sessions = ["one", "two", "three"].map(id => ({ ...session, id }));
+    const statuses = Object.fromEntries(sessions.map(s => [s.id, completed(s.id)]));
+    let finish!: (value: boolean) => void;
+    const close = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve; }));
+    const rendered = render(view(sessions, statuses, close));
+    const button = screen.getByRole("button", { name: "关闭已完成（3）" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(close).toHaveBeenCalledTimes(1);
+    rendered.rerender(view(sessions.slice(0, 2), { ...statuses, two: { ...statuses.two, status: "running" } }, close));
+    await act(async () => finish(true));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("已关闭 1，跳过 2，失败 0"));
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues after failure and cancellation and disables an empty batch", async () => {
+    const sessions = ["failed", "cancelled", "closed"].map(id => ({ ...session, id }));
+    const statuses = Object.fromEntries(sessions.map(s => [s.id, completed(s.id)]));
+    const close = vi.fn(async (id: string) => {
+      if (id === "failed") throw new Error("close failed");
+      return id !== "cancelled";
+    });
+    const rendered = render(view(sessions, statuses, close));
+    fireEvent.click(screen.getByRole("button", { name: "关闭已完成（3）" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("已关闭 1，跳过 1，失败 1"));
+    expect(close).toHaveBeenCalledTimes(3);
+    rendered.rerender(view([], {}, close));
+    expect((screen.getByRole("button", { name: "关闭已完成（0）" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

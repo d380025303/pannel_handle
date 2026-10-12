@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ListTodo, Copy, GripVertical, Pencil, RefreshCw, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
-import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
+import { getAgentStatusClass, getAgentStatusLabel, isAgentCompleted } from "../../utils/agentStatus";
 import { INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 
 type SessionSidebarProps = {
@@ -15,7 +15,7 @@ type SessionSidebarProps = {
   onDuplicateSession: (id: string) => Promise<void>;
   onInstallHooks: (session: TerminalSession) => void;
   onReconnectSession: (id: string) => Promise<void>;
-  onCloseSession: (id: string) => void;
+  onCloseSession: (id: string) => void | boolean | Promise<void | boolean>;
   onReorder: (orderedIds: string[]) => void;
 };
 
@@ -46,6 +46,11 @@ export function SessionSidebar({
   const [reconnectingIds, setReconnectingIds] = useState<Set<string>>(() => new Set());
   const duplicatingIdsRef = useRef(new Set<string>());
   const reconnectingIdsRef = useRef(new Set<string>());
+  const [closingCompleted, setClosingCompleted] = useState(false);
+  const [closeResult, setCloseResult] = useState<{ closed: number; skipped: number; failed: number } | null>(null);
+  const closingCompletedRef = useRef(false);
+  const latestRef = useRef({ sessions, agentStatusesBySessionId, onCloseSession });
+  latestRef.current = { sessions, agentStatusesBySessionId, onCloseSession };
 
   const isFiltering = searchQuery.trim().length > 0;
 
@@ -68,6 +73,36 @@ export function SessionSidebar({
       );
     });
   }, [sessions, searchQuery]);
+
+  const completedIds = filteredSessions.filter(session => isAgentCompleted(agentStatusesBySessionId[session.id])).map(session => session.id);
+
+  async function closeCompleted() {
+    if (closingCompletedRef.current) return;
+    closingCompletedRef.current = true;
+    setClosingCompleted(true);
+    setCloseResult(null);
+    const counts = { closed: 0, skipped: 0, failed: 0 };
+    try {
+      for (const id of completedIds) {
+        const latest = latestRef.current;
+        if (!latest.sessions.some(session => session.id === id) || !isAgentCompleted(latest.agentStatusesBySessionId[id])) {
+          counts.skipped++;
+          continue;
+        }
+        try {
+          const closed = await latest.onCloseSession(id);
+          if (closed === false) counts.skipped++;
+          else counts.closed++;
+        } catch {
+          counts.failed++;
+        }
+      }
+      setCloseResult(counts);
+    } finally {
+      closingCompletedRef.current = false;
+      setClosingCompleted(false);
+    }
+  }
 
   useEffect(() => {
     if (!pendingCloseId) return;
@@ -169,6 +204,13 @@ export function SessionSidebar({
             <X aria-hidden="true" />
           </button>
         )}
+      </div>
+
+      <div className="sidebar-batch-actions">
+        <button className="modal-button" type="button" disabled={closingCompleted || completedIds.length === 0} onClick={() => void closeCompleted()}>
+          {closingCompleted ? t("sidebar.closingCompleted") : t("sidebar.closeCompleted", { count: completedIds.length })}
+        </button>
+        {closeResult && <p role="status">{t("sidebar.closeCompletedResult", closeResult)}</p>}
       </div>
 
       <div className="session-list">

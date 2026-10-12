@@ -29,6 +29,25 @@ describe("agent token transcript parser", () => {
     expect(result.models).toEqual(["gemini-2.5-pro", "gemini-2.5-flash"]);
   });
 
+  it.each([false, true])("rewinds Gemini usage to a user message (checkpoint: %s)", (checkpoint) => {
+    const messages = [
+      { id: "u1", type: "user", content: "first prompt" },
+      { id: "a1", type: "gemini", tokens: { input: 10, output: 5, total: 15 } },
+      { id: "u2", type: "user", content: "second prompt" },
+      { id: "a2", type: "gemini", tokens: { input: 20, output: 10, total: 30 } }
+    ];
+    const lines = (checkpoint ? [{ $set: { messages } }] : messages).map((record) => JSON.stringify(record));
+    const parser = createIncrementalTranscriptParser("gemini");
+    for (const line of lines) parser.pushLine(line);
+    expect(parser.getResult().tokens.totalTokens).toBe(45);
+
+    const rewind = JSON.stringify({ $rewindTo: "u2" });
+    parser.pushLine(rewind);
+    const expectedTokens = { inputTokens: 10, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 5, reasoningOutputTokens: 0, totalTokens: 15 };
+    expect(parser.getResult().tokens).toEqual(expectedTokens);
+    expect(parseTranscriptText("gemini", [...lines, rewind].join("\n")).tokens).toEqual(expectedTokens);
+  });
+
   it("reads legacy Gemini JSON conversations", () => {
     const result = parseTranscriptText("gemini", JSON.stringify({ messages: [
       { id: "legacy", type: "gemini", model: "gemini-2.0-flash", tokens: { input: 12, cached: 2, output: 3, total: 15 } }

@@ -104,10 +104,10 @@ export function QuestionCard({ sessionId, request, provider, onAnswer, onCancel 
     </fieldset>)}
     {error && <p role="alert">{error}</p>}
     <div className="codex-app-server-question-actions">
-    <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
+    {(provider === "codebuddy" || provider === "claude" || provider === "opencode") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
+    <button type="button" className="primary" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
       {sending || request.submitting ? "正在提交…" : "提交回答"}
     </button>
-    {(provider === "codebuddy" || provider === "claude" || provider === "opencode") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
     </div>
   </article>;
 }

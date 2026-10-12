@@ -154,8 +154,9 @@ function validateWslDistro(value) {
 }
 
 function validateRepoPath(value) {
-  const repoPath = String(value || "").trim();
-  if (!repoPath || repoPath.includes("\0") || path.isAbsolute(repoPath) || repoPath.split(/[\\/]+/).includes("..")) {
+  // Whitespace is part of the filename; trimming can target a different file.
+  const repoPath = value;
+  if (typeof repoPath !== "string" || !repoPath || repoPath.includes("\0") || path.isAbsolute(repoPath) || repoPath.split(/[\\/]+/).includes("..")) {
     throw new Error("A valid repository-relative path is required.");
   }
   return repoPath.replace(/\\/g, "/");

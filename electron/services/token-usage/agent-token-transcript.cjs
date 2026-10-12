@@ -355,9 +355,14 @@ function createIncrementalTranscriptParser(provider) {
   }
 
   function recordGeminiMessage(item) {
-    if (!item || item.type !== "gemini") return false;
+    if (!item || (item.type !== "gemini" && item.type !== "user")) return false;
     const messageId = String(item.id || "").trim();
     if (!messageId) return false;
+    // User messages anchor rewinds in the full conversation order without adding usage.
+    if (item.type === "user") {
+      geminiMessages.set(messageId, null);
+      return true;
+    }
     geminiMessages.set(messageId, normalizeGeminiUsage(item.tokens));
     if (item.model) models.add(String(item.model));
     for (const [index, call] of (Array.isArray(item.toolCalls) ? item.toolCalls : []).entries()) {

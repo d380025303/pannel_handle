@@ -79,3 +79,11 @@ export function getAgentStatusLabel(status: AgentStatusPayload | undefined, t: T
 export function getAgentStatusClass(status?: AgentStatusPayload) {
   return status?.status ?? "unknown";
 }
+
+export function isAgentCompleted(status?: AgentStatusPayload) {
+  return status?.status === "completed"
+    && status.eventName !== "AppServerPlanPending"
+    && status.eventName !== "AppServerQuestion"
+    && status.eventName !== "AcpQuestion"
+    && status.resolution !== "provide_input";
+}
