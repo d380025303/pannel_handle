@@ -123,6 +123,36 @@ describe("Responses Chat Completions bridge", () => {
     expect(responseText).not.toContain('"type":"response.failed"');
   });
 
+  it.each([
+    [false, "length"], [true, "length"],
+    [false, "stop"], [true, "stop"],
+    [false, "tool_calls"], [true, "tool_calls"]
+  ])("returns the correct terminal status over HTTP (omit DONE: %s, reason: %s)", async (omitDone, finishReason) => {
+    const truncated = finishReason === "length";
+    const argumentsText = truncated ? '{"input":"truncated' : '{"input":"complete"}';
+    const fetchImpl = vi.fn(async () => new Response([
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "echo", arguments: argumentsText } }] }, finish_reason: null }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}`,
+      ...(omitDone ? [] : ["data: [DONE]"]), ""
+    ].join("\n\n"), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    const service = createService(fetchImpl, { allowFinishReasonAsDone: omitDone });
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    const response = await fetch(`${launch.baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "model-a", input: "hello", stream: true })
+    });
+    expect(response.status).toBe(200);
+    const events = (await response.text()).split("\n").filter(line => line.startsWith("data:")).map(line => JSON.parse(line.slice(5)));
+    const status = truncated ? "incomplete" : "completed";
+    expect(events.at(-1)).toMatchObject({ type: `response.${status}`, response: { status, output: [{ type: "function_call", status, arguments: argumentsText }] } });
+    expect(events.find(event => event.type === "response.output_item.done").item.status).toBe(status);
+    if (truncated) {
+      expect(events.at(-1).response.incomplete_details).toEqual({ reason: "max_output_tokens" });
+      expect(events.some(event => event.type === "response.completed")).toBe(false);
+    }
+  });
+
   it.each(["web_search", "web_search_preview"])("ignores unsupported %s tools while preserving function tools", async webToolType => {
     const fetchImpl = vi.fn(async () => new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }));
     const service = createService(fetchImpl);

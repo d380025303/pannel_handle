@@ -180,6 +180,33 @@ describe("Responses to Chat Completions protocol", () => {
     expect(parser.finish()).toMatchObject({ status: "completed" });
   });
 
+  it.each([false, true])("marks length-limited text and all tool kinds incomplete (omit DONE: %s)", omitDone => {
+    const events = [];
+    const parser = createResponseAccumulator({
+      model: "model-a", requireDone: true, allowFinishReasonAsDone: omitDone,
+      customTools: new Set(["patch"]), toolKinds: new Map([["search", "tool_search"]]),
+      emit: event => events.push(event)
+    });
+    parser.start();
+    const argumentsText = '{"input":"truncated';
+    parser.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: {
+      content: "partial",
+      tool_calls: ["echo", "patch", "search"].map((name, index) => ({ index, id: `call-${index}`, function: { name, arguments: argumentsText } }))
+    }, finish_reason: null }] })}\n\n`));
+    parser.push(Buffer.from('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'));
+    parser.push(Buffer.from('data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}\n\n'));
+    if (!omitDone) parser.push(Buffer.from("data: [DONE]\n\n"));
+    const response = parser.finish();
+    expect(response).toMatchObject({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { total_tokens: 5 } });
+    expect(response.output.map(item => item.type)).toEqual(["message", "function_call", "custom_tool_call", "tool_search_call"]);
+    expect(response.output.every(item => item.status === "incomplete")).toBe(true);
+    expect(response.output[1].arguments).toBe(argumentsText);
+    expect(response.output[2].input).toBe(argumentsText);
+    expect(events.filter(event => event.type === "response.output_item.done").every(event => event.item.status === "incomplete")).toBe(true);
+    expect(events.at(-1)).toMatchObject({ type: "response.incomplete", response });
+    expect(events.some(event => event.type === "response.completed")).toBe(false);
+  });
+
   it("keeps finish_reason opt-in and still rejects streams without a terminal signal", () => {
     const strict = createResponseAccumulator({ model: "model-a", requireDone: true });
     strict.start();

@@ -201,7 +201,7 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   let usage;
   let failure;
   let sawDone = false;
-  let sawFinishReason = false;
+  let finishReason;
   const toolCalls = new Map();
 
   function send(type, value) {
@@ -244,8 +244,9 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       };
       return;
     }
-    if (Array.isArray(chunk.choices) && chunk.choices.some(choice => choice?.finish_reason !== null && choice?.finish_reason !== undefined && String(choice.finish_reason).trim())) {
-      sawFinishReason = true;
+    const chunkFinishReason = chunk.choices?.[0]?.finish_reason;
+    if (chunkFinishReason !== null && chunkFinishReason !== undefined && String(chunkFinishReason).trim()) {
+      finishReason = String(chunkFinishReason).trim();
     }
     if (chunk.usage) usage = chunk.usage;
     const delta = chunk.choices?.[0]?.delta || {};
@@ -309,7 +310,7 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   function finish() {
     if (!failure) consumeText(decoder.end());
     if (!failure && lineBuffer.trimStart().startsWith("data:")) consumePayload(lineBuffer.trimStart().slice(5).trim());
-    if (!failure && requireDone && !sawDone && !(allowFinishReasonAsDone && sawFinishReason)) {
+    if (!failure && requireDone && !sawDone && !(allowFinishReasonAsDone && finishReason)) {
       failure = { code: "incomplete_stream", message: "Chat Completions stream ended before [DONE]." };
     }
     if (failure) {
@@ -319,10 +320,11 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       return response;
     }
 
+    const status = finishReason === "length" ? "incomplete" : "completed";
     const output = [];
     let outputIndex = 0;
     if (messageStarted || text) {
-      const item = { id: messageId, type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text, annotations: [] }] };
+      const item = { id: messageId, type: "message", status, role: "assistant", content: [{ type: "output_text", text, annotations: [] }] };
       send("response.output_text.done", { item_id: messageId, output_index: 0, content_index: 0, text });
       send("response.content_part.done", { item_id: messageId, output_index: 0, content_index: 0, part: item.content[0] });
       send("response.output_item.done", { output_index: 0, item });
@@ -335,18 +337,18 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       const namespaceEntry = toolNamespaces.get(call.name);
       const isCustom = customTools.has(originalName);
       const item = toolKind === "tool_search"
-        ? { id: `tsc_${crypto.randomUUID().replace(/-/g, "")}`, type: "tool_search_call", status: "completed", call_id: call.id, execution: "client", arguments: (() => { try { return JSON.parse(call.arguments || "{}"); } catch { return {}; } })() }
+        ? { id: `tsc_${crypto.randomUUID().replace(/-/g, "")}`, type: "tool_search_call", status, call_id: call.id, execution: "client", arguments: (() => { try { return JSON.parse(call.arguments || "{}"); } catch { return {}; } })() }
         : isCustom
-        ? { id: `ctc_${crypto.randomUUID().replace(/-/g, "")}`, type: "custom_tool_call", status: "completed", call_id: call.id, name: namespaceEntry?.name || originalName, ...(namespaceEntry ? { namespace: namespaceEntry.namespace } : {}), input: parseCustomArguments(call.arguments) }
-        : { id: `fc_${crypto.randomUUID().replace(/-/g, "")}`, type: "function_call", status: "completed", call_id: call.id, name: namespaceEntry?.name || originalName, ...(namespaceEntry ? { namespace: namespaceEntry.namespace } : {}), arguments: call.arguments || "{}" };
+        ? { id: `ctc_${crypto.randomUUID().replace(/-/g, "")}`, type: "custom_tool_call", status, call_id: call.id, name: namespaceEntry?.name || originalName, ...(namespaceEntry ? { namespace: namespaceEntry.namespace } : {}), input: parseCustomArguments(call.arguments) }
+        : { id: `fc_${crypto.randomUUID().replace(/-/g, "")}`, type: "function_call", status, call_id: call.id, name: namespaceEntry?.name || originalName, ...(namespaceEntry ? { namespace: namespaceEntry.namespace } : {}), arguments: call.arguments || "{}" };
       send("response.output_item.added", { output_index: outputIndex, item: { ...item, status: "in_progress" } });
       send("response.output_item.done", { output_index: outputIndex, item });
       output.push(item);
       outputIndex += 1;
     }
     const normalizedUsage = responseUsage();
-    const response = { id: responseId, object: "response", created_at: createdAt, status: "completed", model, output, ...(normalizedUsage ? { usage: normalizedUsage } : {}) };
-    send("response.completed", { response });
+    const response = { id: responseId, object: "response", created_at: createdAt, status, model, output, ...(status === "incomplete" ? { incomplete_details: { reason: "max_output_tokens" } } : {}), ...(normalizedUsage ? { usage: normalizedUsage } : {}) };
+    send(`response.${status}`, { response });
     return response;
   }
 
