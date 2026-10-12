@@ -82,6 +82,61 @@ it("probes drives once per large listing while validating every child", async ()
   await expect(files.list("D:\\outside")).rejects.toThrow(/本地磁盘/);
 });
 
+it.each([false, true])("probes drives once per folder download and validates children (nested: %s)", async nested => {
+  const directory = "C:\\folder";
+  const childDirectory = path.win32.join(directory, "nested");
+  const names = Array.from({ length: 1000 }, (_, index) => `file-${index}.txt`);
+  const unsafeNames = ["symlink", "junction", "redirected"];
+  const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
+  const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 4 };
+  const fsApi = {
+    statSync: vi.fn(drive => {
+      if (drive === "C:\\") return directoryInfo;
+      throw Object.assign(new Error("Unavailable drive"), { code: "ENOENT" });
+    }),
+    promises: {
+      readdir: vi.fn(async target => nested && target === directory ? ["nested"] : [...names, ...unsafeNames]),
+      lstat: vi.fn(async target => ({ ...fileInfo,
+        isSymbolicLink: () => ["symlink", "junction"].includes(path.win32.basename(target)) })),
+      realpath: vi.fn(async target => path.win32.basename(target) === "redirected" ? "D:\\outside.txt" : target),
+      stat: vi.fn(async target => [directory, childDirectory].includes(target) ? directoryInfo : fileInfo)
+    }
+  };
+  const files = filesModule.createMobileFiles({ fsApi });
+  const socket = { authenticated: true, remoteAddress: "192.168.1.2" };
+  const { url } = await files.prepare(socket, directory);
+  fsApi.statSync.mockClear();
+  fsApi.promises.lstat.mockClear();
+  fsApi.promises.realpath.mockClear();
+  const archived = vi.spyOn(Archiver.prototype, "file").mockImplementation(function (target, options) {
+    return this.append(Buffer.from("test"), { ...options });
+  });
+  try {
+    const result = await receive(files, socket, url);
+    expect(result.status).toBe(200);
+    expect(fsApi.statSync).toHaveBeenCalledTimes(26);
+    expect(archived).toHaveBeenCalledTimes(1000);
+    const parent = nested ? childDirectory : directory;
+    for (const name of names) {
+      expect(archived).toHaveBeenCalledWith(path.win32.join(parent, name),
+        { name: `folder/${nested ? "nested/" : ""}${name}` });
+      expect(fsApi.promises.lstat).toHaveBeenCalledWith(path.win32.join(parent, name));
+      expect(fsApi.promises.realpath).toHaveBeenCalledWith(path.win32.join(parent, name));
+    }
+    for (const name of unsafeNames) {
+      expect(fsApi.promises.lstat).toHaveBeenCalledWith(path.win32.join(parent, name));
+      expect(archived.mock.calls.some(([target]) => target === path.win32.join(parent, name))).toBe(false);
+    }
+    await expect(files.prepare(socket, "D:\\outside.txt")).rejects.toThrow(/本地磁盘/);
+    await expect(files.prepare(socket, path.win32.join(parent, "junction"))).rejects.toThrow(/符号链接/);
+    await expect(files.prepare(socket, path.win32.join(parent, "symlink"))).rejects.toThrow(/符号链接/);
+    await expect(files.prepare(socket, path.win32.join(parent, "redirected"))).rejects.toThrow(/重定向/);
+  } finally {
+    archived.mockRestore();
+    files.stop();
+  }
+});
+
 it.each([0, 3, 25])("bounds concurrent path checks and filters failed entries with %i children", async count => {
   const directory = "C:\\folder";
   const names = Array.from({ length: count }, (_, index) => `entry-${index}`);

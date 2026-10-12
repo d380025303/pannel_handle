@@ -73,7 +73,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     return { url: `/api/v1/download/${id}?ticket=${ticket}` };
   }
 
-  async function addDirectory(archive, directory, prefix, isCancelled) {
+  async function addDirectory(archive, directory, prefix, isCancelled, allowedRoots) {
     if (isCancelled()) return;
     const names = await fsApi.promises.readdir(directory);
     if (isCancelled()) return;
@@ -82,7 +82,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       if (isCancelled()) return;
       const child = pathApi.join(directory, name);
       let info;
-      try { ({ info } = await safePath(child)); }
+      try { ({ info } = await safePath(child, allowedRoots)); }
       catch (error) {
         if (error.code === "EACCES" || error.code === "EPERM" || error.code === "ENOENT"
           || /符号链接|重定向/.test(error.message)) continue;
@@ -90,7 +90,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       }
       if (isCancelled()) return;
       const archiveName = `${prefix}/${name}`.replace(/\\/g, "/");
-      if (info.isDirectory()) await addDirectory(archive, child, archiveName, isCancelled);
+      if (info.isDirectory()) await addDirectory(archive, child, archiveName, isCancelled, allowedRoots);
       else if (info.isFile()) archive.file(child, { name: archiveName });
     }
   }
@@ -117,7 +117,11 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     const isCancelled = () => cancelled || response.destroyed || !entry.socket.authenticated;
     let target;
     let info;
-    try { ({ target, info } = await safePath(entry.path)); }
+    let allowedRoots;
+    try {
+      allowedRoots = roots().map(root => pathApi.resolve(root));
+      ({ target, info } = await safePath(entry.path, allowedRoots));
+    }
     catch (error) {
       if (isCancelled()) { transfer.cancel(); return; }
       response.writeHead(404, { "Cache-Control": "no-store" }); response.end(error.message); return;
@@ -136,7 +140,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       stream.on("error", () => response.destroy());
       stream.pipe(response);
       try {
-        await addDirectory(stream, target, pathApi.basename(target) || "drive", isCancelled);
+        await addDirectory(stream, target, pathApi.basename(target) || "drive", isCancelled, allowedRoots);
         if (isCancelled()) { transfer.cancel(); return; }
         await stream.finalize();
       }
