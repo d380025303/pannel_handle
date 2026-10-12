@@ -128,6 +128,64 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("keeps timers responsive and shares successful concurrent probes", async () => {
+    const run = vi.fn((file, args, options, callback) => {
+      setTimeout(() => callback(null, file === "where.exe" ? "C:\\PS\\pwsh.exe" : ""), 20);
+    });
+    const first = resolveRunnableExecutable("pwsh.exe", run);
+    const second = resolveRunnableExecutable("pwsh.exe", run);
+    expect(first).toBe(second);
+    let completed = false;
+    first.then(() => { completed = true; });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(completed).toBe(false);
+    expect(await first).toBe("C:\\PS\\pwsh.exe");
+    await resolveRunnableExecutable("pwsh.exe", run);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates successful probes when startup fails or settings change", async () => {
+    const run = vi.fn((file, args, options, callback) =>
+      callback(null, file === "where.exe" ? "C:\\PS\\pwsh.exe" : ""));
+    const getShell = () => getDefaultShell({ platform: "win32", preference: "pwsh",
+      resolveExecutable: name => resolveRunnableExecutable(name, run) });
+    const { manager, pty } = createManager({ getDefaultShell: getShell });
+    await manager.createSession();
+    await manager.createSession();
+    expect(run).toHaveBeenCalledTimes(2);
+    pty.spawn.mockImplementationOnce(() => { throw new Error("File not found"); });
+    await expect(manager.createSession()).rejects.toThrow("File not found");
+    await manager.createSession();
+    expect(run).toHaveBeenCalledTimes(4);
+    getDefaultShell({ platform: "win32", preference: "cmd" });
+    await manager.createSession();
+    expect(run).toHaveBeenCalledTimes(6);
+  });
+
+  it("invalidates a cached path when deferred PTY startup fails", async () => {
+    const run = vi.fn((file, args, options, callback) =>
+      callback(null, file === "where.exe" ? "C:\\PS\\pwsh.exe" : ""));
+    const { manager, pty } = createManager({ getDefaultShell: () => getDefaultShell({
+      platform: "win32", preference: "pwsh",
+      resolveExecutable: name => resolveRunnableExecutable(name, run)
+    }) });
+    const session = await manager.createSession({ deferTerminalStart: true });
+    pty.spawn.mockImplementationOnce(() => { throw new Error("missing path"); });
+    expect(() => manager.startDeferredSession(session.id)).toThrow("missing path");
+    await manager.createSession();
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries failed probes and retains the unavailable error", async () => {
+    const run = vi.fn((file, args, options, callback) => callback(new Error("missing")));
+    const resolveExecutable = name => resolveRunnableExecutable(name, run);
+    for (let i = 0; i < 2; i++) {
+      await expect(getDefaultShell({ platform: "win32", preference: "pwsh", resolveExecutable }))
+        .rejects.toThrow("PowerShell 7 不可用");
+    }
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies archive creation before PTY startup and reports a failed launch", () => {
     const onSessionCreated = vi.fn();
     const onSessionStartFailed = vi.fn();
@@ -198,36 +256,37 @@ describe("terminal-manager", () => {
     expect(sessionStore.addToLibrary).toHaveBeenCalledWith(expect.objectContaining({ shell: "custom-shell.exe" }));
   });
 
-  it("skips an unusable pwsh alias and returns the next runnable candidate", () => {
-    const execFile = vi.fn((executable) => {
+  it("skips an unusable pwsh alias and returns the next runnable candidate", async () => {
+    const execFile = vi.fn((executable, args, options, callback) => {
       if (executable === "where.exe") {
-        return [
+        return callback(null, [
           "C:\\Users\\test\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe",
           "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
-        ].join("\r\n");
+        ].join("\r\n"));
       }
       if (executable.includes("WindowsApps")) {
-        throw Object.assign(new Error("Access denied"), { code: "EACCES" });
+        return callback(Object.assign(new Error("Access denied"), { code: "EACCES" }));
       }
-      return "";
+      callback(null, "");
     });
 
-    expect(resolveRunnableExecutable("pwsh.exe", execFile))
+    expect(await resolveRunnableExecutable("pwsh.exe", execFile))
       .toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
     expect(execFile).toHaveBeenCalledWith(
       "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
-      expect.objectContaining({ timeout: 3000 })
+      expect.objectContaining({ timeout: 3000 }),
+      expect.any(Function)
     );
   });
 
-  it("returns null when every resolved pwsh candidate fails to start", () => {
-    const execFile = vi.fn((executable) => {
-      if (executable === "where.exe") return "C:\\WindowsApps\\pwsh.exe\r\n";
-      throw Object.assign(new Error("Access denied"), { code: "EACCES" });
+  it("returns null when every resolved pwsh candidate fails to start", async () => {
+    const execFile = vi.fn((executable, args, options, callback) => {
+      if (executable === "where.exe") return callback(null, "C:\\WindowsApps\\pwsh.exe\r\n");
+      return callback(Object.assign(new Error("Access denied"), { code: "EACCES" }));
     });
 
-    expect(resolveRunnableExecutable("pwsh.exe", execFile)).toBeNull();
+    expect(await resolveRunnableExecutable("pwsh.exe", execFile)).toBeNull();
   });
 
   it("spawns PowerShell 7 for a Windows session without an explicit shell", () => {

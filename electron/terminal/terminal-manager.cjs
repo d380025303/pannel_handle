@@ -2,7 +2,7 @@ const { mergeEnvironment } = require("../services/environment/index.cjs");
 const os = require("node:os");
 const { normalizeAdditionalDirectories } = require("../services/opencode-acp/additional-directories.cjs");
 const path = require("node:path");
-const { execFileSync, execSync } = require("node:child_process");
+const { execFile, execSync } = require("node:child_process");
 const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
@@ -94,12 +94,41 @@ function consumeAgentCommandInput(currentState, data) {
   };
 }
 
-function resolveRunnableExecutable(executable, execFile = execFileSync) {
+const executableProbes = new Map();
+let lastShellPreference;
+
+function invalidateExecutablePath(executablePath) {
+  for (const probes of executableProbes.values()) {
+    for (const [key, entry] of probes) {
+      if (entry.path?.toLowerCase() === String(executablePath).toLowerCase()) probes.delete(key);
+    }
+  }
+}
+
+function resolveRunnableExecutable(executable, runFile = execFile) {
+  let probes = executableProbes.get(runFile);
+  if (!probes) executableProbes.set(runFile, probes = new Map());
+  if (probes.has(executable)) return probes.get(executable).promise;
+  const entry = {};
+  entry.promise = probeRunnableExecutable(executable, runFile).then(result => {
+    entry.path = result;
+    if (!result && probes.get(executable) === entry) probes.delete(executable);
+    return result;
+  });
+  probes.set(executable, entry);
+  return entry.promise;
+}
+
+async function probeRunnableExecutable(executable, runFile) {
+  const run = (file, args, options) => new Promise((resolve, reject) => {
+    runFile(file, args, options, (error, stdout) => error ? reject(error) : resolve(stdout));
+  });
   let output;
   try {
-    output = execFile("where.exe", [executable], {
+    output = await run("where.exe", [executable], {
       encoding: "utf-8",
-      windowsHide: true
+      windowsHide: true,
+      timeout: 3000
     });
   } catch {
     return null;
@@ -115,8 +144,7 @@ function resolveRunnableExecutable(executable, execFile = execFileSync) {
 
   for (const candidate of candidates) {
     try {
-      execFile(candidate, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"], {
-        stdio: "ignore",
+      await run(candidate, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"], {
         timeout: 3000,
         windowsHide: true
       });
@@ -140,11 +168,18 @@ function getDefaultShell({
     return env.SHELL || "bash";
   }
 
+  if (requireAvailable && lastShellPreference !== preference) {
+    executableProbes.clear();
+    lastShellPreference = preference;
+  }
   if (preference === "pwsh") {
     if (!requireAvailable) return "pwsh.exe";
-    const pwshPath = resolveExecutable("pwsh.exe");
-    if (!pwshPath) throw new Error("PowerShell 7 不可用，请安装 PowerShell 7 或修改 Shell 选择。 / PowerShell 7 is unavailable; install it or select another shell.");
-    return pwshPath;
+    const validate = (pwshPath) => {
+      if (!pwshPath) throw new Error("PowerShell 7 不可用，请安装 PowerShell 7 或修改 Shell 选择。 / PowerShell 7 is unavailable; install it or select another shell.");
+      return pwshPath;
+    };
+    const result = resolveExecutable("pwsh.exe");
+    return result?.then ? result.then(validate) : validate(result);
   }
   if (preference === "powershell") {
     return path.win32.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
@@ -766,6 +801,7 @@ function createTerminalManager({
         spawnPty(session, options);
       }
     } catch (err) {
+      if (template.type === "windows") invalidateExecutablePath(options.runtimeShell || template.shell);
       onSessionStartFailed?.(id);
       sessions.delete(id);
       const orderIndex = sessionOrder.indexOf(id);
@@ -784,6 +820,7 @@ function createTerminalManager({
     try {
       spawnPty(session, options);
     } catch (err) {
+      invalidateExecutablePath(options.runtimeShell || session.shell);
       onSessionStartFailed?.(id);
       sessions.delete(id);
       const orderIndex = sessionOrder.indexOf(id);
@@ -796,9 +833,12 @@ function createTerminalManager({
 
   function createSession(options = {}) {
     const persist = options.persist !== false;
-    const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
     const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : resolveDefaultShell(options.windowsShell));
+    if (shell?.then) {
+      return shell.then(resolvedShell => createSession({ ...options, shell: resolvedShell }));
+    }
+    const id = sessionStore.createTemplateId();
     const cwd = options.cwd || (type === "wsl" || type === "ssh" ? "~" : os.homedir());
     const sshConfig = options.sshConfig;
     if (type === "ssh") {
@@ -1221,6 +1261,7 @@ module.exports = {
   createTerminalManager,
   getDefaultShell,
   resolveRunnableExecutable,
+  clearExecutableCache: () => executableProbes.clear(),
   getWslShell,
   getSshShell,
   buildSshArgs

@@ -85,6 +85,9 @@ function registerSettingsIpcHandlers({
   ipcMain.handle("config:set", (_event, partial) => {
     const updates = {};
     if (partial && ["cmd", "powershell", "pwsh"].includes(partial.defaultWindowsShell)) {
+      if (partial.defaultWindowsShell !== configStore.getConfig().defaultWindowsShell) {
+        require("../../terminal/terminal-manager.cjs").clearExecutableCache();
+      }
       updates.defaultWindowsShell = partial.defaultWindowsShell;
     }
     if (partial && typeof partial.autoRestore === "boolean") {

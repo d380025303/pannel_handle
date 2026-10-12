@@ -330,9 +330,9 @@ function createAgentSessionLauncher({
     return { ...session, cwd: getHomeDirectory() };
   }
 
-  function resolveLocalShell(session) {
+  async function resolveLocalShell(session) {
     if (session.type !== "windows" || session.shell) return session;
-    return { ...session, shell: getDefaultShell(session.windowsShell) };
+    return { ...session, shell: await getDefaultShell(session.windowsShell) };
   }
 
   function validateAgentSession(session) {
@@ -708,7 +708,7 @@ function createAgentSessionLauncher({
     let request = { ...options, type: options.type || "windows" };
     request = require("../services/model-sources/model-selection.cjs").normalizeRemovedCodexBackend(request);
     if (!request.agentProvider) return terminalManager.createSession(request);
-    request = resolveLocalShell(resolveDefaultWorkingDirectory(request));
+    request = await resolveLocalShell(resolveDefaultWorkingDirectory(request));
     validateAgentSession(request);
     if (request.type === "ssh") {
       if (useAppServer(request)) {
@@ -739,7 +739,7 @@ function createAgentSessionLauncher({
   async function launchSession(template, options = {}) {
     const { recordUsage = false, injectedTools, ...launchOptions } = options;
     const normalizedTemplate = require("../services/model-sources/model-selection.cjs").normalizeRemovedCodexBackend(template);
-    const launchTemplate = normalizedTemplate.agentProvider ? resolveLocalShell(normalizedTemplate) : normalizedTemplate;
+    const launchTemplate = normalizedTemplate.agentProvider ? await resolveLocalShell(normalizedTemplate) : normalizedTemplate;
     if (injectedTools && (launchTemplate.agentProvider !== "codex" || launchTemplate.type !== "windows" || !useAppServer(launchTemplate)))
       throw new Error("工具注入仅支持本机 Windows Codex 图形会话。");
     let session;
