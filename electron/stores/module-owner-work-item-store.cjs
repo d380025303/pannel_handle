@@ -39,10 +39,17 @@ function createWorkItemStore(database, transaction) {
       item.status, item.version, item.createdAt, item.output, item.taskName, item.owner.name, item.template.title, JSON.stringify(item));
     return JSON.parse(db().prepare("SELECT value_json FROM app_module_owner_work_items WHERE source_run_id=?").get(item.sourceRunId).value_json);
   }
-  function listWorkItems({ templateId, ownerId, status, keyword, page = 0 } = {}) {
+  function listWorkItems({ templateId, ownerId, status, statuses, keyword, page = 0 } = {}) {
     const conditions = []; const args = [];
-    for (const [field, value] of [["template_id", templateId], ["owner_id", ownerId], ["status", status]]) {
+    for (const [field, value] of [["template_id", templateId], ["owner_id", ownerId]]) {
       if (value) { conditions.push(`${field}=?`); args.push(value); }
+    }
+    const selectedStatuses = statuses ?? (status ? [status] : undefined);
+    if (selectedStatuses) {
+      conditions.push(selectedStatuses.length ? `status IN (${selectedStatuses.map(() => "?").join(",")})` : "0");
+      args.push(...selectedStatuses);
+    } else {
+      conditions.push("status<>?"); args.push("void");
     }
     if (keyword) { conditions.push("(instr(lower(output),lower(?))>0 OR instr(lower(task_name),lower(?))>0 OR instr(lower(owner_name),lower(?))>0 OR instr(lower(template_name),lower(?))>0)"); args.push(keyword, keyword, keyword, keyword); }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

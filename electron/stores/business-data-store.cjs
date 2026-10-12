@@ -79,6 +79,8 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (name === "module-owners.json") {
       if (value?.schemaVersion !== 1) throw new Error("Invalid module owner schemaVersion.");
       const templates = entriesOf(value.templates, "module owners templates");
+      if (value.promptTemplates !== undefined) putSetting(name, "promptTemplates", value.promptTemplates);
+      else db.prepare("DELETE FROM app_settings WHERE source=? AND key=?").run(name, "promptTemplates");
       db.exec("DELETE FROM app_module_owner_templates; DELETE FROM app_module_owner_records; DELETE FROM app_module_owner_history;");
       const templateInsert = db.prepare("INSERT INTO app_module_owner_templates(template_id, value_json) VALUES (?, ?)");
       const recordInsert = db.prepare("INSERT INTO app_module_owner_records(template_id, position, value_json) VALUES (?, ?, ?)");
@@ -142,7 +144,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
         const readRows = table => db.prepare(`SELECT value_json FROM ${table} WHERE template_id=? ORDER BY position`).all(row.template_id).map(item => JSON.parse(item.value_json));
         return [row.template_id, { ...JSON.parse(row.value_json), records: readRows("app_module_owner_records"), history: readRows("app_module_owner_history") }];
       }));
-      return { schemaVersion: 1, templates };
+      return { schemaVersion: 1, templates, ...settings(name) };
     }
     if (ARRAY_SOURCES.has(name)) return listRecords(name, "items").map(([, value]) => value);
     if (MAP_SOURCES.has(name)) return Object.fromEntries(listRecords(name, "items"));

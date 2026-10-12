@@ -20,7 +20,7 @@ function createSessionInstanceService({ sessionStore, agentSessionLauncher, term
     })) };
   }
 
-  async function create(input, { onSessionCreated, onTaskSubmitted } = {}) {
+  async function create(input, { onSessionCreated, onTaskSubmitted, creationSource } = {}) {
     const { templateId, mode, prompt, agentProvider, modelId, tools, toolCallback } = sessionInstanceSchema.parse(input);
     const original = sessionStore.getTemplate(templateId);
     if (!original) throw apiError("会话模板不存在。", 404);
@@ -59,7 +59,7 @@ function createSessionInstanceService({ sessionStore, agentSessionLauncher, term
     let submitted = false;
     try {
       // Detach persistence so runtime model/mode changes cannot update the source template.
-      session = await agentSessionLauncher.launchSession(template, { useProvidedTemplate: true, templateId: undefined,
+      session = await agentSessionLauncher.launchSession(template, { useProvidedTemplate: true, templateId: undefined, creationSource,
         ...(tools ? { injectedTools: { tools, toolCallback } } : {}) });
       if (session.runtimeMode !== "app-server") throw apiError("模板未启动为图形会话。", 500);
       onSessionCreated?.(session);

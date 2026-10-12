@@ -666,11 +666,18 @@ contextBridge.exposeInMainWorld("workItemApi", {
   }
 });
 contextBridge.exposeInMainWorld("moduleOwnerApi", {
+  listPromptTemplates: input => ipcRenderer.invoke("module-owners:listPromptTemplates", input),
+  savePromptTemplate: input => ipcRenderer.invoke("module-owners:savePromptTemplate", input),
+  deletePromptTemplate: input => ipcRenderer.invoke("module-owners:deletePromptTemplate", input),
+  previewPromptPublish: input => ipcRenderer.invoke("module-owners:previewPromptPublish", input),
+  publishPromptTemplate: input => ipcRenderer.invoke("module-owners:publishPromptTemplate", input),
   listTaskRuns: (id, input) => ipcRenderer.invoke("module-owners:listTaskRuns", id, input),
   getTaskRun: (id, input) => ipcRenderer.invoke("module-owners:getTaskRun", id, input),
   deleteTaskRun: (id, input) => ipcRenderer.invoke("module-owners:deleteTaskRun", id, input),
   listHistory: (id, input) => ipcRenderer.invoke("module-owners:listHistory", id, input),
   listTasks: id => ipcRenderer.invoke("module-owners:listTasks", id),
+  runTask: (id, input) => ipcRenderer.invoke("module-owners:runTask", id, input),
+  copyTask: (id, input) => ipcRenderer.invoke("module-owners:copyTask", id, input),
   saveTask: (id, input) => ipcRenderer.invoke("module-owners:saveTask", id, input),
   deleteTask: (id, input) => ipcRenderer.invoke("module-owners:deleteTask", id, input),
   listTemplates: () => ipcRenderer.invoke("module-owners:templates"),

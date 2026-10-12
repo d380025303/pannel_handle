@@ -1,10 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { WorkItemMenu } from "./WorkItemMenu";
 import type { WorkItem, WorkItemAttempt, WorkItemPage, WorkItemStatus } from "../../vite-env";
 import { OwnerDialog } from "../module-owners/OwnerDialog";
 import "../module-owners/module-owners.css";
 import "./work-items.css";
 
 export const WORK_ITEM_STATUS: Record<WorkItemStatus, string> = { pending: "待执行", creating: "创建中", running: "执行中", uncertain: "待核对", completed: "已完成", failed: "失败", stopped: "中断", void: "已作废" };
+const defaultStatuses = () => (Object.keys(WORK_ITEM_STATUS) as WorkItemStatus[]).filter(status => status !== "void");
 const active = (status: WorkItemStatus) => ["creating", "running", "uncertain"].includes(status);
 const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
 type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
@@ -17,7 +21,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   const [prompt, setPrompt] = useState("");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
   const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
-  const [status, setStatus] = useState<WorkItemStatus | "">(""); const [keyword, setKeyword] = useState("");
+  const [statuses, setStatuses] = useState<WorkItemStatus[]>(defaultStatuses); const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
@@ -39,11 +43,11 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     if (!visible) return;
     let live = true;
     setLoading(true); setError("");
-    void window.workItemApi.list({ ...(templateId ? { templateId } : {}), ...(ownerId ? { ownerId } : {}), ...(status ? { status } : {}), keyword, page })
+    void window.workItemApi.list({ ...(templateId ? { templateId } : {}), ...(ownerId ? { ownerId } : {}), statuses, keyword, page })
       .then(value => { if (live) { setData(value); if (page > 0 && page * 20 >= value.total) setPage(Math.max(0, Math.ceil(value.total / 20) - 1)); } })
       .catch(err => { if (live) setError(String(err)); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [visible, templateId, ownerId, status, keyword, page, reload]);
+  }, [visible, templateId, ownerId, statuses, keyword, page, reload]);
   useLayoutEffect(() => {
     if (!ref.current || !dialog) return;
     const background = ref.current;
@@ -98,38 +102,49 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     } catch (err) { setDialogError(String(err)); }
     finally { submitting.current = false; setBusy(false); setReload(value => value + 1); }
   }
+  const filtered = Boolean(templateId || ownerId || keyword || statuses.length !== 7 || statuses.includes("void"));
+  function resetFilters() { setTemplateId(""); setOwnerId(""); setKeyword(""); setStatuses(defaultStatuses()); setPage(0); }
   if (!visible) return null;
   return <>
     <section ref={ref} className="module-owners-workspace work-items-workspace" aria-label="任务列表">
-      <header className="module-owners-toolbar work-items-toolbar">
-        <h2>任务列表</h2>
-        <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
-        <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
-        <label>状态<select value={status} onChange={event => { setStatus(event.target.value as WorkItemStatus | ""); setPage(0); }}><option value="">全部状态</option>{Object.entries(WORK_ITEM_STATUS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
-        <button type="button" onClick={() => setReload(value => value + 1)}>刷新</button>
+      <header className="work-items-toolbar">
+        <div className="work-items-heading">
+          <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
+          <button type="button" className="work-items-help" aria-label="任务生成与完成规则" title="定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮才记为已完成。">?</button>
+          <div className="work-items-search">
+            <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
+            <button type="button" disabled={loading} onClick={() => setReload(value => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
+          </div>
+        </div>
+        <div className="work-items-select-filters">
+          <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+          <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
+          {filtered && <button type="button" className="work-items-reset" onClick={resetFilters}>重置筛选</button>}
+        </div>
+        <fieldset className="work-items-status-filter"><legend>状态</legend>{(Object.entries(WORK_ITEM_STATUS) as [WorkItemStatus, string][]).map(([id, name]) => <label key={id} className="work-items-status-option" data-selected={statuses.includes(id)}><input type="checkbox" checked={statuses.includes(id)} onChange={event => { setStatuses(values => event.target.checked ? [...values, id] : values.filter(value => value !== id)); setPage(0); }} /><span>{name}</span></label>)}</fieldset>
       </header>
-      <p className="module-owners-path">定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮才记为已完成。</p>
       {error && <p className="module-owners-error" role="alert">{error}</p>}
       {data.storageErrors?.map((value, index) => <p key={index} className="module-owners-error" role="alert">{value}</p>)}
-      {loading && <p role="status">正在查询任务…</p>}
-      <div className="module-owners-card work-items-scroll">
-        {!data.records.length ? <p className="module-owners-empty">暂无任务。</p> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th>来源</th><th>最终回复</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
-          <td><strong>{value.taskName}</strong><div>{value.owner.name}</div><div className="module-owners-path">{value.template.title}</div>{value.unavailable && <div className="module-owners-error">{value.unavailable}</div>}</td>
-          <td><div className="work-items-summary">{value.summary}</div></td>
-          <td>{WORK_ITEM_STATUS[value.status]}{value.error && <div className="module-owners-error">{value.error}</div>}</td>
-          <td>{time(value.createdAt)}<div className="module-owners-path">最近执行：{time(value.lastStartedAt)}</div></td>
+      <div className="module-owners-card work-items-scroll" aria-busy={loading}>
+        {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th>来源</th><th>回复摘要</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
+          <td><strong>{value.taskName}</strong><div className="work-items-source-meta">{value.owner.name}</div><div className="module-owners-path">{value.template.title}</div>{value.unavailable && <div className="module-owners-error">{value.unavailable}</div>}</td>
+          <td><div className="work-items-summary"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{value.summary}</ReactMarkdown></div></td>
+          <td><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.error && <div className="module-owners-error">{value.error}</div>}</td>
+          <td className="work-items-time"><span className="work-items-time-label">创建</span><div>{time(value.createdAt)}</div><span className="work-items-time-label">最近执行</span><div>{time(value.lastStartedAt)}</div></td>
           <td><div className="work-items-actions">
             <button type="button" onClick={() => open(value.id, "detail")}>详情</button>
-            <button type="button" disabled={active(value.status) || value.status === "void" || Boolean(value.unavailable)} onClick={() => open(value.id, "execute")}>{value.latestAttemptId ? "再次执行" : "执行"}</button>
-            <button type="button" onClick={() => open(value.id, "attempts")}>执行记录</button>
-            {value.latestAttemptId && value.sessionId && <button type="button" onClick={() => void openSession(value.sessionId!)}>打开最近会话</button>}
-            {value.status === "uncertain" && <button type="button" onClick={() => open(value.id, "resolve")}>核对结果</button>}
-            {value.status === "void" ? <button type="button" onClick={() => open(value.id, "restore")}>恢复</button> : <button type="button" disabled={active(value.status)} onClick={() => open(value.id, "void")}>作废</button>}
+            <button type="button" className="work-items-execute" disabled={active(value.status) || value.status === "void" || Boolean(value.unavailable)} onClick={() => open(value.id, "execute")}>{value.latestAttemptId ? "再次执行" : "执行"}</button>
+            <WorkItemMenu name={value.taskName} actions={[
+              { label: "执行记录", run: () => open(value.id, "attempts") },
+              ...(value.latestAttemptId && value.sessionId ? [{ label: "打开最近会话", run: () => void openSession(value.sessionId!) }] : []),
+              ...(value.status === "uncertain" ? [{ label: "核对结果", run: () => open(value.id, "resolve") }] : []),
+              value.status === "void" ? { label: "恢复", run: () => open(value.id, "restore") }
+                : { label: "作废", danger: true, disabled: active(value.status), run: () => open(value.id, "void") },
+            ]} />
           </div></td>
         </tr>)}</tbody></table>}
       </div>
-      <footer className="work-items-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
+      <footer className="work-items-pagination work-items-list-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
     </section>
     {dialog && <OwnerDialog title={titles[dialog.kind]} busy={busy} onClose={() => setDialog(null)} wide>
       <div className="module-owners-dialog-body work-items-dialog-body">

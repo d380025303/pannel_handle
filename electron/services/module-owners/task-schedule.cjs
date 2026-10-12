@@ -3,6 +3,7 @@ const { z } = require("zod");
 const taskSchema = z.object({
   id: z.string().min(1).optional(), ownerId: z.string().min(1),
   name: z.string().trim().min(1).max(200), prompt: z.string().trim().min(1).max(100000),
+  promptTemplateId: z.string().min(1).optional(),
   mode: z.enum(["default", "plan"]), enabled: z.boolean(), recordHistory: z.boolean().default(false),
   tools: z.array(z.enum(["list_module_owners", "update_module_owner"])).max(2).refine(v => new Set(v).size === v.length),
   schedule: z.discriminatedUnion("kind", [

@@ -271,6 +271,10 @@ describe("scheduled replies and manual work items through HTTP", () => {
     const f = await fixture(); const item = await f.source();
     const removed = f.work.void({ id: item.id, version: item.version, reason: "无需执行" });
     expect(removed).toMatchObject({ status: "void", voidReason: "无需执行" });
+    expect(f.work.list().total).toBe(0);
+    expect(f.work.list({ statuses: ["pending", "void"] }).records[0].id).toBe(item.id);
+    expect(f.work.list({ statuses: [] }).total).toBe(0);
+    expect(() => f.work.list({ statuses: ["invalid"] })).toThrow();
     await expect(f.work.execute({ id: item.id, version: removed.version })).rejects.toThrow();
     expect(() => f.work.restore({ id: item.id, version: item.version })).toThrow("已变更");
     const restored = f.work.restore({ id: item.id, version: removed.version });

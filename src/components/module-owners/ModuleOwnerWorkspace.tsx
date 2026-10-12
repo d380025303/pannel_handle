@@ -3,6 +3,7 @@ import { OwnerCell } from "./OwnerCell";
 import { OwnerDialog } from "./OwnerDialog";
 import type { ModuleOwnerHistory, ModuleOwnerRecord, ModuleOwnerSettings, ModuleOwnerState, ModuleOwnerTemplate, SessionApiResult, SessionApiState } from "../../vite-env";
 import "./module-owners.css";
+import { PromptTemplates } from "./PromptTemplates";
 import { ModuleOwnerTasks } from "./ModuleOwnerTasks";
 
 const activeStatuses = ["creating", "running", "uncertain"];
@@ -18,6 +19,7 @@ function OwnerTable({ records }: { records: ModuleOwnerRecord[] }) {
 
 export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: boolean; onOpenSession: (id: string) => void }) {
   const [dialog, setDialog] = useState<"edit" | "delete" | "ai" | "history" | "tasks" | null>(null);
+  const [promptTemplatesOpen, setPromptTemplatesOpen] = useState(false);
   const [taskOwner, setTaskOwner] = useState<ModuleOwnerRecord | null>(null);
   const [deleting, setDeleting] = useState<ModuleOwnerRecord | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
@@ -87,7 +89,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
   }, [dialog, templateId, settings, state?.revision, apiState?.url, Boolean(state)]);
 
   useEffect(() => {
-    if (!visible) { setDialog(null); setHistoryOwner(null); setOwnerHistory(null); setEditing(null); setDeleting(null); setHistory(null); setConfirmRestore(false); setDraft(blank); }
+    if (!visible) { setPromptTemplatesOpen(false); setDialog(null); setHistoryOwner(null); setOwnerHistory(null); setEditing(null); setDeleting(null); setHistory(null); setConfirmRestore(false); setDraft(blank); }
   }, [visible]);
 
   function closeDialog() {
@@ -135,7 +137,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
     const value = await window.moduleOwnerApi.mutate(id, editing ? { operation: "update", id: editing.id, version: editing.version, ...fields } : { operation: "add", ...fields });
     if (currentId.current === id) { setState(value); setDraft(blank); setEditing(null); setDialog(null); }
   }
-  return <main className="module-owners-workspace" hidden={!visible} inert={Boolean(dialog)} aria-label="模块负责人">
+  return <main className="module-owners-workspace" hidden={!visible} inert={Boolean(dialog) || promptTemplatesOpen} aria-label="模块负责人">
     <div className="module-owners-toolbar">
       <strong>项目模块负责人</strong>
       <label>会话模板<select aria-label="会话模板" value={templateId} disabled={busy} onChange={event => setTemplateId(event.target.value)}>
@@ -143,12 +145,14 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
       </select></label>
       <button type="button" disabled={busy} onClick={() => void run(async () => { const items = await window.moduleOwnerApi.listTemplates(); setTemplates(items); if (!items.some(item => item.templateId === templateId)) setTemplateId(items[0]?.templateId || ""); })}>刷新模板</button>
       <div className="module-owners-toolbar-actions">
+        <button type="button" disabled={busy} onClick={() => setPromptTemplatesOpen(true)}>提示词模板</button>
         <span className="module-owners-count">{state?.records.length ?? 0} 个负责人</span>
         <button type="button" disabled={busy || !state} onClick={() => { setEditing(null); setDraft(blank); openDialog("edit"); }}>新增负责人</button>
         <button type="button" disabled={busy || !state} onClick={() => openDialog("ai")}>AI 分析生成</button>
         <button type="button" disabled={busy || !state} onClick={() => openDialog("history")}>历史记录</button>
       </div>
     </div>
+    {visible && promptTemplatesOpen && <PromptTemplates onClose={() => setPromptTemplatesOpen(false)} />}
     {selected && <p className="module-owners-path">项目目录：<code>{selected.cwd || "未配置"}</code></p>}
     {!dialog && error && <p className="module-owners-error" role="alert">{error}</p>}
     {!templates.length && <p>请先创建会话模板。</p>}
@@ -166,7 +170,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
       </section>
       {visible && dialog && <OwnerDialog title={dialog === "edit" ? (editing ? "编辑负责人" : "新增负责人") : dialog === "delete" ? "删除负责人" : dialog === "ai" ? "AI 分析生成" : dialog === "tasks" ? `${taskOwner?.name} · 定时任务` : historyOwner ? `${state.records.find(record => record.id === historyOwner.id)?.name ?? historyOwner.name} · 历史记录` : "历史记录"} busy={busy} onClose={closeDialog} wide={dialog === "history" || dialog === "tasks"}>
         {error && <p className="module-owners-error" role="alert">{error}</p>}
-        {dialog === "tasks" && taskOwner && <ModuleOwnerTasks templateId={templateId} ownerId={taskOwner.id} supported={Boolean(selected?.supported)} busy={busy} run={run} onOpenSession={onOpenSession} />}
+        {dialog === "tasks" && taskOwner && <ModuleOwnerTasks templateId={templateId} ownerId={taskOwner.id} owners={state.records} supported={Boolean(selected?.supported)} busy={busy} run={run} onOpenSession={onOpenSession} />}
         {dialog === "delete" && deleting && <><div className="module-owners-dialog-body"><p>确定删除模块负责人“{deleting.name}”？</p><p>删除后可通过历史恢复。</p></div><footer className="module-owners-dialog-footer"><button type="button" disabled={busy} onClick={closeDialog}>取消</button><button type="button" className="module-owners-danger" disabled={busy} onClick={() => void run(async () => {
           const value = await window.moduleOwnerApi.mutate(templateId, { operation: "delete", id: deleting.id, version: deleting.version }); setState(value); setDialog(null); setHistoryOwner(null); setOwnerHistory(null); setDeleting(null);
         })}>{busy ? "删除中…" : "确认删除"}</button></footer></>}

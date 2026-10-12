@@ -12,6 +12,23 @@ function fixture() {
 const source = number => ({ sourceRunId: `run-${number}`, templateId: number % 2 ? "one" : "two", ownerId: `owner-${number % 2}`, taskId: "timer", taskName: "巡检", template: { title: "工程" }, owner: { name: "负责人" }, tools: [], output: `最终结果 ${number}` });
 afterEach(() => { for (const f of fixtures.splice(0)) { f.db.close(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("work item SQLite persistence", () => {
+  it("excludes void items by default and filters multiple statuses before pagination", () => {
+    const { db } = fixture();
+    const pending = db.insertWorkItem(source(0));
+    const removed = db.insertWorkItem(source(1));
+    db.changeWorkItem(removed.id, removed.version, "void");
+    const completed = db.insertWorkItem(source(2));
+    const attempt = db.startWorkItemAttempt(completed.id, completed.version, {}, {});
+    db.updateWorkItemAttempt(completed.id, attempt.id, { status: "completed" });
+    expect(db.listWorkItems().total).toBe(2);
+    expect(db.listWorkItems().records.map(item => item.id)).not.toContain(removed.id);
+    expect(db.listWorkItems({ statuses: ["completed", "void"] }).total).toBe(2);
+    expect(db.listWorkItems({ statuses: ["pending", "completed", "void"] }).total).toBe(3);
+    expect(db.listWorkItems({ statuses: ["void"] }).records[0].id).toBe(removed.id);
+    expect(db.listWorkItems({ status: "pending" }).records[0].id).toBe(pending.id);
+    expect(db.listWorkItems({ statuses: [] })).toMatchObject({ records: [], total: 0 });
+    expect(db.listWorkItems({ statuses: ["completed", "void"], templateId: "two", keyword: "结果 2" }).total).toBe(1);
+  });
   it("paginates/filter summaries, preserves full replies and deduplicates stable source IDs across reopen", () => {
     const { db, userData } = fixture();
     const first = db.insertWorkItem(source(0));

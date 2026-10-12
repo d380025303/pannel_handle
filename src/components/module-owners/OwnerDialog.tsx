@@ -22,7 +22,13 @@ export function OwnerDialog({ title, busy, onClose, children, wide = false }: { 
         background.removeAttribute("aria-hidden");
         background.setAttribute("aria-modal", "true");
       }
-      if (opener?.isConnected) opener.focus();
+      if (opener?.isConnected) {
+        opener.focus();
+        // A completed request may enable the opener later in the same commit.
+        if (document.activeElement !== opener) queueMicrotask(() => {
+          if (opener.isConnected && document.activeElement === document.body) opener.focus();
+        });
+      }
     };
   }, [parent]);
   return createPortal(<ParentDialog.Provider value={ref}>

@@ -47,9 +47,22 @@ export type SshConfig = {
   remotePlatform?: RemotePlatform;
 };
 
+export type SessionCreationSource = {
+  kind: "module-owner-task" | "work-item";
+  trigger: "scheduled" | "manual";
+  templateId: string;
+  ownerId: string;
+  ownerName: string;
+  taskId: string;
+  taskName: string;
+  workItemId?: string;
+  attemptId?: string;
+};
+
 export type TerminalSession = EnvironmentSelection & {
   id: string;
   templateId?: string;
+  creationSource?: SessionCreationSource;
   ignoredCodexConfigWarnings?: string[];
   title: string;
   shell: string;
@@ -1855,7 +1868,7 @@ export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItem
 export type WorkItemIdentity = { id: string; version: number };
 export type WorkItemPage = { records: WorkItemSummary[]; total: number; storageErrors?: string[]; templates: { id: string; name: string }[]; owners: { id: string; name: string; templateId: string }[] };
 export interface WorkItemApi {
-  list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; keyword?: string; page?: number }): Promise<WorkItemPage>;
+  list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; statuses?: WorkItemStatus[]; keyword?: string; page?: number }): Promise<WorkItemPage>;
   get(input: { id: string }): Promise<WorkItem>;
   preview(input: WorkItemIdentity & { prompt?: string }): Promise<{ body: { prompt: string; tools?: { name: string }[] }; configuration: Record<string, unknown> }>;
   execute(input: WorkItemIdentity & { prompt?: string }): Promise<WorkItem>;
@@ -1881,16 +1894,26 @@ export type ModuleOwnerMutation = ({ operation: "add" } & ModuleOwnerFields) | (
 export type ModuleOwnerTaskRun = { id: string; templateId: string; ownerId: string; taskId: string; taskName: string;
   calledAt: number; endedAt?: number; status: string; sessionId?: string; threadId?: string; turnId?: string;
   error: string; input: unknown; output: string };
-export type ModuleOwnerTaskInput = { id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean;
+export type ModuleOwnerPromptTemplate = { id: string; name: string; prompt: string; version: number; createdAt: number; updatedAt: number; referenceCount: number };
+export type ModuleOwnerPromptPublish = { source: Omit<ModuleOwnerPromptTemplate, "referenceCount">; tasks: { templateId: string; templateTitle: string; ownerName: string; taskId: string; taskName: string; prompt: string; fingerprint: string; modified: boolean; appliedVersion?: number; needsUpdate: boolean }[] };
+export type ModuleOwnerTaskInput = { promptTemplateId?: string; id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean;
   tools: ("list_module_owners" | "update_module_owner")[];
   schedule: { kind: "cron"; cron: string } | { kind: "interval"; minutes: number; count: number } };
-export type ModuleOwnerTask = ModuleOwnerTaskInput & { id: string; executedCount: number; nextRunAt: number | null; lastRun?: { status: string; sessionId?: string; error: string; startedAt: number } };
+export type ModuleOwnerTask = ModuleOwnerTaskInput & { id: string; promptTemplateVersion?: number; promptTemplateSnapshot?: string; executedCount: number; nextRunAt: number | null; lastRun?: { status: string; sessionId?: string; error: string; startedAt: number } };
 export interface ModuleOwnerApi {
+  listPromptTemplates(): Promise<ModuleOwnerPromptTemplate[]>;
+  savePromptTemplate(input: { id?: string; version?: number; name: string; prompt: string }): Promise<ModuleOwnerPromptTemplate[]>;
+  deletePromptTemplate(input: { id: string; version: number }): Promise<ModuleOwnerPromptTemplate[]>;
+  previewPromptPublish(input: { id: string; version: number }): Promise<ModuleOwnerPromptPublish>;
+  publishPromptTemplate(input: { id: string; version: number; targets: { templateId: string; taskId: string; fingerprint: string }[] }): Promise<{ updatedCount: number }>;
+
   listTaskRuns(id: string, input: { taskId: string; page?: number }): Promise<{ records: Omit<ModuleOwnerTaskRun, "input" | "output">[]; total: number }>;
   getTaskRun(id: string, input: { taskId: string; id: string }): Promise<ModuleOwnerTaskRun>;
   deleteTaskRun(id: string, input: { taskId: string; id: string }): Promise<void>;
   listHistory(id: string, input: { ownerId: string }): Promise<{ revision: number; history: ModuleOwnerHistory[] }>;
   listTasks(id: string): Promise<ModuleOwnerTask[]>;
+  runTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
+  copyTask(id: string, input: { taskId: string; targetOwnerIds: string[] }): Promise<ModuleOwnerTask[]>;
   saveTask(id: string, input: ModuleOwnerTaskInput): Promise<ModuleOwnerTask[]>;
   deleteTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
   listTemplates(): Promise<ModuleOwnerTemplate[]>;

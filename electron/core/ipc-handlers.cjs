@@ -442,8 +442,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     for (const method of ["list", "get", "preview", "execute", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain"]) {
       ipcMain.handle(`work-items:${method}`, (_event, input) => moduleOwnerService.workItems[method](input));
     }
+    for (const method of ["listPromptTemplates", "savePromptTemplate", "deletePromptTemplate", "previewPromptPublish", "publishPromptTemplate"]) {
+      ipcMain.handle(`module-owners:${method}`, (_event, input) => moduleOwnerService[method](input));
+    }
     ipcMain.handle("module-owners:templates", () => moduleOwnerService.listTemplates());
-    for (const method of ["get", "preview", "generate", "mutate", "configure", "restore", "listHistory", "listTaskRuns", "getTaskRun", "deleteTaskRun", "listTasks", "saveTask", "deleteTask"]) {
+    for (const method of ["get", "preview", "generate", "mutate", "configure", "restore", "listHistory", "listTaskRuns", "getTaskRun", "deleteTaskRun", "listTasks", "runTask", "copyTask", "saveTask", "deleteTask"]) {
       ipcMain.handle(`module-owners:${method}`, (_event, id, input) => moduleOwnerService[method](id, input));
     }
   }

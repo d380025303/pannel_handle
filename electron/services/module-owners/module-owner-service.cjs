@@ -160,7 +160,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     const token = randomBytes(32).toString("hex");
     if (body.toolCallback) body.toolCallback.bearerToken = token;
     const job = { templateId: id, ownerId: task?.ownerId, taskId: task?.id, token, body, startedAt: Date.now(), status: "creating", creating: true, claimed: false, seen: new Set(),
-      runId: randomUUID(), manual: Boolean(task?.manual), onProgress: task?.onProgress, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
+      runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, manual: Boolean(task?.manual), onProgress: task?.onProgress, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
       ownerSnapshot: task ? structuredClone(store.get(id).records.find(owner => owner.id === task.ownerId)) : null,
       templateSnapshot: { title: template(id).title, cwd: template(id).cwd } };
     if (task?.recordHistory) {
@@ -205,6 +205,13 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   }
   function creationHooks(job) {
     return {
+      ...(job.taskId ? { creationSource: {
+        kind: job.manual ? "work-item" : "module-owner-task",
+        trigger: job.trigger || "manual", templateId: job.templateId,
+        ownerId: job.ownerId, ownerName: job.ownerSnapshot?.name || "",
+        taskId: job.taskId, taskName: job.taskName || "",
+        ...(job.manual ? { workItemId: job.workItemId, attemptId: job.taskId } : {})
+      } } : {}),
       onCreationClaimed() { job.claimed = true; },
       onSessionCreated(session) {
         if (!["creating", "running", "uncertain"].includes(job.status)) return;
@@ -294,7 +301,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     if (!dataStore) throw new Error("SQLite 历史存储不可用。");
     return detail ? dataStore.getTaskRun(id, parsed.taskId, parsed.id) : dataStore.listTaskRuns(id, parsed.taskId, parsed.page);
   }
-  return { get, listTemplates, preview, generate, claimCreation, callback, workItems,
+  return { ...require("./prompt-template-service.cjs").createPromptTemplateService({ store, listTemplates }), get, listTemplates, preview, generate, claimCreation, callback, workItems,
     listTaskRuns: (id, input) => runQuery(id, input), getTaskRun: (id, input) => runQuery(id, input, true),
     deleteTaskRun: (id, input) => {
       template(id);
@@ -303,7 +310,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       dataStore.deleteTaskRun(id, parsed.taskId, parsed.id);
     },
     listHistory: (id, input) => { template(id); return store.listHistory(id, input); },
-    saveTask: scheduler.save, deleteTask: scheduler.remove, listTasks: scheduler.list,
+    runTask: scheduler.runTask, copyTask: scheduler.copy, saveTask: scheduler.save, deleteTask: scheduler.remove, listTasks: scheduler.list,
     start: () => { dataStore?.interruptTaskRuns(); dataStore?.recoverWorkItemAttempts(); scheduler.start(); }, shutdown: () => {
       clearInterval(retryTimer); saveResults();
       scheduler.shutdown();

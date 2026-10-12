@@ -5,6 +5,9 @@ export const DEFAULT_LOCALE: Locale = "zh-CN";
 export type TranslationParams = Record<string, string | number>;
 
 export type TranslationKey =
+  | "sidebar.sourceWorkItem"
+  | "sidebar.sourceScheduled"
+  | "sidebar.sourceOwnerTask"
   | "moduleOwners.title"
   | "workItems.title"
   | "sessionApi.title"
@@ -1098,6 +1101,9 @@ export const VALID_LOCALES = new Set<Locale>(LOCALE_OPTIONS.map((locale) => loca
 
 export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
+    "sidebar.sourceWorkItem": "任务执行",
+    "sidebar.sourceScheduled": "负责人定时任务",
+    "sidebar.sourceOwnerTask": "负责人任务",
     "moduleOwners.title": "模块负责人",
     "workItems.title": "任务列表",
     "sessionApi.title": "接口调用",
@@ -2184,6 +2190,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "theme.light": "浅色"
   },
   "en-US": {
+    "sidebar.sourceWorkItem": "Task execution",
+    "sidebar.sourceScheduled": "Scheduled owner task",
+    "sidebar.sourceOwnerTask": "Owner task",
     "moduleOwners.title": "Module owners",
     "workItems.title": "Task list",
     "sessionApi.title": "API calls",

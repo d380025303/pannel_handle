@@ -1,10 +1,12 @@
 const { randomUUID } = require("node:crypto");
+const { z } = require("zod");
 const { taskSchema, nextRun } = require("./task-schedule.cjs");
 const active = job => job && ["creating", "running", "uncertain"].includes(job.status);
 
 function createModuleOwnerScheduler({ store, template, supported, launch, job, submitted, revoke, revokeTask, ownerBusy, now = () => Date.now() }) {
   let timer; let ticking = false; let stopped = false; let suspended = false; let lastTick = now();
   const pending = new Set();
+  const manualPending = new Set();
   function visibleRun(task, run = job(task.id)) {
     const saved = task.lastRun;
     if (saved && run && saved.startedAt >= run.startedAt && ((saved.status === "stopped" && !task.enabled) || saved.status === "skipped")) return saved;
@@ -24,17 +26,68 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     const next = nextRun(parsed.schedule, now());
     const reenabled = old && !old.enabled && parsed.enabled;
     const task = { ...old, ...parsed, id: old?.id || randomUUID(), executedCount: reenabled ? 0 : old?.executedCount || 0 };
+    if (parsed.promptTemplateId) {
+      const source = store.promptTemplates().find(value => value.id === parsed.promptTemplateId);
+      if (!source) throw new Error("提示词模板不存在，请刷新后重试。");
+      if (old?.promptTemplateId !== source.id) {
+        task.promptTemplateVersion = source.version; task.promptTemplateSnapshot = source.prompt;
+      }
+    } else {
+      delete task.promptTemplateId; delete task.promptTemplateVersion; delete task.promptTemplateSnapshot;
+    }
     if (task.schedule.kind === "interval" && task.executedCount >= task.schedule.count) task.enabled = false;
     const changed = !old || old.enabled !== task.enabled || JSON.stringify(old.schedule) !== JSON.stringify(task.schedule);
     task.nextRunAt = task.enabled ? (changed ? next : old.nextRunAt) : null;
     if (old) tasks[tasks.findIndex(value => value.id === old.id)] = task; else tasks.push(task);
     return write(id, tasks);
   }
+  function copy(id, input) {
+    const parsed = z.object({ taskId: z.string().min(1), targetOwnerIds: z.array(z.string().min(1)).min(1) }).strict().parse(input);
+    template(id);
+    const state = store.get(id);
+    const tasks = state.tasks || [];
+    const source = tasks.find(task => task.id === parsed.taskId);
+    if (!source || !state.records.some(record => record.id === source.ownerId)) throw new Error("源任务或负责人不存在，请刷新后重试。");
+    const targets = [...new Set(parsed.targetOwnerIds)];
+    if (targets.includes(source.ownerId)) throw new Error("不能复制到源负责人。");
+    if (targets.some(ownerId => !state.records.some(record => record.id === ownerId))) throw new Error("目标负责人不存在，请刷新后重试。");
+    const copies = targets.map(ownerId => ({
+      id: randomUUID(), ownerId, name: source.name, prompt: source.prompt, mode: source.mode,
+      ...(source.promptTemplateId ? { promptTemplateId: source.promptTemplateId, promptTemplateVersion: source.promptTemplateVersion, promptTemplateSnapshot: source.promptTemplateSnapshot } : {}),
+      enabled: false, recordHistory: source.recordHistory === true,
+      tools: structuredClone(source.tools), schedule: structuredClone(source.schedule), executedCount: 0, nextRunAt: null
+    }));
+    return write(id, [...tasks, ...copies]);
+  }
   function remove(id, input) {
     const tasks = list(id); const task = tasks.find(value => value.id === input?.id);
     if (!task) throw new Error("任务不存在。");
     revokeTask(task.id);
     return write(id, tasks.filter(value => value.id !== task.id));
+  }
+  async function runTask(id, input) {
+    const parsed = z.object({ id: z.string().min(1) }).strict().parse(input);
+    const task = list(id).find(value => value.id === parsed.id);
+    if (!task || !store.get(id).records.some(record => record.id === task.ownerId)) throw new Error("任务或负责人不存在，请刷新后重试。");
+    if (!supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
+    if (stopped || suspended) throw new Error("调度服务当前不可执行。");
+    const key = `${id}:${task.ownerId}`;
+    if (pending.has(key) || ownerBusy(id, task.ownerId)) throw new Error("此负责人上一轮未结束，请等待任务结束。");
+    pending.add(key); manualPending.add(task.id);
+    const previous = job(task.id);
+    try {
+      const response = await launch(id, { ...task, trigger: "manual" });
+      if (response?.result && response.result.status !== 201) throw new Error(response.result.body?.error?.message || "创建会话失败，请检查最近执行状态。");
+    } finally {
+      try {
+        const run = job(task.id);
+        if (run && run.startedAt !== previous?.startedAt) {
+          const tasks = store.get(id).tasks || [];
+          store.tasks(id, tasks.map(value => value.id === task.id ? { ...value, lastRun: run, countedRunAt: run.startedAt } : value));
+        }
+      } finally { pending.delete(key); manualPending.delete(task.id); }
+    }
+    return list(id);
   }
   function reconcile(id) {
     const state = store.get(id); let changed = false;
@@ -59,7 +112,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           const run = job(task.id);
           if (!run) return task;
           const shown = visibleRun(task, run);
-          const counted = submitted(task.id) && task.countedRunAt !== run.startedAt;
+          const counted = !manualPending.has(task.id) && submitted(task.id) && task.countedRunAt !== run.startedAt;
           if (!counted && JSON.stringify(task.lastRun) === JSON.stringify(shown)) return task;
           lifecycleChanged = true;
           const executedCount = task.executedCount + (counted ? 1 : 0);
@@ -86,7 +139,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           }
           pending.add(key);
           // Dispatch independently so one slow HTTP launch cannot delay other owners.
-          void launch(id, task).then(() => {
+          void launch(id, { ...task, trigger: "scheduled" }).then(() => {
             if (stopped) return;
             const run = job(task.id);
             const current = (store.get(id).tasks || []).find(t => t.id === task.id);
@@ -112,6 +165,6 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     timer = setInterval(() => { void tick().catch(error => console.error("Module owner scheduler failed:", error.message)); }, 1000);
     timer.unref?.();
   }
-  return { list, save, remove, reconcile, tick, start, suspend: () => { suspended = true; }, resume: () => { suspended = false; lastTick = -Infinity; }, shutdown: () => { stopped = true; clearInterval(timer); timer = null; } };
+  return { list, save, copy, remove, runTask, reconcile, tick, start, suspend: () => { suspended = true; }, resume: () => { suspended = false; lastTick = -Infinity; }, shutdown: () => { stopped = true; clearInterval(timer); timer = null; } };
 }
 module.exports = { createModuleOwnerScheduler };

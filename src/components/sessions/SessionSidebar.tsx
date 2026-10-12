@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, GripVertical, Pencil, RefreshCw, Search, Webhook, X } from "lucide-react";
+import { Clock, ListTodo, Copy, GripVertical, Pencil, RefreshCw, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
@@ -212,6 +212,17 @@ export function SessionSidebar({
                       {getSessionTypeLabel(session)}
                     </span>
                   </span>
+                  {session.creationSource && (
+                    <span className={`session-source ${session.creationSource.kind}`}>
+                      <span className="session-source-badge">
+                        {session.creationSource.kind === "work-item" ? <ListTodo aria-hidden="true" /> : <Clock aria-hidden="true" />}
+                        {t(session.creationSource.kind === "work-item" ? "sidebar.sourceWorkItem" : session.creationSource.trigger === "scheduled" ? "sidebar.sourceScheduled" : "sidebar.sourceOwnerTask")}
+                      </span>
+                      <span className="session-source-name" title={`${session.creationSource.ownerName} · ${session.creationSource.taskName}`}>
+                        {session.creationSource.ownerName} · {session.creationSource.taskName}
+                      </span>
+                    </span>
+                  )}
                   {showInstanceIds && (
                     <span className="session-instance-id" title={`Instance ${session.id}${session.templateId ? ` / Template ${session.templateId}` : ""}`}>
                       ID {session.id}{session.templateId ? ` / Template ${session.templateId}` : ""}

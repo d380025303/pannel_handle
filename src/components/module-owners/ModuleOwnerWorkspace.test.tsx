@@ -11,9 +11,11 @@ let ownerApi: ModuleOwnerApi;
 let changed: ((event: { templateId: string }) => void) | undefined;
 beforeEach(() => {
   ownerApi = {
+    listPromptTemplates: vi.fn().mockResolvedValue([]), savePromptTemplate: vi.fn(), deletePromptTemplate: vi.fn(), previewPromptPublish: vi.fn(), publishPromptTemplate: vi.fn(),
     listTaskRuns: vi.fn().mockResolvedValue({ records: [], total: 0 }), getTaskRun: vi.fn(), deleteTaskRun: vi.fn().mockResolvedValue(undefined),
     listHistory: vi.fn().mockResolvedValue({ revision: initial.revision, history: initial.history.filter(entry => entry.kind === "owner") }),
-    listTasks: vi.fn().mockResolvedValue([]), saveTask: vi.fn().mockResolvedValue([]), deleteTask: vi.fn().mockResolvedValue([]),
+    copyTask: vi.fn().mockResolvedValue([]),
+    runTask: vi.fn().mockResolvedValue([]), listTasks: vi.fn().mockResolvedValue([]), saveTask: vi.fn().mockResolvedValue([]), deleteTask: vi.fn().mockResolvedValue([]),
     listTemplates: vi.fn().mockResolvedValue([{ templateId: "one", title: "项目一", cwd: "C:/repo", supported: true }, { templateId: "two", title: "项目二", cwd: "C:/other", supported: false }]),
     get: vi.fn().mockResolvedValue(structuredClone(initial)), preview: vi.fn().mockResolvedValue({ templateId: "one", tools: [{ name: "add_module_owner" }], toolCallback: { bearerToken: "<临时授权>" } }),
     mutate: vi.fn().mockResolvedValue(initial), configure: vi.fn().mockResolvedValue(initial), restore: vi.fn().mockResolvedValue({ ...initial, records: [] }),
@@ -372,4 +374,73 @@ it("opens scheduled call history and displays persisted input and final output",
   expect(await screen.findByText("最终回复文本")).toBeTruthy();
   expect(screen.getByText(/实际输入/)).toBeTruthy();
   expect(ownerApi.getTaskRun).toHaveBeenCalledWith("one", { taskId: "task", id: "run" });
+});
+
+it("copies one task to multiple other owners and preserves selection on failure", async () => {
+  vi.mocked(ownerApi.get).mockResolvedValue({ ...initial, records: [record, { ...record, id: "second", name: "移动" }, { ...record, id: "third", name: "服务" }] });
+  const task: ModuleOwnerTask = { id: "task", ownerId: "owner", name: "巡检", prompt: "检查", mode: "default", enabled: true, tools: [], schedule: { kind: "cron", cron: "0 * * * *" }, executedCount: 4, nextRunAt: 1000 };
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([task]);
+  vi.mocked(ownerApi.copyTask).mockRejectedValueOnce(new Error("目标负责人不存在")).mockResolvedValueOnce([task]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制到其它负责人" }));
+  const dialog = screen.getByRole("dialog", { name: "复制到其它负责人" });
+  expect(within(dialog).queryByLabelText("桌面")).toBeNull();
+  expect((within(dialog).getByRole("button", { name: "复制配置" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(within(dialog).getByLabelText("移动"));
+  fireEvent.click(within(dialog).getByLabelText("全选"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "复制配置" }));
+  await within(dialog).findByRole("alert");
+  await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toContain("目标负责人不存在"));
+  expect((within(dialog).getByLabelText("移动") as HTMLInputElement).checked).toBe(true);
+  expect((within(dialog).getByLabelText("服务") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(within(dialog).getByRole("button", { name: "复制配置" }));
+  await screen.findByText("已复制到 2 个负责人，新任务均已停用。");
+  expect(ownerApi.copyTask).toHaveBeenLastCalledWith("one", { taskId: "task", targetOwnerIds: ["second", "third"] });
+  expect(screen.queryByRole("dialog", { name: "复制到其它负责人" })).toBeNull();
+});
+
+it("shows an empty copy target list without permitting submission", async () => {
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([{ id: "task", ownerId: "owner", name: "巡检", prompt: "检查", mode: "default", enabled: false, tools: [], schedule: { kind: "interval", minutes: 1, count: 2 }, executedCount: 0, nextRunAt: null }]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制到其它负责人" }));
+  expect(screen.getByText("当前模板没有其它负责人。")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "复制配置" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(ownerApi.copyTask).not.toHaveBeenCalled();
+});
+
+
+it("references a prompt template, permits independent edits and preserves text on detach", async () => {
+  vi.mocked(ownerApi.listPromptTemplates).mockResolvedValue([{ id: "shared", name: "共享巡检", prompt: "模板提示词", version: 1, createdAt: 1, updatedAt: 1, referenceCount: 0 }]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新增定时任务" }));
+  const selector = await screen.findByLabelText("提示词模板");
+  await screen.findByRole("option", { name: "共享巡检 · v1" });
+  fireEvent.change(selector, { target: { value: "shared" } });
+  const prompt = screen.getByLabelText("提示词") as HTMLTextAreaElement;
+  expect(prompt.value).toBe("模板提示词");
+  fireEvent.change(prompt, { target: { value: "独立修改" } });
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "新任务" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenCalledWith("one", expect.objectContaining({ promptTemplateId: "shared", prompt: "独立修改" })));
+  fireEvent.click(screen.getByRole("button", { name: "新增定时任务" }));
+  fireEvent.change(screen.getByLabelText("提示词模板"), { target: { value: "shared" } });
+  fireEvent.change(screen.getByLabelText("提示词模板"), { target: { value: "" } });
+  expect((screen.getByLabelText("提示词") as HTMLTextAreaElement).value).toBe("模板提示词");
+});
+
+it("manually runs a disabled scheduled task and displays launch errors", async () => {
+  const task = { id: "task", ownerId: "owner", name: "巡检", prompt: "检查", mode: "default" as const, enabled: false, tools: [], schedule: { kind: "interval" as const, minutes: 1, count: 2 }, executedCount: 0, nextRunAt: null };
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([task]);
+  vi.mocked(ownerApi.runTask).mockRejectedValueOnce(new Error("请先开启 HTTP 接口服务。")).mockResolvedValueOnce([task]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "手动执行" }));
+  await screen.findByText("请先开启 HTTP 接口服务。");
+  fireEvent.click(screen.getByRole("button", { name: "手动执行" }));
+  await screen.findByText("已手动执行“巡检”。");
+  expect(ownerApi.runTask).toHaveBeenLastCalledWith("one", { id: "task" });
 });

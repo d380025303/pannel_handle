@@ -45,9 +45,8 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     const value = Object.hasOwn(state.templates, templateId) ? state.templates[templateId] : empty();
     return { revision: value.revision, history: structuredClone(value.history.filter(entry => entry.kind === "owner" && entry.ownerId === ownerId)) };
   }
-  function persist(templateId, value) {
+  function commit(next, ids = []) {
     if (loadError) throw loadError;
-    const next = { ...state, templates: { ...state.templates, [templateId]: value } };
     if (dataStore) dataStore.write(file, next);
     else {
       fs.mkdirSync(userData, { recursive: true });
@@ -55,7 +54,10 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
       fs.renameSync(`${file}.tmp`, file);
     }
     state = next;
-    broadcast("module-owners:changed", { templateId });
+    for (const templateId of ids) broadcast("module-owners:changed", { templateId });
+  }
+  function persist(templateId, value) {
+    commit({ ...state, templates: { ...state.templates, [templateId]: value } }, [templateId]);
     return get(templateId);
   }
   function directories(values, cwd) {
@@ -119,6 +121,19 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     value.tasks = structuredClone(values);
     return persist(templateId, value);
   }
-  return { get, listHistory, mutate, restore, configure, tasks, templateIds: () => Object.keys(state.templates) };
+  function promptTemplates() {
+    if (loadError) throw loadError;
+    return structuredClone(state.promptTemplates || []);
+  }
+  function replacePromptTemplates(values) {
+    commit({ ...state, promptTemplates: structuredClone(values) }, [""]);
+    return promptTemplates();
+  }
+  function publishPrompts(updates) {
+    const next = structuredClone(state);
+    for (const update of updates) Object.assign(next.templates[update.templateId].tasks.find(value => value.id === update.taskId), update.fields);
+    commit(next, [...new Set(updates.map(value => value.templateId))]);
+  }
+  return { promptTemplates, replacePromptTemplates, publishPrompts, get, listHistory, mutate, restore, configure, tasks, templateIds: () => Object.keys(state.templates) };
 }
 module.exports = { createModuleOwnerStore, DEFAULT_PROMPT };

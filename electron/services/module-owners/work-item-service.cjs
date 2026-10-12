@@ -18,7 +18,7 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     return "";
   }
   function list(input = {}) {
-    const query = z.object({ templateId: z.string().min(1).optional(), ownerId: z.string().min(1).optional(), status: statusSchema.optional(),
+    const query = z.object({ templateId: z.string().min(1).optional(), ownerId: z.string().min(1).optional(), status: statusSchema.optional(), statuses: z.array(statusSchema).max(8).optional(),
       keyword: z.string().trim().max(1000).optional(), page: z.number().int().min(0).max(1000000).default(0) }).strict().parse(input);
     const result = database().listWorkItems(query);
     const templates = result.templates.map(value => {
@@ -56,7 +56,7 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     let tracked = false;
     try {
       await launch(item.templateId, { mode: "default", prompt: prepared.body.prompt }, { id: attempt.id, ownerId: item.ownerId,
-        name: item.taskName, tools: item.tools, manual: true, onProgress: job => {
+        name: item.taskName, tools: item.tools, manual: true, workItemId: item.id, onProgress: job => {
           tracked = true;
           database().updateWorkItemAttempt(id, attempt.id, { status: job.status, sessionId: job.sessionId, threadId: job.threadId, turnId: job.turnId,
             output: job.output || "", error: job.error || "", ...(ACTIVE.includes(job.status) ? {} : { endedAt: Date.now() }) });

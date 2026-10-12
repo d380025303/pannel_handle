@@ -326,6 +326,7 @@ function createTerminalManager({
       environmentOverrides: session.environmentOverrides,
       id: session.id,
       templateId: session.templateId,
+      ...(session.creationSource ? { creationSource: structuredClone(session.creationSource) } : {}),
       title: session.title,
       shell: session.shell,
       cwd: session.cwd,
@@ -747,6 +748,7 @@ function createTerminalManager({
       : options.persist === false ? undefined : template.id;
     const session = {
       ...template,
+      creationSource: options.creationSource ? structuredClone(options.creationSource) : undefined,
       id,
       templateId,
       title: getRuntimeTitle(template, Boolean(templateId)),
