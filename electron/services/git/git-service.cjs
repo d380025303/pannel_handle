@@ -810,7 +810,7 @@ function createGitService({
   }
 
   async function discardWorkingTree(target, request, operationId) {
-    const paths = validateRepoPaths([request?.path, ...(request?.oldPath ? [request.oldPath] : [])]).map(literalPathspec);
+    const paths = validateRepoPaths([request?.path]).map(literalPathspec);
     const isUntracked = request?.indexStatus === "?" || request?.status === "?";
     const args = isUntracked ? ["clean", "-f", "--", ...paths] : ["restore", "--worktree", "--", ...paths];
     return runOperation(target, operationId, "Git discard working tree changes", args);

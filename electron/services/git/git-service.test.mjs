@@ -376,6 +376,29 @@ describe("real temporary repository workflow", () => {
     expect((await service.getStatus(target)).files.map((file) => file.path)).toEqual([otherName]);
   });
 
+  it("discards worktree edits while preserving a staged rename", async () => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    fs.writeFileSync(path.join(directory, "old.txt"), "index content\n");
+    git(directory, "add", "old.txt");
+    git(directory, "commit", "-m", "Base");
+    git(directory, "mv", "old.txt", "new.txt");
+    fs.writeFileSync(path.join(directory, "new.txt"), "worktree edits\n");
+
+    const before = await service.getStatus(target);
+    expect(before.files).toEqual([
+      expect.objectContaining({ path: "new.txt", oldPath: "old.txt", indexStatus: "R", worktreeStatus: "M" })
+    ]);
+    expect((await service.discardWorkingTree(target, before.files[0], "discard-renamed")).ok).toBe(true);
+    expect(fs.readFileSync(path.join(directory, "new.txt"), "utf-8")).toBe("index content\n");
+    expect(fs.existsSync(path.join(directory, "old.txt"))).toBe(false);
+    expect(git(directory, "show", ":new.txt")).toBe("index content");
+    expect((await service.getStatus(target)).files).toEqual([
+      expect.objectContaining({ path: "new.txt", oldPath: "old.txt", indexStatus: "R", worktreeStatus: "." })
+    ]);
+  });
+
   it("isolates unborn unstage, untracked diff, and clean for bracket filenames", async () => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");
