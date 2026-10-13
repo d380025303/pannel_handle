@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, FileText, Folder, HardDrive } from "lucide-react";
 import { createRequestId } from "./protocol";
+import { isPreviewTransport } from "./remoteSocket";
 import { PROTOCOL_VERSION, type ClientMessage, type ComputerFileEntry, type ServerMessage } from "./types";
 
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
@@ -35,7 +36,7 @@ export function ComputerFiles({ connectionEpoch, send, onFileMessage, onClose }:
         setBusy(false);
       } else if (message.type === "files.download.ready" && request.kind === "download") {
         setDownloading(null);
-        if (!message.url.startsWith("/api/v1/download/")) { setError("下载地址无效。"); return; }
+        if (!message.url.startsWith("/api/v1/download/") && !(isPreviewTransport() && message.url.startsWith("blob:"))) { setError("下载地址无效。"); return; }
         const link = document.createElement("a");
         link.href = message.url;
         link.download = "";

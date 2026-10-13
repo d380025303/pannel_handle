@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createRemoteSocket, isPreviewTransport, type RemoteSocket } from "./remoteSocket";
 import { getWebSocketUrl, parseServerMessage, serializeClientMessage } from "./protocol";
 import { PROTOCOL_VERSION, type ClientMessage, type ConnectionStatus, type ServerMessage } from "./types";
 
@@ -28,7 +29,7 @@ export function useRemoteTransport(onMessage: (message: ServerMessage) => void) 
   const [device, setDevice] = useState<{ deviceId: string; deviceName: string } | null>(null);
   const [storageWarning, setStorageWarning] = useState("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<RemoteSocket | null>(null);
   const lastPongAtRef = useRef(0);
   const authenticatedRef = useRef(false);
   const stoppedRef = useRef(false);
@@ -55,13 +56,13 @@ export function useRemoteTransport(onMessage: (message: ServerMessage) => void) 
     previous?.close();
     setStatus("connecting");
     setStatusMessage("正在连接电脑…");
-    if (!passwordRef.current) {
+    if (!passwordRef.current && !isPreviewTransport()) {
       setStatus("password-required");
       setStatusMessage("请输入电脑端设置的移动访问密码");
       return;
     }
 
-    const socket = new WebSocket(getWebSocketUrl());
+    const socket = createRemoteSocket(getWebSocketUrl());
     socketRef.current = socket;
     let authenticationFailed = false;
     const openingTimer = window.setTimeout(() => {
@@ -83,7 +84,7 @@ export function useRemoteTransport(onMessage: (message: ServerMessage) => void) 
           authenticatedRef.current = true;
           lastPongAtRef.current = Date.now();
           retryRef.current = 0;
-          try { localStorage.setItem(PASSWORD_STORAGE_KEY, passwordRef.current); setStorageWarning(""); }
+          try { if (!isPreviewTransport()) localStorage.setItem(PASSWORD_STORAGE_KEY, passwordRef.current); setStorageWarning(""); }
           catch { setStorageWarning("浏览器无法保存密码，刷新后需要重新输入。"); }
           setDevice({ deviceId: message.payload.deviceId, deviceName: message.payload.deviceName });
           setStatus("connected");
@@ -133,7 +134,7 @@ export function useRemoteTransport(onMessage: (message: ServerMessage) => void) 
 
   useEffect(() => {
     stoppedRef.current = false;
-    indexedDB.deleteDatabase("pannel-handle-mobile");
+    if (!isPreviewTransport()) indexedDB.deleteDatabase("pannel-handle-mobile");
     connect();
     let wasHidden = document.hidden;
     const checkConnection = () => {

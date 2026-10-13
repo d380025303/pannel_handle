@@ -9,6 +9,7 @@
     "dev": "vite --host 127.0.0.1 --port 6173 --strictPort",
     "dev:browser": "vite --mode browser-preview --host 127.0.0.1 --port 6174 --strictPort",
     "dev:mobile": "pnpm --filter pannel-handle-mobile dev",
+    "dev:mobile:browser": "pnpm --filter pannel-handle-mobile dev:browser",
     "electron": "electron .",
     "prestart": "pnpm build:mobile",
     "start": "concurrently -k \"pnpm dev\" \"wait-on http://127.0.0.1:6173 && electron .\"",
