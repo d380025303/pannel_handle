@@ -265,8 +265,9 @@ describe("remote-file-service", () => {
     expect(rename).not.toHaveBeenCalled();
     expect(trashItem).not.toHaveBeenCalled();
     await service.moveEntry("run-1", source, dir, "NOTE.txt", "overwrite");
-    expect(trashItem).toHaveBeenCalledExactlyOnceWith(target);
-    expect(rename).toHaveBeenCalledExactlyOnceWith(source, target);
+    const backup = rename.mock.calls[0][1];
+    expect(rename.mock.calls).toEqual([[target, backup], [source, target]]);
+    expect(trashItem).toHaveBeenCalledExactlyOnceWith(backup);
   });
 
   it("keeps conflicts and overwrite behavior for distinct Windows files", async () => {
@@ -288,10 +289,91 @@ describe("remote-file-service", () => {
       await expect(service.moveEntry("run-1", source, dir, "target.txt", "overwrite")).resolves.toEqual({
         status: "completed", path: target, name: "target.txt"
       });
-      expect(trashItem).toHaveBeenCalledExactlyOnceWith(target);
+      expect(trashItem).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(".pannel-move-backup-"));
       expect(fs.readFileSync(target, "utf8")).toBe("source content");
       expect(fs.readFileSync(path.join(dir, "trashed"), "utf8")).toBe("target content");
       expect(fs.existsSync(source)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["windows", "wsl", "ssh"])("protects %s overwrite targets when the source disappears or moving fails", async (type) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-move-rollback-"));
+    const localSource = path.join(dir, "source.txt");
+    const localTarget = path.join(dir, "target.txt");
+    const source = type === "windows" ? localSource : "/files/source.txt";
+    const target = type === "windows" ? localTarget : "/files/target.txt";
+    const targetDirectory = type === "windows" ? dir : "/files";
+    // Map WSL UNC and SSH paths to an isolated real local filesystem.
+    const hostPath = (entry) => path.join(dir, path.win32.basename(entry));
+    let failureMode;
+    const moveError = Object.assign(new Error("Injected move failure"), { code: "EACCES" });
+    const rename = vi.fn(async (from, to) => {
+      if (hostPath(from) === localSource && ["move", "restore"].includes(failureMode)) throw moveError;
+      if (path.win32.basename(from).startsWith(".pannel-move-backup-") && failureMode === "restore") {
+        throw new Error("Injected restore failure");
+      }
+      await fs.promises.rename(hostPath(from), hostPath(to));
+      if (hostPath(from) === localTarget && failureMode === "race") await fs.promises.unlink(localSource);
+    });
+    const remove = vi.fn(async (entry) => {
+      if (failureMode === "cleanup") throw new Error("Injected cleanup failure");
+      await fs.promises.rm(hostPath(entry), { recursive: true, force: true });
+    });
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type, cwd: targetDirectory, wslDistro: "Ubuntu" }),
+      fsApi: { promises: {
+        lstat: (entry) => fs.promises.lstat(hostPath(entry)), rename, rm: remove
+      } },
+      shellApi: createShellMock({ trashItem: remove }),
+      sshFileSystem: {
+        exists: async (_sessionId, entry) => fs.existsSync(hostPath(entry)),
+        rename: (_sessionId, from, to) => rename(from, to),
+        remove: (_sessionId, entry) => remove(entry)
+      }
+    });
+    try {
+      for (const mode of ["missing", "move", "race", "success"]) {
+        failureMode = mode;
+        fs.writeFileSync(localSource, "source content");
+        fs.writeFileSync(localTarget, "original target");
+        await expect(service.moveEntry("run-1", source, targetDirectory, "target.txt")).resolves.toEqual({
+          status: "conflict", path: target, name: "target.txt"
+        });
+        rename.mockClear();
+        remove.mockClear();
+        if (mode === "missing") fs.unlinkSync(localSource);
+        const result = service.moveEntry("run-1", source, targetDirectory, "target.txt", "overwrite");
+        if (mode === "success") {
+          await expect(result).resolves.toEqual({ status: "completed", path: target, name: "target.txt" });
+          expect(fs.readFileSync(localTarget, "utf8")).toBe("source content");
+          expect(fs.existsSync(localSource)).toBe(false);
+          expect(remove).toHaveBeenCalledTimes(1);
+        } else {
+          await expect(result).rejects.toMatchObject({ code: mode === "move" ? "EACCES" : "ENOENT" });
+          expect(fs.readFileSync(localTarget, "utf8")).toBe("original target");
+          expect(remove).not.toHaveBeenCalled();
+          if (mode === "missing") expect(rename).not.toHaveBeenCalled();
+          if (mode === "move") expect(fs.readFileSync(localSource, "utf8")).toBe("source content");
+        }
+        expect(fs.readdirSync(dir).some((name) => name.startsWith(".pannel-move-backup-"))).toBe(false);
+      }
+      for (const mode of ["restore", "cleanup"]) {
+        failureMode = mode;
+        fs.writeFileSync(localSource, "source content");
+        fs.writeFileSync(localTarget, "original target");
+        const error = await service.moveEntry("run-1", source, targetDirectory, "target.txt", "overwrite")
+          .then(() => { throw new Error("Expected overwrite failure"); }, (error) => error);
+        expect(error.code).toBe(mode === "restore" ? "MOVE_RESTORE_FAILED" : "MOVE_BACKUP_CLEANUP_FAILED");
+        expect(fs.readFileSync(hostPath(error.backupPath), "utf8")).toBe("original target");
+        if (mode === "restore") {
+          expect(error.errors[0]).toBe(moveError);
+          expect(fs.readFileSync(localSource, "utf8")).toBe("source content");
+        } else {
+          expect(fs.readFileSync(localTarget, "utf8")).toBe("source content");
+        }
+      }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

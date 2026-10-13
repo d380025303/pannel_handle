@@ -858,13 +858,41 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
     const target = await resolveConflictPath(sessionId, session, targetDirectory, name, conflictPolicy);
     if (target.status === "conflict" || target.status === "skipped") return target;
     if (target.path === sourcePath) return { status: "completed", path: sourcePath, name: target.name };
+    const renameEntry = (from, to) => session.type === "ssh"
+      ? sshFileSystem.rename(sessionId, normalizeRemotePath(from), normalizeRemotePath(to))
+      : fsApi.promises.rename(toLocalHostPath(session, from), toLocalHostPath(session, to));
+    let backupPath;
     if (target.status === "overwrite") {
-      await deleteEntry(sessionId, target.path, { permanent: session.type !== "windows" });
+      if (!await entryExists(sessionId, session, sourcePath)) {
+        throw Object.assign(new Error(`Move source does not exist: ${sourcePath}`), { code: "ENOENT" });
+      }
+      const backupName = `.pannel-move-backup-${crypto.randomUUID()}`;
+      backupPath = session.type === "ssh"
+        ? joinRemotePath(normalizeRemotePath(targetDirectory), backupName)
+        : joinLocalPath(session, targetDirectory, backupName);
+      await renameEntry(target.path, backupPath);
     }
-    if (session.type !== "ssh") {
-      await fsApi.promises.rename(toLocalHostPath(session, sourcePath), toLocalHostPath(session, target.path));
-    } else {
-      await sshFileSystem.rename(sessionId, normalizeRemotePath(sourcePath), target.path);
+    try {
+      await renameEntry(sourcePath, target.path);
+    } catch (moveError) {
+      if (backupPath) {
+        try {
+          await renameEntry(backupPath, target.path);
+        } catch (restoreError) {
+          throw Object.assign(new AggregateError([moveError, restoreError],
+            `Move failed and the original target could not be restored. Backup retained at: ${backupPath}`),
+            { code: "MOVE_RESTORE_FAILED", backupPath });
+        }
+      }
+      throw moveError;
+    }
+    if (backupPath) {
+      try {
+        await deleteEntry(sessionId, backupPath, { permanent: session.type !== "windows" });
+      } catch (cause) {
+        throw Object.assign(new Error(`Move completed, but target backup cleanup failed. Backup retained at: ${backupPath}`, { cause }),
+          { code: "MOVE_BACKUP_CLEANUP_FAILED", backupPath });
+      }
     }
     return { status: "completed", path: target.path, name: target.name };
   }
