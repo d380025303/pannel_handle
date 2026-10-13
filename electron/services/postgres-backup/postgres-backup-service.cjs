@@ -158,10 +158,11 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
           const batch = (await client.query(`SELECT ctid::text AS row_tid, message_id FROM ph_messages
             WHERE message_hash IS NULL LIMIT 500`)).rows;
           if (!batch.length) break;
-          for (const row of batch) {
-            await client.query("UPDATE ph_messages SET message_hash=$1 WHERE ctid=$2::tid",
-              [crypto.createHash("sha256").update(row.message_id).digest("hex"), row.row_tid]);
-          }
+          const hashes = batch.map(row => ({ row_tid: row.row_tid,
+            message_hash: crypto.createHash("sha256").update(row.message_id).digest("hex") }));
+          await client.query(`UPDATE ph_messages AS messages SET message_hash=batch.message_hash
+            FROM jsonb_to_recordset($1::jsonb) AS batch(row_tid TEXT, message_hash TEXT)
+            WHERE messages.ctid=batch.row_tid::tid`, [JSON.stringify(hashes)]);
         }
         await client.query("ALTER TABLE ph_messages ALTER COLUMN message_hash SET NOT NULL");
         await client.query("ALTER TABLE ph_messages DROP CONSTRAINT ph_messages_pkey");

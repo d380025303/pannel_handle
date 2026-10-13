@@ -118,7 +118,7 @@ describe("PostgreSQL backup service", () => {
         ? "PRIMARY KEY (device_id, source_key, conversation_ref, message_id)"
         : "PRIMARY KEY (device_id, source_key, conversation_ref, message_hash)" }] };
       if (sql.includes("SELECT ctid::text")) return { rows: existingHash ? [] : [{ row_tid: "(0,1)", message_id: longId }] };
-      if (sql.includes("UPDATE ph_messages SET message_hash")) existingHash = parameters[0];
+      if (sql.includes("SET message_hash=batch.message_hash")) existingHash = JSON.parse(parameters[0])[0].message_hash;
       if (sql.includes("ADD CONSTRAINT ph_messages_pkey")) oldPrimaryKey = false;
       if (sql.includes("INSERT INTO ph_messages")) {
         if (failNextMessage) { failNextMessage = false; throw new Error("temporary write failure"); }
