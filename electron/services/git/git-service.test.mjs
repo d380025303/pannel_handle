@@ -165,6 +165,18 @@ describe("git status parsers", () => {
     expect(parseUnifiedDiff(oversized).rows).toHaveLength(MAX_DIFF_ROWS);
   });
 
+  it.each(["Binary files a/asset.bin and b/asset.bin differ", "GIT binary patch\nliteral 4\nLc${NkU|;|M00aO5"])("preserves text hunks alongside %s in either file order", (binaryBody) => {
+    const binary = `diff --git a/asset.bin b/asset.bin\n${binaryBody}`;
+    const text = "diff --git a/code.txt b/code.txt\n--- a/code.txt\n+++ b/code.txt\n@@ -1 +1 @@\n-before\n+after";
+    const expected = { kind: "text", truncated: false, rows: [
+      { type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "before", newText: "after" }
+    ] };
+    for (const sections of [[binary, text], [text, binary]]) {
+      expect(parseUnifiedDiff(sections.join("\n"))).toEqual(expected);
+    }
+    expect(parseUnifiedDiff(binary)).toEqual({ kind: "binary", rows: [], truncated: false });
+  });
+
   it.each(["+", "-"])("bounds a 500,000-line %s block", (prefix) => {
     const result = parseUnifiedDiff(`@@ -1,500000 +1,500000 @@\n${`${prefix}x\n`.repeat(500000)}`);
     expect(result.truncated).toBe(true);
@@ -338,6 +350,37 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it.each(["asset.bin", "z-asset.bin"])("previews mixed commits with binary file %s and preserves binary-only previews", async (binaryName) => {
+    const { directory, session, service } = createRepository();
+    const target = repositoryTarget(session.id, directory);
+    git(directory, "config", "core.autocrlf", "false");
+    fs.writeFileSync(path.join(directory, "code.txt"), "before\n");
+    fs.writeFileSync(path.join(directory, binaryName), Buffer.from([0, 1, 2, 3]));
+    git(directory, "add", "-A");
+    git(directory, "commit", "-m", "Base");
+    fs.writeFileSync(path.join(directory, "code.txt"), "after\n");
+    fs.writeFileSync(path.join(directory, binaryName), Buffer.from([0, 4, 5, 6]));
+    git(directory, "commit", "-am", "Mixed changes");
+    const revision = git(directory, "rev-parse", "HEAD");
+    const rawDiff = git(directory, "show", "--format=", "--no-color", revision);
+    const binaryOffset = rawDiff.indexOf(`diff --git a/${binaryName}`);
+    const textOffset = rawDiff.indexOf("diff --git a/code.txt");
+    expect(binaryOffset).toBeGreaterThanOrEqual(0);
+    expect(textOffset).toBeGreaterThanOrEqual(0);
+    expect(binaryOffset < textOffset).toBe(binaryName === "asset.bin");
+    const diff = await service.getDiff(target, { scope: "commit", revision });
+    expect(diff).toMatchObject({ kind: "text", truncated: false, rows: [
+      { type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "before", newText: "after" }
+    ] });
+    const binaryDiff = await service.getDiff(target, { scope: "commit", revision, path: binaryName });
+    expect(binaryDiff).toMatchObject({ kind: "binary", rows: [], truncated: false });
+    fs.writeFileSync(path.join(directory, binaryName), Buffer.from([0, 7, 8, 9]));
+    git(directory, "commit", "-am", "Binary changes only");
+    const binaryRevision = git(directory, "rev-parse", "HEAD");
+    const binaryCommit = await service.getDiff(target, { scope: "commit", revision: binaryRevision });
+    expect(binaryCommit).toMatchObject({ kind: "binary", rows: [], truncated: false });
+  }, 15000);
+
   it("previews merge conflict markers against ours while preserving ordinary working diffs", async () => {
     const { directory, session, service } = createRepository();
     const target = repositoryTarget(session.id, directory);

@@ -333,9 +333,8 @@ function pushChangedRows(rows, deletedRows, addedRows, maxRows) {
 
 function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
   const text = String(output || "");
-  if (/^Binary files .+ differ$/m.test(text) || /^GIT binary patch$/m.test(text)) {
-    return { kind: "binary", rows: [], truncated: false };
-  }
+  const hasBinary = /^Binary files .+ differ$/m.test(text) || /^GIT binary patch$/m.test(text);
+  let hasTextHunk = false;
 
   const rows = [];
   const deletedRows = [];
@@ -366,6 +365,7 @@ function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
       if (truncated) break;
       const hunk = parseHunkHeader(rawLine);
       if (hunk) {
+        hasTextHunk = true;
         oldLine = hunk.oldLine;
         newLine = hunk.newLine;
         inHunk = true;
@@ -404,7 +404,7 @@ function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
     newLine += 1;
   }
   pushChangedRows(rows, deletedRows, addedRows, maxRows);
-  return { kind: "text", rows, truncated };
+  return { kind: hasBinary && !hasTextHunk ? "binary" : "text", rows, truncated };
 }
 
 function parseBranchList(output) {
