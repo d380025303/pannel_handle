@@ -235,10 +235,10 @@ function createMobileRemoteService({
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     auth.disconnectAll("service-stopped");
-    uploads.stop();
+    const uploadsStopped = uploads.stop();
     files.stop();
     for (const socket of webSocketServer?.clients || []) socket.terminate();
-    await Promise.all([closeHttpServer(server), closeHttpServer(localServer)]);
+    await Promise.all([closeHttpServer(server), closeHttpServer(localServer), uploadsStopped]);
     webSocketServer?.close();
     bonjourService?.stop?.();
     bonjour?.destroy?.();

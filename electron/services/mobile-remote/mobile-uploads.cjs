@@ -13,19 +13,23 @@ const FILE_MS = 24 * 60 * 60 * 1000;
 function createMobileUploads({ now = () => Date.now() } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-handle-mobile-"));
   const entries = new Map();
+  const cleanups = new Set();
   const safeName = name => {
     const value = path.basename(String(name || "").replace(/[\\/]/g, "_")).replace(/[\x00-\x1f<>:"|?*]/g, "_").slice(0, 180);
     return value && value !== "." && value !== ".." ? value : "attachment";
   };
   const deleteDirectory = entry => {
     const directory = path.dirname(entry.path);
-    try { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
-    catch {
-      const retry = setTimeout(() => {
-        try { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch {}
-      }, 1000);
-      retry.unref?.();
-    }
+    const cleanup = (async () => {
+      const options = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
+      try { await fs.promises.rm(directory, options); }
+      catch {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try { await fs.promises.rm(directory, options); } catch {}
+      }
+    })();
+    cleanups.add(cleanup);
+    void cleanup.finally(() => cleanups.delete(cleanup));
   };
   const remove = id => {
     const entry = entries.get(id);
@@ -97,7 +101,13 @@ function createMobileUploads({ now = () => Date.now() } = {}) {
   function discard(socket, ids) { for (const id of ids) if (entries.get(id)?.socket === socket && !entries.get(id).consumed) remove(id); }
   function releaseSocket(socket) { for (const [id, entry] of entries) if (entry.socket === socket && !entry.consumed) remove(id); }
   function releaseSession(sessionId) { for (const [id, entry] of entries) if (entry.sessionId === sessionId) remove(id); }
-  function stop() { if (timer) clearInterval(timer); timer = null; for (const id of [...entries.keys()]) remove(id); try { fs.rmSync(root, { recursive: true, force: true }); } catch {} }
+  async function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    for (const id of [...entries.keys()]) remove(id);
+    while (cleanups.size) await Promise.all([...cleanups]);
+    try { await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch {}
+  }
   return { prepare, receive, paths, consume, discard, releaseSocket, releaseSession, stop };
 }
 
