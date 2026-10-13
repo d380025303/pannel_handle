@@ -66,6 +66,62 @@ function readStream(stream) {
 }
 
 describe("remote-file-service", () => {
+  it.each(["windows", "wsl"])("bounds large %s listings and yields between batches without changing entries", async (type) => {
+    const cwd = type === "windows" ? path.resolve("listing") : "/listing";
+    const dirents = Array.from({ length: 30000 }, (_, index) => ({
+      name: `entry-${30000 - index}`,
+      isDirectory: () => index % 3 === 0,
+      isSymbolicLink: () => index % 3 === 1
+    }));
+    let pending = 0;
+    let peak = 0;
+    let callsBeforeYield = 0;
+    let yielded = false;
+    const fsApi = { promises: {
+      readdir: async () => {
+        setImmediate(() => { yielded = true; });
+        return dirents;
+      },
+      stat: async () => {
+        pending += 1;
+        peak = Math.max(peak, pending);
+        if (!yielded) callsBeforeYield += 1;
+        await Promise.resolve();
+        pending -= 1;
+        return { size: 12, mtimeMs: 34 };
+      }
+    } };
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type, cwd, wslDistro: "Ubuntu" }), fsApi
+    });
+    const entries = await service.list("run-1", cwd);
+    const expected = dirents.map((dirent) => ({
+      name: dirent.name,
+      path: type === "windows" ? path.join(cwd, dirent.name) : `${cwd}/${dirent.name}`,
+      type: dirent.isDirectory() ? "directory" : dirent.isSymbolicLink() ? "symlink" : "file",
+      size: 12, modifiedAt: 34
+    })).sort((a, b) => {
+      if (a.type === "directory" && b.type !== "directory") return -1;
+      if (a.type !== "directory" && b.type === "directory") return 1;
+      return a.name.localeCompare(b.name);
+    });
+    expect(peak).toBe(16);
+    expect(callsBeforeYield).toBe(16);
+    expect(entries).toEqual(expected);
+  });
+
+  it("stops submitting metadata batches when stat fails", async () => {
+    const stat = vi.fn(async () => { throw new Error("metadata unavailable"); });
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: process.cwd() }),
+      fsApi: { promises: {
+        readdir: async () => Array.from({ length: 100 }, (_, index) => ({ name: String(index) })), stat
+      } }
+    });
+    await expect(service.list("run-1", process.cwd())).rejects.toThrow("metadata unavailable");
+    expect(stat).toHaveBeenCalledTimes(16);
+  });
+
   it.each([
     ["~", "\\\\wsl.localhost\\Ubuntu\\home", "/home/alice"],
     ["/var", "\\\\wsl.localhost\\Ubuntu\\var", "/var/alice"],
