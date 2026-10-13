@@ -313,11 +313,15 @@ function createRemoteSystemService({
             void disconnect(sessionId);
             finish(error);
           });
-          stream.on("close", (code) => {
+          stream.on("close", (code, signal) => {
             if (settled) return;
             stdout += stdoutDecoder.end();
             stderr += stderrDecoder.end();
-            if (Number.isInteger(code) && code !== 0) {
+            if (signal) {
+              finish(new Error(stderr.trim() || `Remote metrics command terminated by signal ${signal}.`));
+            } else if (code === undefined || code === null) {
+              finish(new Error(stderr.trim() || "Remote metrics command closed without an exit status."));
+            } else if (code !== 0) {
               finish(new Error(stderr.trim() || `Remote metrics command failed with exit code ${code}.`));
             } else {
               finish();

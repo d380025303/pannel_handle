@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
+import { generateKeyPairSync } from "node:crypto";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { Client, Server } = require("ssh2");
 const { createRemoteSystemService, parseLinuxMetrics } = require("./remote-system-service.cjs");
 
 afterEach(() => { vi.useRealTimers(); });
@@ -53,6 +55,82 @@ function createClient(outputs) {
 }
 
 describe("remote-system-service", () => {
+  it.each([
+    ["core", "missing"], ["core", "signal"], ["core", 1],
+    ["core", 0],
+    ["disk", "missing"], ["disk", "signal"], ["disk", 1]
+  ])("validates real SSH completion for %s metrics: %s", async (target, completion) => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" }
+    });
+    const connections = new Set();
+    const commands = [];
+    const server = new Server({ hostKeys: [privateKey] }, (connection) => {
+      connections.add(connection);
+      connection.on("error", () => {});
+      connection.on("close", () => connections.delete(connection));
+      connection.on("authentication", (context) => context.accept());
+      connection.on("ready", () => connection.on("session", (accept) => {
+        accept().on("exec", (acceptCommand, _reject, info) => {
+          const stream = acceptCommand();
+          const kind = info.command.includes("df -PTk") ? "disk" : "core";
+          commands.push(kind);
+          const status = kind === target ? completion : 0;
+          stream.write(kind === "core" && status !== 0
+            ? "__PANNEL_HANDLE_SECTION__ memory\nMemTotal: 1024 kB\n"
+            : kind === "core" ? CORE_SAMPLE : DISK_SAMPLE);
+          if (status === "missing") {
+            stream.close();
+          } else {
+            if (status === "signal") stream.exit("TERM", false, "terminated");
+            else stream.exit(status);
+            stream.end();
+          }
+        });
+      }));
+    });
+    let service;
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      service = createRemoteSystemService({
+        terminalManager: { getSession: () => ({ type: "ssh" }) },
+        sshSessionRuntime: { connectClient: () => new Promise((resolve, reject) => {
+          const client = new Client();
+          client.once("ready", () => resolve(client));
+          client.on("error", reject);
+          client.connect({ host: "127.0.0.1", port: server.address().port, username: "test" });
+        }) },
+        now: () => 1000
+      });
+      if (target === "core" && completion !== 0) {
+        const message = completion === "missing" ? "without an exit status"
+          : completion === "signal" ? "signal SIGTERM" : "exit code 1";
+        await expect(service.getMetrics("run-1")).rejects.toThrow(message);
+        expect(commands).toEqual(["core"]);
+      } else {
+        const metrics = await service.getMetrics("run-1");
+        expect(metrics.memory).toEqual({ totalBytes: 10240000, usedBytes: 6144000 });
+        if (target === "disk") {
+          expect(metrics.disks).toEqual([]);
+          await expect(service.getMetrics("run-1")).resolves.toMatchObject({ disks: [] });
+          expect(commands).toEqual(["core", "disk", "core"]);
+        } else {
+          expect(metrics.disks).toHaveLength(2);
+          expect(commands).toEqual(["core", "disk"]);
+        }
+      }
+    } finally {
+      await service?.shutdown();
+      for (const connection of connections) connection._sock.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
   it.each([1, 2])("decodes stderr independently and flushes trailing bytes after split %i", async (splitByte) => {
     const client = createClient([]);
     client.exec = vi.fn((_command, callback) => {
