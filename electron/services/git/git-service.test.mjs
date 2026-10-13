@@ -211,7 +211,7 @@ describe("git command routing", () => {
       spawn: windowsSpawn
     });
     await expect(windowsService.getStatus(repositoryTarget("win", "C:\\work\\repo"))).resolves.toMatchObject({ clean: false, branch: { name: "main" }, files: [expect.objectContaining({ worktreeStatus: "M" })] });
-    expect(windowsSpawn.calls[0]).toMatchObject({ command: "git", args: ["status", "--porcelain=v2", "--branch", "-z"] });
+    expect(windowsSpawn.calls[0]).toMatchObject({ command: "git", args: ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"] });
     expect(windowsSpawn.calls[0].options.env.GIT_TERMINAL_PROMPT).toBe("0");
 
     const wslSpawn = createSpawnMock([{ stdout: status }]);
@@ -221,7 +221,7 @@ describe("git command routing", () => {
       spawn: wslSpawn
     });
     await wslService.getStatus(repositoryTarget("wsl", "/work/repo"));
-    expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "-z"]);
+    expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"]);
     expect(wslSpawn.calls[0].options.cwd).toBeUndefined();
   });
 
@@ -256,7 +256,7 @@ describe("git command routing", () => {
       sshSessionRuntime: sshRuntime
     });
     await expect(service.getStatus(repositoryTarget("ssh", "/srv/app's repo"))).resolves.toMatchObject({ files: [expect.objectContaining({ path: "remote.txt" })] });
-    expect(sshRuntime.calls[0].command).toBe("cd '/srv/app'\\''s repo' && GIT_TERMINAL_PROMPT=0 git 'status' '--porcelain=v2' '--branch' '-z'");
+    expect(sshRuntime.calls[0].command).toBe("cd '/srv/app'\\''s repo' && GIT_TERMINAL_PROMPT=0 git 'status' '--porcelain=v2' '--branch' '--untracked-files=all' '-z'");
   });
 
   it("routes one-level repository discovery through SSH with quoted paths", async () => {
@@ -338,6 +338,36 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it("lists and previews each untracked file inside a new directory", async () => {
+    const { directory, session, service } = createRepository();
+    const target = repositoryTarget(session.id, directory);
+    const files = [
+      ["new-folder/note.txt", "hello"],
+      ["new-folder/nested/second.txt", "second"]
+    ];
+    for (const [filePath, content] of files) {
+      const absolutePath = path.join(directory, filePath);
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, `${content}\n`);
+    }
+
+    const status = await service.getStatus(target);
+    expect(status.clean).toBe(false);
+    expect(status.files.map((file) => file.path).sort()).toEqual(files.map(([filePath]) => filePath).sort());
+    for (const [filePath, content] of files) {
+      const file = status.files.find((entry) => entry.path === filePath);
+      expect(file).toMatchObject({ status: "?", indexStatus: "?", worktreeStatus: "?" });
+      const diff = await service.getDiff(target, { ...file, scope: "working" });
+      expect(diff).toMatchObject({
+        path: filePath,
+        kind: "text",
+        truncated: false,
+        rows: [{ type: "add", newLineNumber: 1, newText: content }]
+      });
+      expect(diff.rows).toHaveLength(1);
+    }
+  });
+
   it.each(["commit", "stash"])("excludes file headers from multi-file %s previews", async (scope) => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");

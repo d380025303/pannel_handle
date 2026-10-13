@@ -539,7 +539,7 @@ function createGitService({
 
   async function getStatus(target) {
     const { session, cwd } = getRepositoryTarget(target);
-    const result = await runGitForSession(session, ["status", "--porcelain=v2", "--branch", "-z"], {
+    const result = await runGitForSession(session, ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"], {
       actionName: "Git status",
       cwd
     });
