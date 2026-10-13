@@ -83,7 +83,7 @@ function fixture(status = "pending") {
   const open = vi.fn(); render(<WorkItemWorkspace api={api} visible sessions={[]} onOpenSession={open} />);
   return { api, open };
 }
-it("filters tasks and submits edited input once before opening the new session", async () => {
+it("filters tasks and submits edited input once before closing the dialog without opening the new session", async () => {
   const f = fixture(); await screen.findByText("检查代码");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "问题" } });
   await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "问题", page: 0 })));
@@ -92,9 +92,13 @@ it("filters tasks and submits edited input once before opening the new session",
   const input = await screen.findByRole("textbox", { name: "实际提示词" });
   expect((input as HTMLTextAreaElement).value).toBe("修复问题");
   fireEvent.change(input, { target: { value: "只修复这一项" } });
+  vi.mocked(f.api.list).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
   await waitFor(() => expect(f.api.execute).toHaveBeenCalledExactlyOnceWith({ id: "task", version: 2, prompt: "只修复这一项" }));
-  expect(f.open).toHaveBeenCalledWith("new");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "执行任务" })).toBeNull());
+  expect(f.open).not.toHaveBeenCalled();
+  expect(screen.getByRole("region", { name: "任务列表" })).toBeTruthy();
+  await waitFor(() => expect(f.api.list).toHaveBeenCalledWith(expect.objectContaining({ keyword: "问题", page: 0 })));
 });
 it("keeps active tasks locked and offers result verification for uncertain tasks", async () => {
   const f = fixture("uncertain"); await screen.findByText("检查代码");

@@ -27,21 +27,21 @@ export function SessionHome({ closeCompleted, sessions, overviews, activeId, onO
   onOpen: (id: string) => void; onAction: SessionAction; onChooseTemplate: () => void; onOpenTasks: () => void;
 }) {
   return <section className="mobile-home">
-    <div className="mobile-home-heading mobile-home-heading-with-tasks"><div><span>会话总览</span><h1>运行中的会话</h1></div><strong>{sessions.length}</strong><button type="button" className="mobile-files-button" onClick={onOpenTasks}>任务列表</button></div>
-    <CloseCompletedAction controller={closeCompleted} />
+    <div className="mobile-home-heading"><span>会话总览</span><div className="mobile-home-title"><h1>运行中的会话</h1><strong aria-label={`${sessions.length} 个会话`}>{sessions.length}</strong></div></div>
+    <div className="mobile-home-toolbar"><button type="button" className="mobile-files-button" onClick={onOpenTasks}>任务列表</button><CloseCompletedAction controller={closeCompleted} /></div>
     {sessions.length ? <div className="mobile-home-list">{sessions.map(session => {
       const overview = overviews[session.id];
       return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>
         <div className="mobile-home-card-top">
-          <span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span>
-          <span className="mobile-home-status" data-status={overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span>
+          <button type="button" className="mobile-home-card-title" onClick={() => onOpen(session.id)} aria-label={`打开${session.title}详情`} title={session.title}>{session.title}</button>
           <div className="mobile-home-card-actions">
             <button type="button" aria-label={`改名${session.title}`} title="改名" onClick={event => onAction("rename", session, event.currentTarget)}><Pencil aria-hidden="true" /></button>
             <button type="button" className="danger" aria-label={`关闭${session.title}`} title="关闭" onClick={event => onAction("close", session, event.currentTarget)}><X aria-hidden="true" /></button>
           </div>
         </div>
-        <button type="button" className="mobile-home-card-main" onClick={() => onOpen(session.id)} aria-label={`打开${session.title}详情`}>
-          <strong>{session.title}</strong><p>{overview?.summary ?? "正在获取最近内容…"}</p>
+        <button type="button" className="mobile-home-card-main" onClick={() => onOpen(session.id)} aria-label={`查看${session.title}最近内容`}>
+          <div className="mobile-home-card-meta"><span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span><span className="mobile-home-status" data-status={overview?.status} title={overview?.detail ?? overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span></div>
+          <p>{overview?.summary ?? "正在获取最近内容…"}</p>
         </button>
       </article>;
     })}</div> : <div className="mobile-home-empty"><h2>没有运行中的会话</h2><p>从电脑已保存的模板启动一个会话。</p><button className="primary large" type="button" onClick={onChooseTemplate}>选择模板</button></div>}

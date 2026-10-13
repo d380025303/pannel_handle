@@ -526,6 +526,19 @@
   overflow: auto;
 }
 
+.module-owners-copy-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.module-owners-copy-form .module-owners-dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .module-owners-copy-summary {
   overflow-wrap: anywhere;
 }

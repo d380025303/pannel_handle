@@ -18,6 +18,7 @@ export function ModuleOwnerTasks({ templateId, ownerId, owners, supported, busy,
   const [deleting, setDeleting] = useState<string | null>(null);
   const [copyTask, setCopyTask] = useState<ModuleOwnerTask | null>(null);
   const [targets, setTargets] = useState<string[]>([]);
+  const [copyEnabled, setCopyEnabled] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [notice, setNotice] = useState("");
   const candidates = owners.filter(owner => owner.id !== ownerId);
@@ -71,7 +72,7 @@ export function ModuleOwnerTasks({ templateId, ownerId, owners, supported, busy,
               })}>手动执行</button>
               <button type="button" disabled={busy} onClick={() => { setDraft(input(task)); setSaveError(""); setDeleting(null); }}>编辑任务</button>
               <button type="button" disabled={busy || (!task.enabled && !supported)} onClick={() => void run(async () => { setTasks(await window.moduleOwnerApi.saveTask(templateId, { ...input(task), enabled: !task.enabled })); })}>{task.enabled ? "停用" : "启用"}</button>
-              <button type="button" disabled={busy} onClick={() => { setCopyTask(task); setTargets([]); setCopyError(""); setNotice(""); setDeleting(null); }}>复制到其它负责人</button>
+              <button type="button" disabled={busy} onClick={() => { setCopyTask(task); setTargets([]); setCopyEnabled(false); setCopyError(""); setNotice(""); setDeleting(null); }}>复制到其它负责人</button>
               <button type="button" disabled={busy} onClick={() => setHistoryTask(task)}>历史记录</button>
               <button type="button" className="module-owners-danger" disabled={busy} onClick={() => setDeleting(task.id)}>删除任务</button>
             </div></td>
@@ -86,16 +87,18 @@ export function ModuleOwnerTasks({ templateId, ownerId, owners, supported, busy,
     </div>}
     </div>
     {copyTask && <OwnerDialog title="复制到其它负责人" busy={busy} onClose={closeCopy}>
-      <form onSubmit={event => { event.preventDefault(); if (!selectedTargets.length || busy) return; void run(async () => {
+      <form className="module-owners-copy-form" onSubmit={event => { event.preventDefault(); if (!selectedTargets.length || busy) return; void run(async () => {
         setCopyError("");
         try {
-          setTasks(await window.moduleOwnerApi.copyTask(templateId, { taskId: copyTask.id, targetOwnerIds: selectedTargets }));
-          setNotice(`已复制到 ${selectedTargets.length} 个负责人，新任务均已停用。`); setCopyTask(null);
+          setTasks(await window.moduleOwnerApi.copyTask(templateId, { taskId: copyTask.id, targetOwnerIds: selectedTargets, enabled: supported && copyEnabled }));
+          setNotice(`已复制到 ${selectedTargets.length} 个负责人，新任务均已${supported && copyEnabled ? "启用" : "停用"}。`); setCopyTask(null);
         } catch (err) { setCopyError(err instanceof Error ? err.message : String(err)); }
       }); }}>
         <div className="module-owners-dialog-body">
           <p className="module-owners-copy-summary">源任务：{copyTask.name}</p>
           <p className="module-owners-task-hint">复制配置并创建新任务，默认停用，已有任务保留。提示词中的文字保持原样。</p>
+          <label className="module-owners-check"><input type="checkbox" checked={supported && copyEnabled} disabled={busy || !supported} onChange={event => setCopyEnabled(event.target.checked)} />复制后自动启动</label>
+          <p className="module-owners-task-hint">勾选后按周期自动执行，复制完成时不立即执行。{!supported && "此模板不支持定时执行，复制后只能保持停用。"}</p>
           {copyError && <p role="alert" className="module-owners-error">{copyError}</p>}
           {!candidates.length ? <p className="module-owners-empty">当前模板没有其它负责人。</p> : <fieldset disabled={busy} className="module-owners-copy-targets">
             <legend>目标负责人</legend>

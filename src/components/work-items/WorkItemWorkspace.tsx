@@ -13,6 +13,22 @@ import "./work-items.css";
 
 export const WORK_ITEM_STATUS: Record<WorkItemStatus, string> = { pending: "待执行", creating: "创建中", running: "执行中", uncertain: "待核对", completed: "已完成", failed: "失败", stopped: "中断", void: "已作废" };
 const defaultStatuses = () => (Object.keys(WORK_ITEM_STATUS) as WorkItemStatus[]).filter(status => status !== "void");
+const filterStorageKey = "pannel-handle.work-item-filters.v1";
+function readFilters() {
+  const defaults = { templateId: "", ownerId: "", statuses: defaultStatuses(), keyword: "", followUp: "" };
+  try {
+    const saved = JSON.parse(localStorage.getItem(filterStorageKey) || "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return defaults;
+    return {
+      templateId: typeof saved.templateId === "string" ? saved.templateId : "",
+      ownerId: typeof saved.ownerId === "string" ? saved.ownerId : "",
+      keyword: typeof saved.keyword === "string" ? saved.keyword.slice(0, 1000) : "",
+      followUp: saved.followUp === "true" || saved.followUp === "false" ? saved.followUp : "",
+      statuses: Array.isArray(saved.statuses) && saved.statuses.every((status: unknown) => typeof status === "string" && Object.prototype.hasOwnProperty.call(WORK_ITEM_STATUS, status))
+        ? [...new Set<WorkItemStatus>(saved.statuses)] : defaults.statuses,
+    };
+  } catch { return defaults; }
+}
 const active = (status: WorkItemStatus) => ["creating", "running", "uncertain"].includes(status);
 const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
 type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
@@ -24,10 +40,11 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   const [prompt, setPrompt] = useState("");
   const [promptMode, setPromptMode] = useState<"preview" | "edit">("preview");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
-  const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
-  const [statuses, setStatuses] = useState<WorkItemStatus[]>(defaultStatuses); const [keyword, setKeyword] = useState("");
-  const [searchKeyword, setSearchKeyword] = useState("");
-  const [followUp, setFollowUp] = useState("");
+  const [initialFilters] = useState(readFilters);
+  const [templateId, setTemplateId] = useState(initialFilters.templateId); const [ownerId, setOwnerId] = useState(initialFilters.ownerId);
+  const [statuses, setStatuses] = useState<WorkItemStatus[]>(initialFilters.statuses); const [keyword, setKeyword] = useState(initialFilters.keyword);
+  const [searchKeyword, setSearchKeyword] = useState(initialFilters.keyword);
+  const [followUp, setFollowUp] = useState(initialFilters.followUp);
   const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
@@ -43,6 +60,10 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     onSuccess: () => setDialog(null),
   });
 
+  useEffect(() => {
+    try { localStorage.setItem(filterStorageKey, JSON.stringify({ templateId, ownerId, statuses, keyword, followUp })); }
+    catch { /* Filter preferences are optional. */ }
+  }, [templateId, ownerId, statuses, keyword, followUp]);
   useEffect(() => {
     if (!visible) { setDialog(null); return; }
     const changed = () => setReload(value => value + 1);

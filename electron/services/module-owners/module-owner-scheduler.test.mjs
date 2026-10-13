@@ -2,14 +2,14 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 const { createModuleOwnerScheduler } = createRequire(import.meta.url)("./module-owner-scheduler.cjs");
 afterEach(() => vi.useRealTimers());
-function fixture(taskUnprocessed = () => false) {
+function fixture(taskUnprocessed = () => false, supported = () => true) {
   let at = 1000000;
   let state = { records: [{ id: "owner" }], tasks: [] };
   let run; let submitted = false;
   const launch = vi.fn(async () => { run = { status: "running", startedAt: at, sessionId: "session", error: "" }; submitted = true; return { result: { status: 201 } }; });
   const service = createModuleOwnerScheduler({
     store: { getSchedulerState: () => structuredClone({ records: state.records.map(({ id }) => ({ id })), tasks: state.tasks }), tasks: (_id, tasks) => { state.tasks = structuredClone(tasks); }, templateIds: () => ["one"] },
-    template: () => ({}), supported: () => true, now: () => at, taskUnprocessed,
+    template: () => ({}), supported, now: () => at, taskUnprocessed,
     launch, job: () => run, submitted: () => submitted, ownerBusy: () => Boolean(run && ["running", "uncertain"].includes(run.status)), revoke: vi.fn(), revokeTask: vi.fn()
   });
   const input = { ownerId: "owner", name: "task", prompt: "inspect", mode: "default", enabled: true, tools: [], schedule: { kind: "interval", minutes: 1, count: 2 } };
@@ -120,11 +120,45 @@ it("copies latest configuration to distinct targets without carrying runtime sta
   }
 });
 
+it.each([
+  [{ kind: "interval", minutes: 1, count: 2 }, 1060000],
+  [{ kind: "cron", cron: "* * * * *" }, 1020000]
+])("enables copied schedules from copy time without launching immediately: %j", async (schedule, expectedNext) => {
+  const f = fixture(); f.getState().records.push({ id: "second" }, { id: "third" });
+  const source = f.service.save("one", { ...f.input, enabled: false, schedule })[0];
+  Object.assign(f.getState().tasks[0], { executedCount: 2, nextRunAt: 1, lastRun: { status: "completed", startedAt: 1 }, countedRunAt: 1 });
+  const before = structuredClone(f.getState().tasks[0]);
+  const result = f.service.copy("one", { taskId: source.id, targetOwnerIds: ["second", "third"], enabled: true });
+  expect(result[0]).toEqual(before);
+  for (const copy of result.slice(1)) {
+    expect(copy).toMatchObject({ enabled: true, executedCount: 0, nextRunAt: expectedNext });
+    expect(copy.lastRun).toBeUndefined();
+    expect(copy.countedRunAt).toBeUndefined();
+  }
+  await f.service.tick();
+  expect(f.launch).not.toHaveBeenCalled();
+  // This fixture shares one run across owners; isolate dispatch from that global busy flag.
+  f.launch.mockImplementation(async () => ({ result: { status: 201 } }));
+  f.setTime(expectedNext); await f.service.tick();
+  expect(f.launch).toHaveBeenCalledTimes(2);
+});
+
+it("rejects enabled copies on unsupported templates atomically but permits disabled copies", () => {
+  const f = fixture(() => false, () => false);
+  f.getState().records.push({ id: "second" });
+  const source = f.service.save("one", { ...f.input, enabled: false })[0];
+  const before = structuredClone(f.getState());
+  expect(() => f.service.copy("one", { taskId: source.id, targetOwnerIds: ["second"], enabled: true })).toThrow("仅支持本机 Windows Codex");
+  expect(f.getState()).toEqual(before);
+  expect(f.service.copy("one", { taskId: source.id, targetOwnerIds: ["second"], enabled: false })[1]).toMatchObject({ enabled: false, nextRunAt: null });
+});
+
 it("rejects invalid copy batches without writing any partial copies", () => {
   const f = fixture(); f.getState().records.push({ id: "second" });
   const source = f.service.save("one", f.input)[0];
   const before = structuredClone(f.getState());
   for (const input of [
+    { taskId: source.id, targetOwnerIds: ["second"], enabled: "true" },
     { taskId: source.id, targetOwnerIds: [] },
     { taskId: source.id, targetOwnerIds: ["second", "missing"] },
     { taskId: source.id, targetOwnerIds: ["owner"] },

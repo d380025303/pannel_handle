@@ -1,3 +1,4 @@
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import { useWorkItemActions } from "../../src/components/work-items/useWorkItemActions";
 import { WorkItemQuickPrompts } from "../../src/components/work-items/WorkItemQuickPrompts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -32,7 +33,7 @@ const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
 type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
 const titles = { detail: "任务详情", execute: "执行任务", attempts: "执行记录", void: "作废任务", restore: "恢复任务", resolve: "核对执行结果" };
 
-export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { api: import("../../src/vite-env").WorkItemApi; visible: boolean; onOpenSession: (id: string) => void; sessions: import("./types").RuntimeSession[] }) {
+export function WorkItemWorkspace({ api, visible, onOpenSession, sessions, onClose }: { api: import("../../src/vite-env").WorkItemApi; visible: boolean; onOpenSession: (id: string) => void; sessions: import("./types").RuntimeSession[]; onClose?: () => void }) {
   const ref = useRef<HTMLElement>(null);
   const promptInitialized = useRef(false);
   const [prompt, setPrompt] = useState("");
@@ -53,12 +54,9 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
   const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
 
   const { busy, perform, toggleFollowUp } = useWorkItemActions({
-    api, item, dialog, prompt, reason, setItem, setError, setDialogError,
+    api: api, item, dialog, prompt, reason, setItem, setError, setDialogError,
     refresh: () => setReload(value => value + 1),
-    onSuccess: (result, operation) => {
-      setDialog(null);
-      if (operation === "execute" && result.sessionId) onOpenSession(result.sessionId);
-    },
+    onSuccess: () => setDialog(null),
   });
 
   useEffect(() => {
@@ -143,14 +141,16 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
     <section ref={ref} className="mobile-work-items-workspace work-items-workspace" aria-label="任务列表">
       <header className="work-items-toolbar">
         <div className="work-items-heading">
+          {onClose && <button type="button" className="work-items-back" aria-label="返回会话首页" title="返回会话首页" onClick={onClose}><ArrowLeft aria-hidden="true" size={20} /></button>}
           <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
-          <button type="button" className="work-items-refresh" disabled={loading} onClick={() => setReload(value => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
+          <button type="button" className="work-items-refresh" disabled={loading} onClick={() => setReload(value => value + 1)} aria-label={loading ? "刷新中…" : "刷新"} title="刷新任务"><RefreshCw aria-hidden="true" size={16} /><span>{loading ? "刷新中…" : "刷新"}</span></button>
         </div>
-        <details className="work-items-help"><summary>任务生成与完成规则</summary><p>定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。</p></details>
+        <div className="work-items-query-row">
         <div className="work-items-search">
           <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
         </div>
         <div className="work-items-filter-actions"><button type="button" aria-expanded={filtersOpen} aria-controls="mobile-work-items-filters" onClick={() => setFiltersOpen(value => !value)}>筛选{filterCount > 0 ? ` · ${filterCount}` : ""}{filtersOpen ? " ▴" : " ▾"}</button>{filtered && <button type="button" className="work-items-reset" onClick={resetFilters}>重置筛选</button>}</div>
+        </div>
         <div id="mobile-work-items-filters" className="work-items-select-filters" hidden={!filtersOpen}>
           <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
           <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
@@ -165,8 +165,10 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions }: { a
           <div className="work-items-card-heading"><strong title={value.taskName}>{value.taskName}</strong><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span></div><div className={`work-items-source-meta${value.unavailable ? " mobile-work-items-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}</div>
           <div><div className="work-items-summary"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{value.summary}</ReactMarkdown></div></div>
           {value.error && <div className="mobile-work-items-error work-items-row-error" title={value.error}>{value.error}</div>}
+          <div className="work-items-card-meta">
           <div className="work-items-follow-up" data-needed={value.needsFollowUp}>后续处理：{value.needsFollowUp ? "需要" : "不需要"}</div>
-          <div className="work-items-time"><div title={`创建：${time(value.createdAt)}`}>创建：{time(value.createdAt)}</div><div title={`最近执行：${time(value.lastStartedAt)}`}>最近：{time(value.lastStartedAt)}</div></div>
+          <div className="work-items-time"><div title={`创建：${time(value.createdAt)}`}>创建：{time(value.createdAt)}</div>{Boolean(value.lastStartedAt) && <div title={`最近执行：${time(value.lastStartedAt)}`}>最近：{time(value.lastStartedAt)}</div>}</div>
+          </div>
           <div><div className="work-items-actions">
             <button type="button" onClick={() => open(value.id, "detail")}>详情</button>
             <button type="button" className="work-items-execute" disabled={active(value.status) || value.status === "void" || Boolean(value.unavailable)} onClick={() => open(value.id, "execute")}>{value.latestAttemptId ? "再次执行" : "执行"}</button>

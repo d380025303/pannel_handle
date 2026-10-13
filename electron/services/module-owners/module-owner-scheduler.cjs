@@ -42,7 +42,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     return write(id, tasks);
   }
   function copy(id, input) {
-    const parsed = z.object({ taskId: z.string().min(1), targetOwnerIds: z.array(z.string().min(1)).min(1) }).strict().parse(input);
+    const parsed = z.object({ taskId: z.string().min(1), targetOwnerIds: z.array(z.string().min(1)).min(1), enabled: z.boolean().default(false) }).strict().parse(input);
     template(id);
     const state = store.getSchedulerState(id);
     const tasks = state.tasks || [];
@@ -51,11 +51,13 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     const targets = [...new Set(parsed.targetOwnerIds)];
     if (targets.includes(source.ownerId)) throw new Error("不能复制到源负责人。");
     if (targets.some(ownerId => !state.records.some(record => record.id === ownerId))) throw new Error("目标负责人不存在，请刷新后重试。");
+    if (parsed.enabled && !supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
+    const nextRunAt = parsed.enabled ? nextRun(source.schedule, now()) : null;
     const copies = targets.map(ownerId => ({
       id: randomUUID(), ownerId, name: source.name, prompt: source.prompt, mode: source.mode,
       ...(source.promptTemplateId ? { promptTemplateId: source.promptTemplateId, promptTemplateVersion: source.promptTemplateVersion, promptTemplateSnapshot: source.promptTemplateSnapshot } : {}),
-      enabled: false, recordHistory: source.recordHistory === true,
-      tools: structuredClone(source.tools), schedule: structuredClone(source.schedule), executedCount: 0, nextRunAt: null
+      enabled: parsed.enabled, recordHistory: source.recordHistory === true,
+      tools: structuredClone(source.tools), schedule: structuredClone(source.schedule), executedCount: 0, nextRunAt
     }));
     return write(id, [...tasks, ...copies]);
   }

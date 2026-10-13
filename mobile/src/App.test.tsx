@@ -132,7 +132,8 @@ it("keeps rename and close icon actions in the home card header without opening 
   const close = screen.getByRole("button", { name: "关闭第一个会话" });
   const top = rename.closest(".mobile-home-card-top")!;
   expect(within(top as HTMLElement).getByRole("button", { name: "关闭第一个会话" })).toBe(close);
-  expect(top.querySelector(".mobile-home-status")).toBeTruthy();
+  expect(within(top as HTMLElement).getByRole("button", { name: "打开第一个会话详情" })).toBeTruthy();
+  expect(top.closest(".mobile-home-card")?.querySelector(".mobile-home-card-meta .mobile-home-status")).toBeTruthy();
   expect(rename.querySelector("svg")).toBeTruthy();
   expect(close.querySelector("svg")).toBeTruthy();
 
@@ -287,6 +288,8 @@ it("opens tasks from the home heading and returns to sessions", () => {
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "任务列表" }));
   expect(screen.getByRole("heading", { name: "任务列表" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "返回会话首页" }).parentElement).toBe(screen.getByRole("heading", { name: "任务列表" }).parentElement);
+  expect(screen.queryByText("任务生成与完成规则")).toBeNull();
   expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "work-items.request", operation: "list" }));
   fireEvent.click(screen.getByRole("button", { name: "返回会话首页" }));
   expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();

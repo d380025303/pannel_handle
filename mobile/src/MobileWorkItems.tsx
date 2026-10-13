@@ -55,8 +55,8 @@ export function MobileWorkItems({ remote, onClose, onOpenSession }: {
     } else listeners.current.forEach(listener => listener());
   }, [status, connectionEpoch]);
   return <div className="mobile-work-items-page">
-    <header><button type="button" onClick={onClose}>返回会话首页</button></header>
+    {status !== "connected" && <header><button type="button" onClick={onClose}>返回会话首页</button></header>}
     {notice && <p role="status">{notice}</p>}
-    <WorkItemWorkspace api={api} visible={status === "connected"} sessions={remote.sessions} onOpenSession={onOpenSession} />
+    <WorkItemWorkspace onClose={onClose} api={api} visible={status === "connected"} sessions={remote.sessions} onOpenSession={onOpenSession} />
   </div>;
 }

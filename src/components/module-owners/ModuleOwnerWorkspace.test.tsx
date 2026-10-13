@@ -411,8 +411,47 @@ it("copies one task to multiple other owners and preserves selection on failure"
   expect((within(dialog).getByLabelText("服务") as HTMLInputElement).checked).toBe(true);
   fireEvent.click(within(dialog).getByRole("button", { name: "复制配置" }));
   await screen.findByText("已复制到 2 个负责人，新任务均已停用。");
-  expect(ownerApi.copyTask).toHaveBeenLastCalledWith("one", { taskId: "task", targetOwnerIds: ["second", "third"] });
+  expect(ownerApi.copyTask).toHaveBeenLastCalledWith("one", { taskId: "task", targetOwnerIds: ["second", "third"], enabled: false });
   expect(screen.queryByRole("dialog", { name: "复制到其它负责人" })).toBeNull();
+});
+
+it("enables copied schedules, retains the option on failure and resets it on reopen", async () => {
+  vi.mocked(ownerApi.get).mockResolvedValue({ ...initial, records: [record, { ...record, id: "second", name: "移动" }] });
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([task]);
+  vi.mocked(ownerApi.copyTask).mockRejectedValueOnce(new Error("复制失败")).mockResolvedValueOnce([task]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制到其它负责人" }));
+  const dialog = screen.getByRole("dialog", { name: "复制到其它负责人" });
+  const option = within(dialog).getByLabelText("复制后自动启动") as HTMLInputElement;
+  expect(option.checked).toBe(false);
+  fireEvent.click(option);
+  fireEvent.click(within(dialog).getByLabelText("移动"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "复制配置" }));
+  await within(dialog).findByText("复制失败");
+  expect(option.checked).toBe(true);
+  expect((within(dialog).getByLabelText("移动") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(within(dialog).getByRole("button", { name: "复制配置" }));
+  await screen.findByText("已复制到 1 个负责人，新任务均已启用。");
+  expect(ownerApi.copyTask).toHaveBeenLastCalledWith("one", { taskId: task.id, targetOwnerIds: ["second"], enabled: true });
+  fireEvent.click(await screen.findByRole("button", { name: "复制到其它负责人" }));
+  expect((screen.getByLabelText("复制后自动启动") as HTMLInputElement).checked).toBe(false);
+});
+
+it("disables automatic startup for unsupported templates", async () => {
+  vi.mocked(ownerApi.listTemplates).mockResolvedValue([{ templateId: "one", title: "项目一", cwd: "", supported: false }]);
+  vi.mocked(ownerApi.get).mockResolvedValue({ ...initial, records: [record, { ...record, id: "second", name: "移动" }] });
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([task]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制到其它负责人" }));
+  const option = screen.getByLabelText("复制后自动启动") as HTMLInputElement;
+  expect(option.disabled).toBe(true);
+  expect(option.checked).toBe(false);
+  fireEvent.click(screen.getByLabelText("移动"));
+  fireEvent.click(screen.getByRole("button", { name: "复制配置" }));
+  await screen.findByText("已复制到 1 个负责人，新任务均已停用。");
+  expect(ownerApi.copyTask).toHaveBeenCalledWith("one", { taskId: task.id, targetOwnerIds: ["second"], enabled: false });
 });
 
 it("shows an empty copy target list without permitting submission", async () => {

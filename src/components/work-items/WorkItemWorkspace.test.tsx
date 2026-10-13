@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkItem, WorkItemApi } from "../../vite-env";
 import { WorkItemWorkspace } from "./WorkItemWorkspace";
 
@@ -25,8 +25,59 @@ function setup(overrides: Partial<WorkItem> = {}) {
   render(<WorkItemWorkspace visible onOpenSession={onOpenSession} />);
   return { api, onOpenSession, changed: () => changed() };
 }
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
+const filterStorageKey = "pannel-handle.work-item-filters.v1";
+beforeEach(() => localStorage.clear());
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 describe("manual task list", () => {
+  it("persists every filter and restores the first query on page zero", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    fireEvent.change(screen.getByRole("combobox", { name: "模板" }), { target: { value: "template" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "负责人" }), { target: { value: "owner" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "后续处理" }), { target: { value: "false" } });
+    for (const name of ["创建中", "执行中", "待核对", "已完成", "失败", "中断"]) fireEvent.click(screen.getByRole("checkbox", { name }));
+    await screen.findByRole("button", { name: "刷新" });
+    api.list.mockResolvedValue({ records: [{ ...item, summary: item.output }], total: 40, templates: [{ id: "template", name: "工程" }], owners: [{ id: "owner", name: "模块", templateId: "template" }] });
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "下一页" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })));
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索任务" }), { target: { value: "巡检" } });
+    expect(JSON.parse(localStorage.getItem(filterStorageKey)!)).toEqual({ templateId: "template", ownerId: "owner", followUp: "false", statuses: ["pending"], keyword: "巡检" });
+    cleanup();
+    const restored = setup();
+    expect(restored.api.list.mock.calls[0][0]).toEqual({ templateId: "template", ownerId: "owner", needsFollowUp: false, statuses: ["pending"], keyword: "巡检", page: 0 });
+    expect((screen.getByRole("searchbox", { name: "搜索任务" }) as HTMLInputElement).value).toBe("巡检");
+    await screen.findByRole("button", { name: "执行" });
+    fireEvent.click(screen.getByRole("button", { name: "重置筛选" }));
+    cleanup();
+    const reset = setup();
+    expect(reset.api.list.mock.calls[0][0]).toEqual({ statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"], keyword: "", page: 0 });
+  });
+  it("restores an explicitly empty status selection", () => {
+    localStorage.setItem(filterStorageKey, JSON.stringify({ statuses: [] }));
+    const { api } = setup();
+    expect(api.list.mock.calls[0][0]?.statuses).toEqual([]);
+    expect(screen.getAllByRole("checkbox").every(input => !(input as HTMLInputElement).checked)).toBe(true);
+  });
+  it.each(["broken JSON", "null", "[]", JSON.stringify({ templateId: 42, ownerId: {}, keyword: [], followUp: "invalid", statuses: ["unknown"] })])("falls back to defaults for invalid saved filters: %s", saved => {
+    localStorage.setItem(filterStorageKey, saved);
+    const { api } = setup();
+    expect(api.list.mock.calls[0][0]).toEqual({ statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"], keyword: "", page: 0 });
+  });
+  it("keeps valid fields when another saved field is invalid", () => {
+    localStorage.setItem(filterStorageKey, JSON.stringify({ keyword: "巡检", followUp: "true", statuses: ["unknown"] }));
+    const { api } = setup();
+    expect(api.list.mock.calls[0][0]).toEqual(expect.objectContaining({ keyword: "巡检", needsFollowUp: true, statuses: ["pending", "creating", "running", "uncertain", "completed", "failed", "stopped"] }));
+  });
+  it("continues querying when preference storage is unavailable", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("full"); });
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    fireEvent.change(screen.getByRole("combobox", { name: "后续处理" }), { target: { value: "true" } });
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ needsFollowUp: true })));
+  });
   it("debounces consecutive search input and resets pagination with the final query", async () => {
     const { api } = setup();
     await screen.findByRole("button", { name: "执行" });
@@ -67,6 +118,7 @@ describe("manual task list", () => {
     expect(api.list).not.toHaveBeenCalled();
     const view = render(<WorkItemWorkspace visible onOpenSession={() => {}} />);
     await act(async () => {});
+    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "未提交", page: 0 }));
     api.list.mockClear();
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索任务" }), { target: { value: "隐藏前输入" } });
     view.rerender(<WorkItemWorkspace visible={false} onOpenSession={() => {}} />);

@@ -1928,7 +1928,7 @@ export interface ModuleOwnerApi {
   listHistory(id: string, input: { ownerId: string }): Promise<{ revision: number; history: ModuleOwnerHistory[] }>;
   listTasks(id: string): Promise<ModuleOwnerTask[]>;
   runTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
-  copyTask(id: string, input: { taskId: string; targetOwnerIds: string[] }): Promise<ModuleOwnerTask[]>;
+  copyTask(id: string, input: { taskId: string; targetOwnerIds: string[]; enabled?: boolean }): Promise<ModuleOwnerTask[]>;
   saveTask(id: string, input: ModuleOwnerTaskInput): Promise<ModuleOwnerTask[]>;
   deleteTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
   listTemplates(): Promise<ModuleOwnerTemplate[]>;
