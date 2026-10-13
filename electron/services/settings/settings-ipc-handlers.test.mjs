@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { SETTINGS_IPC_CHANNELS, registerSettingsIpcHandlers } = require("./settings-ipc-handlers.cjs");
+const { createConfigStore } = require("../../stores/config-store.cjs");
 
 const tempDirs = [];
 
@@ -55,7 +56,7 @@ function createHarness(overrides = {}) {
     locale: "zh-CN",
     rightToolsWidth: 360
   };
-  const configStore = {
+  const configStore = overrides.configStore || {
     getConfig: vi.fn(() => ({ ...config })),
     updateConfig: vi.fn(updates => { config = { ...config, ...updates }; })
   };
@@ -149,6 +150,52 @@ const BALANCE_PAYLOAD = {
 };
 
 describe("settings IPC handlers", () => {
+  it("propagates ENOSPC and rolls back general settings before running side effects", () => {
+    const configFile = path.join(createTempDir(), "config.json");
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: true, autoWorkBuddyCheckin: true, autoQoderCheckin: false }));
+    const saveError = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+    const dataStore = {
+      read: file => JSON.parse(fs.readFileSync(file, "utf8")),
+      write: vi.fn(() => { throw saveError; })
+    };
+    const configStore = createConfigStore({ configFile, dataStore });
+    configStore.loadConfig();
+    const before = configStore.getConfig();
+    const persistedBefore = fs.readFileSync(configFile, "utf8");
+    const harness = createHarness({ configStore });
+    const set = harness.ipcMain.handlers.get("config:set");
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => set({}, { autoRestore: false })).toThrow(saveError);
+      expect(() => set({}, { autoWorkBuddyCheckin: false, autoQoderCheckin: true })).toThrow(saveError);
+      expect(configStore.getConfig()).toEqual(before);
+      expect(harness.ipcMain.handlers.get("config:get")()).toEqual(before);
+      expect(fs.readFileSync(configFile, "utf8")).toBe(persistedBefore);
+      const reloaded = createConfigStore({ configFile, dataStore });
+      reloaded.loadConfig();
+      expect(reloaded.getConfig()).toEqual(before);
+      expect(harness.workBuddyAutoCheckinService.setEnabled).not.toHaveBeenCalled();
+      expect(harness.qoderAutoCheckinService.setEnabled).not.toHaveBeenCalled();
+    } finally {
+      logError.mockRestore();
+    }
+  });
+
+  it("returns general settings consistent with memory and disk after a successful save", () => {
+    const configFile = path.join(createTempDir(), "config.json");
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: true }));
+    const configStore = createConfigStore({ configFile });
+    configStore.loadConfig();
+    const harness = createHarness({ configStore });
+    const result = harness.ipcMain.handlers.get("config:set")({}, { autoRestore: false });
+    expect(result.autoRestore).toBe(false);
+    expect(configStore.getConfig()).toEqual(result);
+    expect(JSON.parse(fs.readFileSync(configFile, "utf8"))).toEqual(result);
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig()).toEqual(result);
+  });
+
   it("lists built-in tools without querying or starting runtime services", () => {
     const fixture = createHarness();
     const handler = fixture.ipcMain.handlers.get("project-tools:list");
@@ -207,7 +254,7 @@ describe("settings IPC handlers", () => {
       locale: "en-US",
       sidebarWidth: 500,
       rightToolsWidth: 600
-    });
+    }, { throwOnSaveError: true });
     expect(result).toEqual(expect.objectContaining({ autoWorkBuddyCheckin: true, themeId: "light", locale: "en-US" }));
     expect(harness.workBuddyAutoCheckinService.setEnabled).toHaveBeenCalledWith(true);
 
@@ -221,7 +268,7 @@ describe("settings IPC handlers", () => {
   it.each(["cmd", "powershell", "pwsh"])("saves the default shell %s through config IPC", (defaultWindowsShell) => {
     const harness = createHarness();
     const result = harness.ipcMain.handlers.get("config:set")({}, { defaultWindowsShell });
-    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ defaultWindowsShell });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ defaultWindowsShell }, { throwOnSaveError: true });
     expect(result.defaultWindowsShell).toBe(defaultWindowsShell);
     harness.ipcMain.handlers.get("config:set")({}, { defaultWindowsShell: "bash" });
     expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
@@ -280,7 +327,7 @@ describe("settings IPC handlers", () => {
     expect(harness.configStore.updateConfig).not.toHaveBeenCalled();
 
     harness.ipcMain.handlers.get("config:set")({}, { terminalBackgroundImage: "../escape.png" });
-    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ terminalBackgroundImage: "" });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ terminalBackgroundImage: "" }, { throwOnSaveError: true });
   });
 
   it("handles terminal background image choosing", async () => {

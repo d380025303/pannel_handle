@@ -160,15 +160,7 @@ function registerSettingsIpcHandlers({
       updates.terminalBackgroundPositionY = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionY);
     }
     if (Object.keys(updates).length > 0) {
-      const changesPosition = Object.hasOwn(updates, "terminalBackgroundPositionX")
-        || Object.hasOwn(updates, "terminalBackgroundPositionY");
-      const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
-        || Object.hasOwn(updates, "titleBarHiddenActions");
-      if (Object.hasOwn(updates, "desktopMascotEnabled") || changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "mobileGraphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
-        configStore.updateConfig(updates, { throwOnSaveError: true });
-      } else {
-        configStore.updateConfig(updates);
-      }
+      configStore.updateConfig(updates, { throwOnSaveError: true });
     }
     const config = configStore.getConfig();
     if (Object.hasOwn(updates, "desktopMascotEnabled")) {
