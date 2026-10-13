@@ -168,7 +168,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       : undefined;
     return {
       ...(template.environmentProfileId ? { environmentProfileId: String(template.environmentProfileId) } : {}),
-      ...(template.environmentOverrides ? { environmentOverrides: normalizeEntries(template.environmentOverrides, template.type === "windows" || (template.type === "ssh" && template.agentProvider && template.agentLocation === "local")) } : {}),
+      ...(template.environmentOverrides ? { environmentOverrides: normalizeEntries(template.environmentOverrides, template.type === "windows" || (template.type === "ssh" && agentProvider && agentLocation === "local")) } : {}),
       id: template.id,
       title: template.title,
       shell: template.shell,

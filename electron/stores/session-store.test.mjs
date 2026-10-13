@@ -47,6 +47,35 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each([
+    ["gemini", undefined],
+    ["claude", false]
+  ])("imports %s SSH templates normalized to remote with case-sensitive environment names", (agentProvider, graphicalSessionEnabled) => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    const environmentOverrides = [{ name: "PATH", value: "/usr/bin" }, { name: "Path", value: "custom" }];
+    const template = { type: "ssh", agentProvider, agentLocation: "local", graphicalSessionEnabled, environmentOverrides };
+
+    expect(store.normalizeTemplate(template)).toMatchObject({ agentLocation: "remote", environmentOverrides });
+    expect(store.importLibrary([template]).importedCount).toBe(1);
+    expect(store.getTemplate("1")).toMatchObject({ agentLocation: "remote", environmentOverrides });
+    expect(createStore(sessionsFile).loadLibrary()[0]).toMatchObject({ agentLocation: "remote", environmentOverrides });
+  });
+
+  it.each([
+    { type: "windows" },
+    ...["codex", "codebuddy", "opencode", "claude", "qoder"].map(agentProvider => ({
+      type: "ssh", agentProvider, agentLocation: "local", graphicalSessionEnabled: true
+    }))
+  ])("rejects case-insensitive environment duplicates for local execution: %j", (template) => {
+    const store = createStore(createTempSessionsFile());
+    const input = { ...template, environmentOverrides: [{ name: "PATH", value: "/usr/bin" }, { name: "Path", value: "custom" }] };
+
+    expect(() => store.normalizeTemplate(input)).toThrow("环境变量名称重复：Path");
+    expect(() => store.importLibrary([input])).toThrow("环境变量名称重复：Path");
+    expect(store.getLibrary()).toEqual([]);
+  });
+
   it.each(["json", "sqlite"])("preserves SSH credentials and all template fields when encryption is unavailable (%s)", (backend) => {
     const sessionsFile = createTempSessionsFile();
     const dataStore = backend === "sqlite"
