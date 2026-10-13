@@ -251,7 +251,10 @@ describe("Responses to Chat Completions protocol", () => {
     expect(parser.finish()).toMatchObject({ status: "completed" });
   });
 
-  it.each([false, true])("marks length-limited text and all tool kinds incomplete (omit DONE: %s)", omitDone => {
+  it.each([
+    [false, "length", "max_output_tokens"], [true, "length", "max_output_tokens"],
+    [false, "content_filter", "content_filter"], [true, "content_filter", "content_filter"]
+  ])("marks text and all tool kinds incomplete (omit DONE: %s, reason: %s)", (omitDone, finishReason, reason) => {
     const events = [];
     const parser = createResponseAccumulator({
       model: "model-a", requireDone: true, allowFinishReasonAsDone: omitDone,
@@ -264,11 +267,11 @@ describe("Responses to Chat Completions protocol", () => {
       content: "partial",
       tool_calls: ["echo", "patch", "search"].map((name, index) => ({ index, id: `call-${index}`, function: { name, arguments: argumentsText } }))
     }, finish_reason: null }] })}\n\n`));
-    parser.push(Buffer.from('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'));
+    parser.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}\n\n`));
     parser.push(Buffer.from('data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}\n\n'));
     if (!omitDone) parser.push(Buffer.from("data: [DONE]\n\n"));
     const response = parser.finish();
-    expect(response).toMatchObject({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { total_tokens: 5 } });
+    expect(response).toMatchObject({ status: "incomplete", incomplete_details: { reason }, usage: { total_tokens: 5 } });
     expect(response.output.map(item => item.type)).toEqual(["message", "function_call", "custom_tool_call", "tool_search_call"]);
     expect(response.output.every(item => item.status === "incomplete")).toBe(true);
     expect(response.output[1].arguments).toBe(argumentsText);

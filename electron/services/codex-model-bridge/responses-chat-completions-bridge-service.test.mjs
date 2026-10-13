@@ -425,6 +425,34 @@ describe("Responses Chat Completions bridge", () => {
     }
   });
 
+  it.each([
+    [false, ""], [false, "partial answer"],
+    [true, ""], [true, "partial answer"]
+  ])("returns content-filtered text as incomplete over HTTP (omit DONE: %s, text: %s)", async (omitDone, text) => {
+    const service = createService(async () => new Response([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "content_filter" }] })}`,
+      ...(omitDone ? [] : ["data: [DONE]"]), ""
+    ].join("\n\n"), { status: 200, headers: { "content-type": "text/event-stream" } }), { allowFinishReasonAsDone: omitDone });
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    const response = await fetch(`${launch.baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "model-a", input: "hello", stream: true })
+    });
+    expect(response.status).toBe(200);
+    const events = (await response.text()).split("\n").filter(line => line.startsWith("data:")).map(line => JSON.parse(line.slice(5)));
+    const output = text ? [{ type: "message", status: "incomplete", content: [{ type: "output_text", text, annotations: [] }] }] : [];
+    expect(events.at(-1)).toMatchObject({
+      type: "response.incomplete",
+      response: { status: "incomplete", incomplete_details: { reason: "content_filter" }, output }
+    });
+    expect(events.at(-1).response.output).toHaveLength(output.length);
+    const doneItems = events.filter(event => event.type === "response.output_item.done");
+    expect(doneItems).toHaveLength(output.length);
+    expect(doneItems.every(event => event.item.status === "incomplete")).toBe(true);
+    expect(events.some(event => event.type === "response.completed")).toBe(false);
+  });
+
   it.each(["web_search", "web_search_preview"])("ignores unsupported %s tools while preserving function tools", async webToolType => {
     const fetchImpl = vi.fn(async () => new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }));
     const service = createService(fetchImpl);

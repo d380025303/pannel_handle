@@ -324,7 +324,8 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       return response;
     }
 
-    const status = finishReason === "length" ? "incomplete" : "completed";
+    const incompleteReason = finishReason === "length" ? "max_output_tokens" : finishReason === "content_filter" ? "content_filter" : undefined;
+    const status = incompleteReason ? "incomplete" : "completed";
     const output = [];
     let outputIndex = 0;
     if (messageStarted || text) {
@@ -353,7 +354,7 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       outputIndex += 1;
     }
     const normalizedUsage = responseUsage();
-    const response = { id: responseId, object: "response", created_at: createdAt, status, model, output, ...(status === "incomplete" ? { incomplete_details: { reason: "max_output_tokens" } } : {}), ...(normalizedUsage ? { usage: normalizedUsage } : {}) };
+    const response = { id: responseId, object: "response", created_at: createdAt, status, model, output, ...(incompleteReason ? { incomplete_details: { reason: incompleteReason } } : {}), ...(normalizedUsage ? { usage: normalizedUsage } : {}) };
     send(`response.${status}`, { response });
     return response;
   }
