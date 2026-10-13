@@ -17,8 +17,10 @@ function parseFrontmatter(content, directoryName) {
   if (!match) return { name: directoryName, description: "" };
   const fields = {};
   for (const line of match[1].split(/\r?\n/)) {
-    const field = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
-    if (field) fields[field[1]] = unquote(field[2]);
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const key = line.slice(0, colon);
+    if (/^[A-Za-z][A-Za-z0-9_-]*$/.test(key)) fields[key] = unquote(line.slice(colon + 1));
   }
   return { name: fields.name || directoryName, description: fields.description || "" };
 }

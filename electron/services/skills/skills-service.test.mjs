@@ -138,6 +138,31 @@ afterEach(() => {
 });
 
 describe("skills-service", () => {
+  it.each([20000, 40000, 80000])("parses metadata with %i spaces and a Unicode line separator promptly", async (spaces) => {
+    const home = createHome();
+    writeSkill(home, ".codebuddy/skills/sample",
+      "---\nname: sample\ndescription: " + " ".repeat(spaces) + "first\u2028second\n---\nbody");
+    const started = performance.now();
+    const catalog = await createSkillsService({ homeDir: home }).list("codebuddy");
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(catalog.skills).toEqual([
+      expect.objectContaining({ name: "sample", description: "first\u2028second" })
+    ]);
+  });
+
+  it("preserves field validation, trimming, quotes, colons and duplicate metadata", async () => {
+    const home = createHome();
+    writeSkill(home, ".codebuddy/skills/sample", [
+      "---", "name: old", " name: invalid", "name : invalid", "1name: invalid",
+      "name:\t 'sample'  ", 'description:  "first: second"  ', "ignored-field_1: value",
+      "invalid field: value", "---", "body"
+    ].join("\r\n"));
+    const catalog = await createSkillsService({ homeDir: home }).list("codebuddy");
+    expect(catalog.skills).toEqual([
+      expect.objectContaining({ name: "sample", description: "first: second" })
+    ]);
+  });
+
   it("lists Codex personal and built-in skills with their sources", async () => {
     const home = createHome();
     writeSkill(home, ".codex/skills/review", "---\nname: review\ndescription: Review code\n---\nDo it.");
