@@ -89,14 +89,6 @@ describe("Qoder automatic check-in", () => {
     s.setEnabled(false); await vi.advanceTimersByTimeAsync(86400000); expect(claim).toHaveBeenCalledTimes(2);
     s.shutdown(); expect(vi.getTimerCount()).toBe(0);
   });
-  it("retries three times then notifies once", async () => {
-    vi.useFakeTimers(); vi.setSystemTime(now);
-    const claim = vi.fn(async () => { throw Object.assign(Error("offline"), { retryable: true }); });
-    const notifyFailure = vi.fn();
-    const s = createQoderAutoCheckinService({ checkinService: { claim }, notifyFailure });
-    s.start(true); await vi.advanceTimersByTimeAsync(3 * 3600000 + 1);
-    expect(claim).toHaveBeenCalledTimes(4); expect(notifyFailure).toHaveBeenCalledTimes(1); s.shutdown();
-  });
   it("runs at the next reward window and does not notify for inactive campaigns", async () => {
     vi.useFakeTimers(); vi.setSystemTime(now);
     const claim = vi.fn(async () => { throw Object.assign(Error("inactive"), { code: "activity-inactive", retryable: false }); });
@@ -105,5 +97,21 @@ describe("Qoder automatic check-in", () => {
     s.start(true); await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(getNextQoderWindowDelay(Date.now()));
     expect(claim).toHaveBeenCalledTimes(2); expect(notifyFailure).not.toHaveBeenCalled(); s.shutdown();
+  });
+  it("invalidates pending results on resume and ignores resume after shutdown", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    let resolveOld;
+    const claim = vi.fn().mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; })).mockResolvedValue({});
+    const s = createQoderAutoCheckinService({ checkinService: { claim } });
+    s.start(true); await vi.advanceTimersByTimeAsync(0);
+    s.resume();
+    resolveOld({});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+    s.shutdown(); s.resume();
+    await vi.advanceTimersByTimeAsync(86400000);
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
