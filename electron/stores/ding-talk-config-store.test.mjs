@@ -75,4 +75,43 @@ describe("ding-talk-config-store", () => {
     expect(() => store.updateConfig({ webhook: "https://oapi.dingtalk.com/robot/send?access_token=token" }))
       .toThrow("系统安全存储不可用");
   });
+
+  it.each(["update", "clear"])("preserves credentials when %s fails and supports retry", (operation) => {
+    const { configFile, safeStorage } = createHarness();
+    const dataStore = {
+      read: (file) => JSON.parse(fs.readFileSync(file, "utf-8")),
+      write: vi.fn((file, value) => fs.writeFileSync(file, JSON.stringify(value), "utf-8"))
+    };
+    const store = createDingTalkConfigStore({ configFile, safeStorage, dataStore });
+    store.updateConfig({ enabled: true, webhook: "old-webhook", secret: "old-secret" });
+    const previousConfig = store.getConfig();
+    const previousCredentials = store.getCredentials();
+    const previousSaved = fs.readFileSync(configFile, "utf-8");
+    const apply = () => operation === "update"
+      ? store.updateConfig({ enabled: false, webhook: "new-webhook", secret: "new-secret" })
+      : store.clearCredentials();
+    const error = new Error("write failed");
+    dataStore.write.mockImplementationOnce(() => { throw error; });
+
+    expect(apply).toThrow(error);
+    expect(store.getConfig()).toEqual(previousConfig);
+    expect(store.getCredentials()).toEqual(previousCredentials);
+    expect(fs.readFileSync(configFile, "utf-8")).toBe(previousSaved);
+    const reloaded = createDingTalkConfigStore({ configFile, safeStorage, dataStore });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig()).toEqual(previousConfig);
+    expect(reloaded.getCredentials()).toEqual(previousCredentials);
+
+    expect(apply()).toEqual({
+      enabled: false,
+      hasWebhook: operation === "update",
+      hasSecret: operation === "update"
+    });
+    expect(store.getCredentials()).toEqual(operation === "update"
+      ? { webhook: "new-webhook", secret: "new-secret" }
+      : { webhook: "", secret: "" });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig()).toEqual(store.getConfig());
+    expect(reloaded.getCredentials()).toEqual(store.getCredentials());
+  });
 });

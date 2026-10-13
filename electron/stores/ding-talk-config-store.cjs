@@ -22,16 +22,10 @@ function createDingTalkConfigStore({ configFile, safeStorage, dataStore, logger 
     return safeStorage.decryptString(Buffer.from(value, "base64"));
   }
 
-  function serializeConfig() {
-    return {
-      enabled: config.enabled,
-      encryptedWebhook: config.encryptedWebhook,
-      encryptedSecret: config.encryptedSecret
-    };
-  }
-
-  function saveConfig() {
-    writeJson(dataStore, configFile, serializeConfig());
+  function commit(next) {
+    writeJson(dataStore, configFile, next);
+    config = next;
+    return getConfig();
   }
 
   function loadConfig() {
@@ -77,19 +71,15 @@ function createDingTalkConfigStore({ configFile, safeStorage, dataStore, logger 
     if (typeof input.secret === "string") {
       next.encryptedSecret = input.secret ? encrypt(input.secret) : "";
     }
-    config = next;
-    saveConfig();
-    return getConfig();
+    return commit(next);
   }
 
   function clearCredentials() {
-    config = {
+    return commit({
       enabled: false,
       encryptedWebhook: "",
       encryptedSecret: ""
-    };
-    saveConfig();
-    return getConfig();
+    });
   }
 
   return {
