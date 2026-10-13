@@ -2,6 +2,23 @@ const { ipcMain: defaultIpcMain } = require("electron");
 const fs = require("node:fs");
 const { openExternalHttpUrl } = require("./external-link.cjs");
 
+const MAX_SESSION_LIBRARY_BYTES = 8 * 1024 * 1024;
+
+async function readSessionLibrary(filePath) {
+  const tooLarge = () => new Error("会话库文件超过导入上限（8 MiB），请拆分后导入。");
+  const stat = await fs.promises.stat(filePath);
+  if (stat.size > MAX_SESSION_LIBRARY_BYTES) throw tooLarge();
+  const chunks = [];
+  let size = 0;
+  // Bound reads too: the file may grow after stat completes.
+  for await (const chunk of fs.createReadStream(filePath)) {
+    size += chunk.length;
+    if (size > MAX_SESSION_LIBRARY_BYTES) throw tooLarge();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size).toString("utf-8");
+}
+
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
   if (Array.isArray(parsed)) {
@@ -248,7 +265,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     }
 
     try {
-      const raw = fs.readFileSync(result.filePaths[0], "utf-8");
+      const raw = await readSessionLibrary(result.filePaths[0]);
       const importedSessions = getImportedSessions(raw);
       const imported = sessionStore.importLibrary(importedSessions);
       return {
