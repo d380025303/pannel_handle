@@ -1215,6 +1215,53 @@ describe("CodeBuddy ACP sessions", () => {
     }
   });
 
+  it("streams member text without history and isolates equal message IDs across snapshot boundaries", async () => {
+    let emitUpdate;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "current" } });
+    });
+    const broadcasts = [];
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: (channel, payload) => broadcasts.push([channel, structuredClone(payload)]), spawnProcess: () => child });
+    const push = (text, memberName, kind = "agent_message_chunk") => emitUpdate({ method: "session/update", params: {
+      sessionId: "current", update: { sessionUpdate: kind, messageId: "same", content: { type: "text", text },
+        ...(memberName ? { _meta: { "codebuddy.ai/memberEvent": memberName } } : {}) } } });
+    const flush = () => new Promise(resolve => setTimeout(resolve, 100));
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      const history = "h".repeat(1024 * 1024);
+      push(history); push(history, "architect");
+      await flush(); broadcasts.length = 0;
+      for (let i = 0; i < 20; i++) { push("x".repeat(1024), "architect"); await flush(); }
+      expect(broadcasts).toHaveLength(20);
+      expect(broadcasts.every(([channel]) => channel === "codex-app-server:delta")).toBe(true);
+      const bytes = broadcasts.reduce((total, [, payload]) => total + Buffer.byteLength(JSON.stringify(payload)), 0);
+      process.stdout.write(`Member streaming: ${broadcasts.length} deltas, ${(bytes / 1024).toFixed(2)} KiB\n`);
+      expect(bytes).toBeLessThan(30 * 1024);
+      for (const [, payload] of broadcasts) {
+        expect(payload.textDeltas).toEqual([{ itemId: "same", memberName: "architect", delta: "x".repeat(1024) }]);
+        expect(payload.revision).toBe(payload.baseRevision + 1);
+      }
+      push("review", "reviewer"); await flush();
+      expect(broadcasts.at(-1)[0]).toBe("codex-app-server:changed");
+      broadcasts.length = 0;
+      push("a", "architect"); push("b", "reviewer"); push("c"); push("d", "architect"); await flush();
+      expect(broadcasts[0][1].textDeltas).toEqual([
+        { itemId: "same", memberName: "architect", delta: "ad" },
+        { itemId: "same", memberName: "reviewer", delta: "b" }, { itemId: "same", delta: "c" }]);
+      push("e", "architect"); push("", "reviewer", "session_end"); push("f", "reviewer"); await flush();
+      expect(broadcasts.at(-1)[0]).toBe("codex-app-server:changed");
+      const full = broadcasts.at(-1)[1].snapshot;
+      expect(full.items[0].text).toBe(history + "c");
+      expect(full.team.members.map(member => member.items[0].text)).toEqual([history + "x".repeat(20 * 1024) + "ade", "reviewbf"]);
+      push("g", "architect"); await flush();
+      expect(broadcasts.at(-1)[1]).toMatchObject({ baseRevision: full.revision, revision: full.revision + 1,
+        textDeltas: [{ memberName: "architect", itemId: "same", delta: "g" }] });
+    } finally { service.shutdown(); }
+  });
+
   it("keeps manual and automatic team members in separate timelines and restores the latest team state", async () => {
     const historyService = { listHistoryForSession: vi.fn().mockResolvedValue({ items: [
       { ref: "codebuddy:saved", provider: "codebuddy", cwd: "C:\\work", title: "Saved" } ], nextCursor: null, errors: [] }) };

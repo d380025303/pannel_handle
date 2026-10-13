@@ -289,6 +289,28 @@ it("updates the current message from a delta and resubscribes after a gap", () =
   expect(send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(2);
 });
 
+it("applies team deltas with equal message IDs across full updates", () => {
+  const { emit } = fixture();
+  const initial: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", streamId: "stream-1", revision: 1,
+    team: { name: "builders", isAutoTeam: false, hasLiveMembers: true, members: [
+      { name: "a", status: "running", items: [{ id: "m1", type: "agentMessage", text: "Alpha" }] },
+      { name: "b", status: "running", items: [{ id: "m1", type: "agentMessage", text: "Beta" }] }] } };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: initial });
+  const delta: Extract<ServerMessage, { type: "graphical.delta" }> = { v: PROTOCOL_VERSION, type: "graphical.delta", sessionId: "graph-1", streamId: "stream-1",
+    threadId: "thread-1", baseRevision: 1, revision: 2, items: [], textDeltas: [
+      { memberName: "a", itemId: "m1", delta: " one" }, { memberName: "b", itemId: "m1", delta: " two" }] };
+  emit({ ...delta, textDeltas: [...delta.textDeltas] });
+  expect(screen.getByText("Alpha one")).toBeTruthy();
+  expect(screen.getByText("Beta two")).toBeTruthy();
+  expect(screen.queryByText("完成 one two")).toBeNull();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...initial, revision: 3 } });
+  emit({ ...delta, baseRevision: 3, revision: 4, textDeltas: [{ memberName: "b", itemId: "m1", delta: " three" }] });
+  expect(screen.getByText("Alpha")).toBeTruthy();
+  expect(screen.getByText("Beta three")).toBeTruthy();
+  emit({ ...delta, textDeltas: [...delta.textDeltas] });
+  expect(screen.getByText("Beta three")).toBeTruthy();
+});
+
 it("resubscribes after reconnect without losing the draft", () => {
   const { send, emit, reconnect } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });

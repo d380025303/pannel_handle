@@ -1,3 +1,4 @@
+import { applyTeamTextDeltas } from "../../utils/teamTextDeltas";
 import type { CodexAppServerDelta, CodexAppServerSnapshot } from "../../vite-env";
 
 import { applySubAgentTextDeltas } from "../../utils/subAgentTextDeltas";
@@ -48,6 +49,7 @@ export function subscribeGraphicalSession(sessionId: string, { onSnapshot, onErr
     }
     const items = [...current.items];
     for (const text of delta.textDeltas) {
+      if (text.memberName !== undefined) continue;
       const index = items.findIndex(value => value.id === text.itemId);
       if (index >= 0) items[index] = { ...items[index], text: (items[index].text || "") + text.delta };
     }
@@ -61,6 +63,7 @@ export function subscribeGraphicalSession(sessionId: string, { onSnapshot, onErr
       if (index < 0) turnDiffs.push(diff); else turnDiffs[index] = diff;
     }
     accept({ ...current, revision: delta.revision, items, turnDiffs,
+      team: applyTeamTextDeltas(current.team, delta.textDeltas),
       subAgents: applySubAgentTextDeltas(current.subAgents, delta.subAgentTextDeltas) });
   });
   reload(true);

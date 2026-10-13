@@ -380,15 +380,18 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   function schedulePublish(id, textAppend) {
     const entry = sessions.get(id);
     if (!entry) return;
-    if (textAppend) entry.streamText.set(textAppend.itemId,
-      (entry.streamText.get(textAppend.itemId) || "") + textAppend.delta);
+    if (textAppend) {
+      const key = JSON.stringify([textAppend.memberName ?? null, textAppend.itemId]);
+      const previous = entry.streamText.get(key);
+      entry.streamText.set(key, { ...textAppend, delta: (previous?.delta || "") + textAppend.delta });
+    }
     else entry.pendingFullSnapshot = true;
     if (publishTimers.has(id)) return;
     const timer = setTimeout(() => {
       publishTimers.delete(id);
       if (sessions.get(id) !== entry) return;
       if (entry.pendingFullSnapshot) { publish(id); return; }
-      const textDeltas = [...entry.streamText].map(([itemId, delta]) => ({ itemId, delta }));
+      const textDeltas = [...entry.streamText.values()];
       entry.streamText.clear();
       if (!textDeltas.length) return;
       const baseRevision = entry.revision;
@@ -569,7 +572,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         }
         const appended = appendText(items, kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
           update.content?.text, update.messageId, turnId);
-        if (appended && !member && !unsolicited && !entry.loadingThreadId && !entry.historySnapshot
+        if (appended && !unsolicited && !entry.loadingThreadId && !entry.historySnapshot
           && kind !== "user_message_chunk" && typeof update.content?.text === "string") {
           let target = appended;
           // Claude 快照会合并相邻回复，增量必须使用合并后保留的首条消息 ID。
@@ -578,7 +581,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             while (index > 0 && items[index - 1].type === "agentMessage" && items[index - 1].turnId === appended.turnId)
               target = items[--index];
           }
-          textAppend = { itemId: target.id, delta: update.content.text };
+          textAppend = { itemId: target.id, delta: update.content.text, ...(member ? { memberName: member.name } : {}) };
         }
         if (kind === "user_message_chunk" && (provider === "opencode" ? isOpenCodeMessageId(update.messageId) : isRewindMessageId(update.messageId))) {
           const loaded = items.findLast(item => item.type === "userMessage" && item.id === update.messageId);

@@ -1,3 +1,4 @@
+import { applyTeamTextDeltas } from "../../src/utils/teamTextDeltas";
 import { applySubAgentTextDeltas } from "../../src/utils/subAgentTextDeltas";
 import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../src/utils/codexImageInput";
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -164,6 +165,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
         } else {
           const items = [...current.items];
           for (const text of message.textDeltas) {
+            if (text.memberName !== undefined) continue;
             const index = items.findIndex(value => value.id === text.itemId);
             if (index >= 0) items[index] = { ...items[index], text: (items[index].text || "") + text.delta };
           }
@@ -174,6 +176,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           const turnDiffs = [...(current.turnDiffs || [])];
           for (const diff of message.turnDiffs || []) { const index = turnDiffs.findIndex(value => value.turnId === diff.turnId); if (index < 0) turnDiffs.push(diff); else turnDiffs[index] = diff; }
           const next = { ...current, revision: message.revision, items, turnDiffs,
+            team: applyTeamTextDeltas(current.team, message.textDeltas),
             subAgents: applySubAgentTextDeltas(current.subAgents, message.subAgentTextDeltas) };
           snapshotRef.current = next;
           setSnapshot(next);
