@@ -17,7 +17,9 @@ repositories {
 
 dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
+    testImplementation("junit:junit:4.13.2")
     intellijPlatform {
+        testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
         if (localIdeaHome.isNullOrBlank()) {
             intellijIdeaCommunity("2025.2.6.1")
         } else {

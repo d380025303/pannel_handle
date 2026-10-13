@@ -89,6 +89,27 @@ describe("DingTalk webhook", () => {
 });
 
 describe("ding-talk-notification-manager", () => {
+  it("pushes plan confirmation once and distinguishes it from ordinary completion", () => {
+    const { manager, fetchImpl } = createHarness();
+    const completed = status("completed", "codex", { eventName: "AppServerTurn" });
+    const planPending = status("completed", "codex", { eventName: "AppServerPlanPending" });
+
+    manager.handleStatus(completed);
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    manager.handleStatus(planPending);
+    manager.handleStatus({ ...planPending, timestamp: planPending.timestamp + 1 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const message = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(message.markdown.title).toBe("[Pannel Handle] Codex 等待计划确认");
+    expect(message.markdown.text).toContain("状态：等待计划确认");
+
+    manager.handleStatus(completed);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    manager.handleStatus(planPending);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["waiting_for_permission", "e_prompt", "failed"])("pushes %s", (statusName) => {
     const { manager, fetchImpl } = createHarness();
     manager.handleStatus(status(statusName));

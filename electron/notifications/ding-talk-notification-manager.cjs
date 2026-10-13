@@ -1,7 +1,9 @@
 const crypto = require("node:crypto");
+const { isAgentPlanPending } = require("../core/agent-status.cjs");
 
-const PUSH_STATUSES = new Set(["waiting_for_permission", "e_prompt", "failed"]);
+const PUSH_STATUSES = new Set(["waiting_for_permission", "e_prompt", "failed", "plan_pending"]);
 const STATUS_LABELS = {
+  plan_pending: "等待计划确认",
   waiting_for_permission: "等待授权",
   e_prompt: "等待用户输入",
   failed: "执行失败"
@@ -55,7 +57,8 @@ function formatTimestamp(timestamp) {
 
 function buildDingTalkMessage(payload, session) {
   const provider = getProviderName(payload.provider);
-  const status = STATUS_LABELS[payload.status] || payload.status;
+  const notificationStatus = isAgentPlanPending(payload) ? "plan_pending" : payload.status;
+  const status = STATUS_LABELS[notificationStatus] || notificationStatus;
   const title = `[Pannel Handle] ${provider} ${status}`;
   const lines = [
     `### ${title}`,
@@ -114,9 +117,10 @@ function createDingTalkNotificationManager({
   }
 
   function handleStatus(payload) {
+    const notificationStatus = isAgentPlanPending(payload) ? "plan_pending" : payload.status;
     const previousStatus = lastStatusBySessionId.get(payload.id);
-    lastStatusBySessionId.set(payload.id, payload.status);
-    if (previousStatus === payload.status || !PUSH_STATUSES.has(payload.status)) {
+    lastStatusBySessionId.set(payload.id, notificationStatus);
+    if (previousStatus === notificationStatus || !PUSH_STATUSES.has(notificationStatus)) {
       return;
     }
     const config = configStore.getConfig();

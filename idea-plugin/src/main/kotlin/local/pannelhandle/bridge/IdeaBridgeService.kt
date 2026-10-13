@@ -106,13 +106,6 @@ data class ExecutionInstanceSnapshot(
     val startedAt: Long,
 )
 
-private data class LocatedExecution(
-    val project: Project,
-    val settings: RunnerAndConfigurationSettings,
-    val executor: Executor,
-    val handler: ProcessHandler,
-)
-
 private data class ActiveExecution(
     val id: String,
     val project: Project,
@@ -303,11 +296,12 @@ class IdeaBridgeService : Disposable {
 
     private fun restartExecution(instanceId: String) = onEdt {
         val execution = findExecution(instanceId)
+        val settings = findSettings(execution.project, execution.configurationId)
         ExecutionManager.getInstance(execution.project).restartRunProfile(
             execution.project,
             execution.executor,
             DefaultExecutionTarget.INSTANCE,
-            execution.settings,
+            settings,
             execution.handler,
         )
     }
@@ -366,12 +360,11 @@ class IdeaBridgeService : Disposable {
         return ProjectSnapshot(projectId, project.name, project.basePath ?: "", configurations)
     }
 
-    private fun findExecution(instanceId: String): LocatedExecution {
+    private fun findExecution(instanceId: String): ActiveExecution {
         val execution = activeExecutions[instanceId]
             ?: throw NoSuchElementException("The IDEA execution instance no longer exists")
         if (execution.project.isDisposed) throw NoSuchElementException("The IDEA project is no longer open")
-        val settings = findSettings(execution.project, execution.configurationId)
-        return LocatedExecution(execution.project, settings, execution.executor, execution.handler)
+        return execution
     }
 
     private fun findProject(id: String): Project = ProjectManager.getInstance().openProjects.firstOrNull {
