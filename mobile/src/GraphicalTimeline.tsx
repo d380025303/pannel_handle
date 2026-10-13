@@ -5,7 +5,7 @@ import { TurnDiffCard } from "../../src/components/agents/TurnDiffCard";
 import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
 import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
 import { copyMobileText } from "./clipboard";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { McpElicitationCard } from "../../src/components/agents/GraphicalInteractionCards";
 import { Check, Circle, Copy, GitFork, Paperclip } from "lucide-react";
 import { MarkdownBlock } from "../../src/components/shared/MarkdownBlock";
@@ -24,7 +24,7 @@ export function GraphicalTimeline({ snapshot, controller, minimalMode = false }:
   const [teamPending, setTeamPending] = useState(false);
   const [teamMember, setTeamMember] = useState("");
   const [preview, setPreview] = useState<{ kind: string; dataUrl?: string; text?: string } | null>(null);
-  const copy = (text: string) => { void copyMobileText(text).catch(cause => controller.setError(String(cause))); };
+  const copy = useCallback((text: string) => { void copyMobileText(text).catch(cause => controller.setError(String(cause))); }, [controller.setError]);
   const fail = (cause: unknown) => controller.setError(cause instanceof Error ? cause.message : String(cause));
   const openCodePlanItemId = openCodePlanReplyId(snapshot);
   const openCodeBuildMode = snapshot.nativeModes?.find(mode => mode.id.toLowerCase() === "build");
