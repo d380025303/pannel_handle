@@ -231,11 +231,21 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
   function setCachedModels(models, fetchedAt = Date.now()) {
     const normalized = Array.isArray(models) ? models.map(model => normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing })).filter(Boolean) : [];
     const byId = new Map(normalized.map(model => [model.id, model]));
-    config.cachedModels = [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
-    config.modelVerifications = Object.fromEntries(Object.entries(config.modelVerifications).filter(([id]) => byId.has(id)));
-    for (const agent of ["opencode", "codebuddy"]) config.agentModelVerifications[agent] = Object.fromEntries(Object.entries(config.agentModelVerifications[agent]).filter(([id]) => byId.has(id)));
-    config.fetchedAt = fetchedAt;
-    save();
+    const previousConfig = config;
+    config = {
+      ...config,
+      cachedModels: [...byId.values()].sort((left, right) => left.name.localeCompare(right.name)),
+      modelVerifications: Object.fromEntries(Object.entries(config.modelVerifications).filter(([id]) => byId.has(id))),
+      agentModelVerifications: Object.fromEntries(["opencode", "codebuddy"].map(agent => [agent,
+        Object.fromEntries(Object.entries(config.agentModelVerifications[agent]).filter(([id]) => byId.has(id)))])),
+      fetchedAt
+    };
+    try {
+      save();
+    } catch (error) {
+      config = previousConfig;
+      throw error;
+    }
     return getCachedModels();
   }
 

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createOpenRouterConfigStore, normalizeModel } = require("./openrouter-config-store.cjs");
+const { createOpenRouterService } = require("../services/settings/openrouter-service.cjs");
 const dirs = [];
 
 function createStore() {
@@ -22,6 +23,59 @@ function createStore() {
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe("openrouter-config-store", () => {
+  it.each(["OpenRouter", "NaraRouter", "MiniMax"])("preserves %s's cache and verifications on SQLITE_READONLY, then persists a retry", providerName => {
+    let persisted;
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn((_file, value) => { persisted = structuredClone(value); })
+    };
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(value),
+      decryptString: value => value.toString()
+    };
+    const options = { configFile: "provider.json", dataStore, safeStorage, providerName };
+    const store = createOpenRouterConfigStore(options);
+    store.setApiKey("old-key");
+    store.setCachedModels([{ id: "old" }, { id: "retained" }], 123);
+    for (const id of ["old", "retained"]) {
+      store.setModelVerification(id, { status: "passed", checkedAt: 456, stages: [{ stage: "responses", status: "passed" }] });
+      for (const agent of ["opencode", "codebuddy"]) store.setAgentModelVerification(agent, id, { status: "passed" });
+    }
+    const service = createOpenRouterService({ store, providerName });
+    const launchBefore = service.getAgentLaunchConfig("codebuddy", "old");
+    const before = structuredClone(persisted);
+    const failure = Object.assign(new Error("attempt to write a readonly database"), { code: "SQLITE_READONLY" });
+    dataStore.write.mockImplementationOnce(() => { throw failure; });
+
+    expect(() => store.setCachedModels([{ id: "new" }], 789)).toThrow(failure);
+    expect(persisted).toEqual(before);
+    const reloaded = createOpenRouterConfigStore(options);
+    reloaded.load();
+    for (const current of [store, reloaded]) {
+      expect(current.getCachedModels()).toEqual(before.cachedModels);
+      expect(current.getPublicConfig()).toEqual({ hasApiKey: true, fetchedAt: 123 });
+      expect(current.getModelVerifications()).toEqual(before.modelVerifications);
+      for (const agent of ["opencode", "codebuddy"]) {
+        expect(current.getAgentModelVerifications(agent)).toEqual(before.agentModelVerifications[agent]);
+      }
+    }
+    expect(service.getAgentLaunchConfig("codebuddy", "old")).toEqual(launchBefore);
+
+    const updated = store.setCachedModels([{ id: "new" }, { id: "retained" }], 789);
+    reloaded.load();
+    for (const current of [store, reloaded]) {
+      expect(current.getCachedModels()).toEqual(updated);
+      expect(current.getCachedModels().map(model => model.id)).toEqual(["new", "retained"]);
+      expect(current.getPublicConfig()).toEqual({ hasApiKey: true, fetchedAt: 789 });
+      expect(current.getModelVerifications()).toEqual({ retained: before.modelVerifications.retained });
+      for (const agent of ["opencode", "codebuddy"]) {
+        expect(current.getAgentModelVerifications(agent)).toEqual({ retained: before.agentModelVerifications[agent].retained });
+      }
+    }
+    expect(() => service.getAgentLaunchConfig("codebuddy", "old")).toThrow("模型不存在");
+  });
+
   it.each(["codebuddy", "opencode", "codex"].flatMap(target => [true, false].map(existing => ({ target, existing }))))(
     "rolls back $target verification on SQLITE_FULL (existing: $existing) and allows retry",
     ({ target, existing }) => {
