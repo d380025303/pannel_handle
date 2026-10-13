@@ -4,6 +4,42 @@ import protocol from "./responses-chat-completions-protocol.cjs";
 const { MAX_STREAM_LINE_BYTES, responsesToChat, createResponseAccumulator } = protocol;
 
 describe("Responses to Chat Completions protocol", () => {
+  it.each([false, true])("keeps client search separate from a same-named function (reversed: %s)", reversed => {
+    const functionTool = { type: "function", name: "tool_search", parameters: { type: "object", properties: { recordId: { type: "string" } } } };
+    const searchTool = { type: "tool_search", execution: "client" };
+    const tools = reversed ? [searchTool, functionTool] : [functionTool, searchTool];
+    const converted = responsesToChat({ tools, input: [
+      { type: "function_call", call_id: "function-1", name: "tool_search", arguments: '{"recordId":"42"}' },
+      { type: "tool_search_call", call_id: "search-1", arguments: { query: "tools" } }
+    ] });
+    expect(converted.request.tools).toHaveLength(2);
+    const functionAlias = converted.request.tools.find(tool => tool.function.parameters.properties.recordId).function.name;
+    const searchAlias = converted.request.tools.find(tool => tool.function.parameters.properties.query).function.name;
+    expect(functionAlias).not.toBe(searchAlias);
+    expect(converted.request.messages[0].tool_calls.map(call => call.function.name)).toEqual([functionAlias, searchAlias]);
+
+    const accumulator = createResponseAccumulator({ model: "test", ...converted });
+    accumulator.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [
+      { index: 0, id: "function-1", function: { name: functionAlias, arguments: '{"recordId":"42"}' } },
+      { index: 1, id: "search-1", function: { name: searchAlias, arguments: '{"query":"tools"}' } }
+    ] } }] })}\n\n`));
+    const output = accumulator.finish().output;
+    expect(output[0]).toMatchObject({ type: "function_call", name: "tool_search", arguments: '{"recordId":"42"}' });
+    expect(output[1]).toMatchObject({ type: "tool_search_call", execution: "client", arguments: { query: "tools" } });
+
+    for (const [choice, alias] of [
+      [{ type: "function", name: "tool_search" }, functionAlias],
+      [{ type: "tool_search" }, searchAlias],
+      [{ type: "tool_search", name: "tool_search" }, searchAlias]
+    ]) {
+      const selected = responsesToChat({ tools, tool_choice: choice });
+      expect(selected.request.tools.map(tool => tool.function.name)).toEqual([alias]);
+      expect(selected.request.tool_choice).toBe("required");
+    }
+    expect(() => responsesToChat({ tools: [functionTool], tool_choice: { type: "tool_search" } })).toThrow("unavailable tool");
+    expect(() => responsesToChat({ tools: [searchTool], tool_choice: { type: "function", name: "tool_search" } })).toThrow("unavailable tool");
+  });
+
   it("converts Responses messages and custom tools to Chat Completions", () => {
     const result = responsesToChat({ model: "glm-5.3", instructions: "system", input: [
       { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },

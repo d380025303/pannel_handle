@@ -34,8 +34,10 @@ function parseCustomArguments(value) {
   }
 }
 
-function toolIdentity(name, namespace = "") {
-  return JSON.stringify([namespace, String(name || "").trim()]);
+function toolIdentity(name, namespace = "", kind = "function") {
+  const identity = [namespace, String(name || "").trim()];
+  if (kind === "tool_search") identity.push(kind);
+  return JSON.stringify(identity);
 }
 
 function toolAlias(name) {
@@ -65,7 +67,7 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
   const aliasFor = (name, kind = "function", namespace = "") => {
     const toolName = String(name || "").trim();
     if (!toolName) throw invalidRequest("Codex tool name is required.");
-    const identity = toolIdentity(toolName, namespace);
+    const identity = toolIdentity(toolName, namespace, kind);
     const alias = toolAlias(identity);
     const existing = identitiesByAlias.get(alias);
     if (existing && existing !== identity) throw invalidRequest(`Codex tool alias collision: ${toolName}.`);
@@ -161,14 +163,14 @@ function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
 
   let toolChoice = body.tool_choice;
   let selectedToolAlias;
-  if (toolChoice && typeof toolChoice === "object" && toolChoice.name) {
+  if (toolChoice && typeof toolChoice === "object" && toolChoice.name && toolChoice.type !== "tool_search") {
     const qualifiedName = toolChoice.namespace ? `${toolChoice.namespace}__${toolChoice.name}` : String(toolChoice.name);
     const alias = aliasesByToolIdentity.get(toolIdentity(toolChoice.name, toolChoice.namespace));
     if (!alias || !convertedToolNames.has(alias)) throw invalidRequest(`Codex tool_choice references an unavailable tool: ${qualifiedName}.`);
     selectedToolAlias = alias;
     toolChoice = "required";
   } else if (toolChoice?.type === "tool_search") {
-    const alias = aliasesByToolIdentity.get(toolIdentity("tool_search"));
+    const alias = aliasesByToolIdentity.get(toolIdentity("tool_search", "", "tool_search"));
     if (!alias || !convertedToolNames.has(alias)) throw invalidRequest("Codex tool_choice references an unavailable tool: tool_search.");
     selectedToolAlias = alias;
     toolChoice = "required";
