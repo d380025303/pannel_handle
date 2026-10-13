@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
+import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import Archiver from "archiver/lib/core.js";
@@ -319,4 +321,101 @@ it.each(["disconnect", "close", "stop"])(
       finalize.mockRestore();
     }
   }
+);
+
+it.each(["resume", "close", "disconnect", "stop", "error", "warning"])(
+  "bounds 10,000 real Archiver entries under blocked output and handles %s", async action => {
+    const fsApi = { ...fs, promises: { ...fs.promises } };
+    const { root, files, socket } = fixture(undefined, fsApi);
+    const source = path.join(root, "source.txt");
+    fs.writeFileSync(source, "archive payload");
+    const largeSource = path.join(root, "large.bin");
+    const payload = randomBytes(4096);
+    fs.writeFileSync(largeSource, payload);
+    const names = Array.from({ length: 10_000 }, (_, index) => `file-${index}.txt`);
+    const fileInfo = fs.statSync(source);
+    fsApi.promises.readdir = vi.fn(async () => names);
+    fsApi.promises.lstat = async target => target === root ? fs.lstatSync(root) : fileInfo;
+    fsApi.promises.realpath = async target => target;
+    fsApi.promises.stat = async target => target === root ? fs.statSync(root) : fileInfo;
+    const { url } = await files.prepare(socket, root);
+    let archive;
+    let submitted = 0;
+    let completed = 0;
+    let maximum = 0;
+    let statMaximum = 0;
+    const originalFile = Archiver.prototype.file;
+    const spy = vi.spyOn(Archiver.prototype, "file").mockImplementation(function (target, options) {
+      if (!archive) {
+        archive = this;
+        this.on("entry", () => { completed++; });
+        this.on("warning", () => { completed++; });
+      }
+      submitted++;
+      maximum = Math.max(maximum, submitted - completed);
+      const result = originalFile.call(this, action === "warning" && submitted === 1 ? path.join(root, "missing") : largeSource, options);
+      statMaximum = Math.max(statMaximum, this._statQueue.length());
+      return result;
+    });
+    const output = new PassThrough({ highWaterMark: 1 });
+    output.writeHead = vi.fn();
+    const parsed = new URL(url, "http://localhost");
+    const downloading = files.download({ socket: { remoteAddress: socket.remoteAddress } }, output,
+      path.basename(parsed.pathname), parsed.searchParams.get("ticket"));
+    try {
+      await vi.waitFor(() => {
+        expect(submitted - completed).toBe(32);
+        expect(output.writableNeedDrain).toBe(true);
+      });
+      await vi.waitFor(async () => {
+        const before = submitted;
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(submitted).toBe(before);
+      }, { timeout: 5000 });
+      const paused = submitted;
+      expect(submitted).toBeLessThan(10_000);
+      if (action === "resume" || action === "warning") {
+        const chunks = [];
+        const ended = new Promise(resolve => output.on("end", resolve));
+        output.on("data", chunk => chunks.push(chunk));
+        await downloading;
+        await ended;
+        expect(submitted).toBe(10_000);
+        const count = action === "warning" ? 9999 : 10_000;
+        const zip = Buffer.concat(chunks);
+        const end = zip.length - 22;
+        expect(zip.readUInt32LE(end)).toBe(0x06054b50);
+        expect(Number(zip.readBigUInt64LE(end - 20 - 56 + 32))).toBe(count);
+        let offset = Number(zip.readBigUInt64LE(end - 20 - 56 + 48));
+        const archivedNames = [];
+        for (let index = 0; index < count; index++) {
+          expect(zip.readUInt32LE(offset)).toBe(0x02014b50);
+          const local = zip.readUInt32LE(offset + 42);
+          expect(zip.readUInt32LE(local)).toBe(0x04034b50);
+          const dataOffset = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+          const compressedSize = zip.readUInt32LE(offset + 20);
+          const content = inflateRawSync(zip.subarray(dataOffset, dataOffset + compressedSize));
+          expect(content.equals(payload)).toBe(true);
+          const nameLength = zip.readUInt16LE(offset + 28);
+          archivedNames.push(zip.subarray(offset + 46, offset + 46 + nameLength).toString());
+          offset += 46 + nameLength + zip.readUInt16LE(offset + 30) + zip.readUInt16LE(offset + 32);
+        }
+        expect(archivedNames.sort()).toEqual((action === "warning" ? names.slice(1) : names).map(name => `${path.basename(root)}/${name}`).sort());
+      } else {
+        if (action === "close") output.destroy();
+        else if (action === "stop") files.stop();
+        else if (action === "error") archive.emit("error", new Error("archive failed"));
+        else files.releaseSocket(socket);
+        await Promise.race([downloading, new Promise((_, reject) => setTimeout(() => reject(new Error("cancellation hung")), 1000))]);
+        expect(output.destroyed).toBe(true);
+        expect(submitted).toBe(paused);
+        expect(archive._statQueue.length()).toBe(0);
+      }
+      expect(maximum).toBeLessThanOrEqual(32);
+      expect(statMaximum).toBeLessThanOrEqual(32);
+    } finally {
+      files.stop();
+      spy.mockRestore();
+    }
+  }, 30_000
 );

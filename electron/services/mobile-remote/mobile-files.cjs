@@ -5,6 +5,7 @@ const archiver = require("archiver");
 
 const TICKET_MS = 60_000;
 const LIST_CONCURRENCY = 8;
+const ARCHIVE_PENDING_LIMIT = 32;
 
 function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.now(), getRoots } = {}) {
   const tickets = new Map();
@@ -77,11 +78,11 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     return { url: `/api/v1/download/${id}?ticket=${ticket}` };
   }
 
-  async function addDirectory(archive, directory, prefix, isCancelled, allowedRoots) {
+  async function addDirectory(archive, directory, prefix, isCancelled, allowedRoots, enqueue) {
     if (isCancelled()) return;
     const names = await fsApi.promises.readdir(directory);
     if (isCancelled()) return;
-    if (!names.length) archive.append(Buffer.alloc(0), { name: `${prefix}/` });
+    if (!names.length) await enqueue(() => archive.append(Buffer.alloc(0), { name: `${prefix}/` }));
     for (const name of names) {
       if (isCancelled()) return;
       const child = pathApi.join(directory, name);
@@ -94,8 +95,8 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       }
       if (isCancelled()) return;
       const archiveName = `${prefix}/${name}`.replace(/\\/g, "/");
-      if (info.isDirectory()) await addDirectory(archive, child, archiveName, isCancelled, allowedRoots);
-      else if (info.isFile()) archive.file(child, { name: archiveName });
+      if (info.isDirectory()) await addDirectory(archive, child, archiveName, isCancelled, allowedRoots, enqueue);
+      else if (info.isFile()) await enqueue(() => archive.file(child, { name: archiveName }));
     }
   }
 
@@ -108,12 +109,15 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     tickets.delete(id);
     let stream;
     let cancelled = false;
+    let wakeArchive;
     let responses = active.get(entry.socket);
     if (!responses) { responses = new Set(); active.set(entry.socket, responses); }
-    const transfer = { cancel() { cancelled = true; stream?.destroy?.(); response.destroy(); } };
+    const transfer = { cancel() { cancelled = true; wakeArchive?.(); stream?.abort?.(); stream?.destroy?.(); response.destroy(); } };
     responses.add(transfer);
     response.on("close", () => {
       cancelled = true;
+      wakeArchive?.();
+      stream?.abort?.();
       stream?.destroy?.();
       responses.delete(transfer);
       if (!responses.size && active.get(entry.socket) === responses) active.delete(entry.socket);
@@ -141,14 +145,34 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     });
     if (info.isDirectory()) {
       stream = archiver("zip", { zlib: { level: 6 }, forceZip64: true });
-      stream.on("error", () => response.destroy());
+      // Share the entry budget across the entire recursive traversal.
+      let pending = 0;
+      const consumed = () => { pending--; wakeArchive?.(); };
+      stream.on("entry", consumed);
+      // Stat warnings skip queued files without emitting an entry event.
+      stream.on("warning", consumed);
+      stream.on("error", () => transfer.cancel());
+      const enqueue = async submit => {
+        while (pending >= ARCHIVE_PENDING_LIMIT && !isCancelled()) {
+          await new Promise(resolve => { wakeArchive = resolve; });
+          wakeArchive = undefined;
+        }
+        if (isCancelled()) return;
+        pending++;
+        submit();
+      };
       stream.pipe(response);
       try {
-        await addDirectory(stream, target, pathApi.basename(target) || "drive", isCancelled, allowedRoots);
+        await addDirectory(stream, target, pathApi.basename(target) || "drive", isCancelled, allowedRoots, enqueue);
         if (isCancelled()) { transfer.cancel(); return; }
         await stream.finalize();
       }
-      catch { stream.abort(); response.destroy(); }
+      catch { transfer.cancel(); }
+      finally {
+        wakeArchive = undefined;
+        stream.removeListener("entry", consumed);
+        stream.removeListener("warning", consumed);
+      }
     } else {
       stream = fsApi.createReadStream(target);
       stream.on("error", () => response.destroy());
