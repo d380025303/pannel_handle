@@ -87,6 +87,50 @@ function activitySummary(value, recent = false) {
   return recent ? `…${text.slice(-(SUMMARY_LIMIT - 1))}` : `${text.slice(0, SUMMARY_LIMIT - 1)}…`;
 }
 
+// Keep streaming state off snapshot items and release it with the item object.
+const streamingSummaries = new WeakMap();
+const PLAN_MARKERS = ["<proposed_plan>", "</proposed_plan>"];
+
+function appendSummaryText(state, text) {
+  for (const character of text) {
+    if (/\s/.test(character)) {
+      if (state.length) state.space = true;
+      continue;
+    }
+    const addition = `${state.space ? " " : ""}${character}`;
+    state.tail = (state.tail + addition).slice(-SUMMARY_LIMIT);
+    state.length = Math.min(SUMMARY_LIMIT + 1, state.length + addition.length);
+    state.space = false;
+  }
+}
+
+function appendStreamingSummary(state, delta) {
+  for (const character of String(delta || "")) {
+    state.marker += character;
+    while (state.marker) {
+      const candidate = state.marker.toLowerCase();
+      if (PLAN_MARKERS.includes(candidate)) { state.marker = ""; break; }
+      if (PLAN_MARKERS.some(marker => marker.startsWith(candidate))) break;
+      appendSummaryText(state, state.marker[0]);
+      state.marker = state.marker.slice(1);
+    }
+  }
+  // An incomplete marker is visible until it becomes a complete removable tag.
+  const preview = { ...state };
+  appendSummaryText(preview, state.marker);
+  return preview.length > SUMMARY_LIMIT ? `\u2026${preview.tail.slice(-(SUMMARY_LIMIT - 1))}` : preview.tail;
+}
+
+function appendItemSummary(item, delta) {
+  let state = streamingSummaries.get(item);
+  if (!state) {
+    state = { tail: "", length: 0, space: false, marker: "" };
+    appendStreamingSummary(state, item.text);
+    streamingSummaries.set(item, state);
+  }
+  return appendStreamingSummary(state, delta);
+}
+
 function itemSummary(item) {
   if (item?.type === "agentMessage" || item?.type === "plan") return activitySummary(item.text, true);
   if (item?.type === "userMessage") return activitySummary(item.text);
@@ -131,4 +175,4 @@ function updateTokenUsage(entry, params) {
   return true;
 }
 
-module.exports = { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, updateTokenUsage };
+module.exports = { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, appendItemSummary, updateTokenUsage };

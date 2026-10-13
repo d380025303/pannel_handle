@@ -1897,6 +1897,26 @@ describe("Codex App Server session", () => {
     service.close("run-1");
   });
 
+  it("streams split plan markers and recalibrates summaries from completed items", async () => {
+    const child = fakeProcess([]);
+    const statuses = [];
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: value => statuses.push(value) }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", ...params } })}\n`);
+    for (const type of ["agentMessage", "plan"]) {
+      emit("item/started", { item: { id: type, type, text: "seed\n" } });
+      for (const delta of ["<proposed_", "plan>", "a".repeat(600), " \n", "tail", "</proposed_", "plan>"])
+        emit(`item/${type}/delta`, { itemId: type, delta });
+      await vi.waitFor(() => expect(statuses.at(-1).activitySummary).toBe(`…${"a".repeat(494)} tail`));
+      expect(service.snapshot("run-1").items.find(item => item.id === type).text)
+        .toBe(`seed\n<proposed_plan>${"a".repeat(600)} \ntail</proposed_plan>`);
+      emit("item/completed", { item: { id: type, type, text: "authoritative answer" } });
+      await vi.waitFor(() => expect(statuses.at(-1).activitySummary).toBe("authoritative answer"));
+    }
+    service.close("run-1");
+  });
+
   it("retains turn IDs for live items and restored history", async () => {
     const child = fakeProcess([], request => request.method === "thread/read" ? { thread: { cwd: "C:\\project" } }
       : request.method === "thread/resume" ? { thread: { id: "history-1", turns: [

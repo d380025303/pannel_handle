@@ -9,7 +9,7 @@ const { createSubAgentObserver } = require("./sub-agent-observer.cjs");
 const { createConfigurationController } = require("./configuration-controller.cjs");
 const { createAccountController } = require("./account-controller.cjs");
 const { createInjectedTools } = require("./injected-tools.cjs");
-const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, updateTokenUsage } = require("./snapshot-helpers.cjs");
+const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, appendItemSummary, updateTokenUsage } = require("./snapshot-helpers.cjs");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const SUMMARY_BROADCAST_INTERVAL_MS = 150;
@@ -601,8 +601,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "item/agentMessage/delta" || message.method === "item/plan/delta") {
       const item = entry.items.find(value => value.id === params.itemId);
       if (item) {
+        const summary = appendItemSummary(item, params.delta);
         item.text = (item.text || "") + (params.delta || "");
-        updateSummary(id, entry, itemSummary(item));
+        updateSummary(id, entry, summary);
       }
     }
     if (message.method === "item/reasoning/summaryTextDelta" || message.method === "item/reasoning/summaryPartAdded") {
