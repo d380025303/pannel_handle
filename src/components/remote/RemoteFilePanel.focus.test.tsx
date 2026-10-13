@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { INPUT_INTERRUPTION_END_EVENT, INPUT_INTERRUPTION_START_EVENT } from "../../hooks/inputRecovery";
@@ -15,6 +15,46 @@ describe("RemoteFilePanel file activation", () => {
     cleanup();
     vi.restoreAllMocks();
     Reflect.deleteProperty(Range.prototype, "getClientRects");
+  });
+
+  it("checks a dirty file for conflicts only when that file changes", async () => {
+    Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => [] });
+    let onChanged!: Parameters<RemoteFileApi["onChanged"]>[0];
+    const previewFile = vi.fn(async (_sessionId: string, path: string) => ({ kind: "text" as const, path, content: "hello" }));
+    const readText = vi.fn(async () => ({ kind: "text" as const, path: filePath, content: "external" }));
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async () => [{ name: "notes.txt", path: filePath, type: "file", size: 5, modifiedAt: 1 }]),
+      previewFile, readText,
+      onDownloadProgress: vi.fn(() => () => undefined), watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true), onWatchError: vi.fn(() => () => undefined),
+      onChanged: vi.fn(callback => { onChanged = callback; return () => undefined; })
+    } as unknown as RemoteFileApi;
+    const session = { id: "session-1", type: "windows", cwd: rootPath } as TerminalSession;
+    const previewHost = document.createElement("div");
+    document.body.append(previewHost);
+    const onPreviewTabsChange = vi.fn();
+    const view = render(<RemoteFilePanel session={session} previewHost={previewHost} onPreviewTabsChange={onPreviewTabsChange} />);
+    try {
+      fireEvent.doubleClick((await screen.findByTitle(filePath)).closest("button")!);
+      await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([expect.objectContaining({ status: "ready" })]));
+      view.rerender(<RemoteFilePanel session={session} previewHost={previewHost} activePreviewTabId={`${session.id}:${filePath}`} onPreviewTabsChange={onPreviewTabsChange} />);
+      await waitFor(() => expect(previewHost.querySelector(".cm-editor")).not.toBeNull());
+      const editor = EditorView.findFromDOM(previewHost.querySelector<HTMLElement>(".cm-editor")!)!;
+      act(() => { editor.dispatch({ changes: { from: 0, to: 5, insert: "local" } }); });
+      await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([expect.objectContaining({ dirty: true })]));
+      await act(async () => { onChanged({ sessionId: session.id, paths: [rootPath], changedFiles: [`${rootPath}\\unopened.log`] }); });
+      expect(readText).not.toHaveBeenCalled();
+      expect(previewHost.querySelector(".remote-preview-save-message.conflict")).toBeNull();
+      await act(async () => { onChanged({ sessionId: session.id, paths: [rootPath], changedFiles: [filePath] }); });
+      expect(readText).toHaveBeenCalledExactlyOnceWith(session.id, filePath);
+      expect(previewHost.querySelector(".remote-preview-save-message.conflict")).not.toBeNull();
+      expect(previewFile).toHaveBeenCalledTimes(1);
+      expect(editor.state.doc.toString()).toBe("local");
+    } finally {
+      view.unmount();
+      previewHost.remove();
+    }
   });
 
   it("selects on click, supports Ctrl and visible Shift ranges, and opens on double click", async () => {

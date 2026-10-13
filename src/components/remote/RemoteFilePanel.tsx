@@ -1684,8 +1684,7 @@ function RemoteFilePanelComponent({
       payload.paths.forEach((changedPath) => { void refreshDirectory(changedPath); });
       for (const tab of previewTabsRef.current) {
         if (tab.sessionId !== sessionId || tab.state.status !== "ready" || tab.state.preview.kind !== "text") continue;
-        const parent = findCachedParentPath(tab.path);
-        if (!payload.paths.some((changedPath) => sameTreePath(changedPath, parent))) continue;
+        if (!payload.changedFiles.some((changedPath) => sameTreePath(changedPath, tab.path))) continue;
         if (isPreviewTabDirty(tab)) {
           updatePreviewTab(tab.id, (current) => ({ ...current, saveState: { status: "conflict", message: t("files.conflict") } }));
           void window.remoteFileApi.readText(tab.sessionId, tab.path).then((latest) => {
@@ -1701,7 +1700,7 @@ function RemoteFilePanelComponent({
       removeChanged();
       removeError();
     };
-  }, [findCachedParentPath, handleReloadPreview, refreshDirectory, session?.type, sessionId, t, updatePreviewTab]);
+  }, [handleReloadPreview, refreshDirectory, session?.type, sessionId, t, updatePreviewTab]);
 
   const handleSavePreview = useCallback(async () => {
     if (

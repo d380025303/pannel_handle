@@ -1554,7 +1554,7 @@ export type RemoteFileApi = {
   deleteEntry: (sessionId: string, remotePath: string, options?: { permanent?: boolean }) => Promise<{ mode: "trash" | "permanent" }>;
   watchDirectories: (sessionId: string, directories: string[]) => Promise<boolean>;
   unwatchDirectories: (sessionId: string) => Promise<void>;
-  onChanged: (callback: (payload: { sessionId: string; paths: string[] }) => void) => () => void;
+  onChanged: (callback: (payload: { sessionId: string; paths: string[]; changedFiles: string[] }) => void) => () => void;
   onWatchError: (callback: (payload: { sessionId: string; error: string }) => void) => () => void;
 };
 

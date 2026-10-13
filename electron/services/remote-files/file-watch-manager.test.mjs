@@ -93,7 +93,8 @@ describe("file watch manager", () => {
     expect(harness.broadcast).toHaveBeenCalledOnce();
     expect(harness.broadcast).toHaveBeenCalledWith("remote-files:changed", {
       sessionId: "run-1",
-      paths: ["/home/me/project"]
+      paths: ["/home/me/project"],
+      changedFiles: ["/home/me/project/src/app.ts", "/home/me/project/README.md"]
     });
     await harness.manager.shutdown();
   });
@@ -119,7 +120,8 @@ describe("file watch manager", () => {
     await vi.advanceTimersByTimeAsync(180);
     expect(harness.broadcast).toHaveBeenCalledWith("remote-files:changed", {
       sessionId: "run-1",
-      paths: ["C:\\workspace\\src"]
+      paths: ["C:\\workspace\\src"],
+      changedFiles: ["C:\\workspace\\src\\App.tsx"]
     });
 
     await harness.manager.setDirectories("run-1", ["C:\\workspace"]);
@@ -128,6 +130,29 @@ describe("file watch manager", () => {
 
     await harness.manager.shutdown();
     expect(firstWatcher.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { type: "windows", displayRoot: "C:\\workspace", hostRoot: "C:\\workspace", file: "C:\\workspace\\notes.txt" },
+    { type: "wsl", displayRoot: "/mnt/c/workspace", hostRoot: "C:\\workspace", file: "/mnt/c/workspace/notes.txt" },
+    { type: "wsl", displayRoot: "/", hostRoot: "\\\\wsl.localhost\\Ubuntu\\", file: "/notes.txt" }
+  ])("deduplicates changed files and clears each batch for $displayRoot", async ({ type, displayRoot, hostRoot, file }) => {
+    vi.useFakeTimers();
+    const harness = createHarness({ id: "run-1", type, wslDistro: "Ubuntu" });
+    await harness.manager.setDirectories("run-1", [displayRoot]);
+    const hostFile = `${hostRoot.replace(/\\$/, "")}\\notes.txt`;
+    harness.watchers[0].emit("all", "change", hostFile);
+    harness.watchers[0].emit("all", "change", hostFile);
+    await vi.advanceTimersByTimeAsync(180);
+    expect(harness.broadcast).toHaveBeenLastCalledWith("remote-files:changed", {
+      sessionId: "run-1", paths: [displayRoot], changedFiles: [file]
+    });
+    harness.watchers[0].emit("all", "unlink", hostFile.replace("notes.txt", "unopened.log"));
+    await vi.advanceTimersByTimeAsync(180);
+    expect(harness.broadcast).toHaveBeenLastCalledWith("remote-files:changed", {
+      sessionId: "run-1", paths: [displayRoot], changedFiles: [file.replace("notes.txt", "unopened.log")]
+    });
+    await harness.manager.shutdown();
   });
 
   it("serializes rapid watch updates and stop", async () => {

@@ -77,18 +77,24 @@ function createFileWatchManager({ terminalManager, broadcast, chokidarLoader = (
         watchOptions.binaryInterval = 500;
       }
       const watcher = chokidar.watch([...paths.keys()], watchOptions);
-      state = { watcher, paths, usePolling, timer: null, changed: new Set() };
+      state = { watcher, paths, usePolling, timer: null, changed: new Set(), changedFiles: new Set() };
       watcher.on("all", (_event, hostPath) => {
         const matching = [...state.paths.keys()]
-          .filter((root) => hostPath === root || hostPath.startsWith(`${root}${path.sep}`))
+          .filter((root) => hostPath === root || hostPath.startsWith(root.endsWith(path.sep) ? root : `${root}${path.sep}`))
           .sort((left, right) => right.length - left.length)[0];
         if (!matching) return;
         state.changed.add(state.paths.get(matching));
+        const relativePath = path.relative(matching, hostPath);
+        const displayRoot = state.paths.get(matching);
+        state.changedFiles.add(session.type === "wsl"
+          ? path.posix.join(normalizeWslPath(displayRoot), relativePath.split(path.sep).join("/"))
+          : path.join(displayRoot, relativePath));
         if (state.timer) clearTimeout(state.timer);
         state.timer = setTimeout(() => {
           state.timer = null;
-          broadcast("remote-files:changed", { sessionId, paths: [...state.changed] });
+          broadcast("remote-files:changed", { sessionId, paths: [...state.changed], changedFiles: [...state.changedFiles] });
           state.changed.clear();
+          state.changedFiles.clear();
         }, 180);
       });
       watcher.on("error", (error) => broadcast("remote-files:watch-error", { sessionId, error: error instanceof Error ? error.message : String(error) }));

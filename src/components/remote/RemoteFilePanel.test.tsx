@@ -464,7 +464,7 @@ describe("RemoteFilePanel directory navigation", () => {
   it("lets a forced refresh replace an older in-flight directory result", async () => {
     const remoteFileApi = createRemoteFileApi();
     const childRequests: Array<(entries: RemoteFileEntry[]) => void> = [];
-    let onChanged!: (payload: { sessionId: string; paths: string[] }) => void;
+    let onChanged!: Parameters<RemoteFileApi["onChanged"]>[0];
     remoteFileApi.onChanged = vi.fn((callback) => { onChanged = callback; return () => undefined; });
     remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
       if (path === rootPath) return [directory("patches", childPath)];
@@ -478,7 +478,7 @@ describe("RemoteFilePanel directory navigation", () => {
     fireEvent.doubleClick(patches.closest("button")!);
     expect(childRequests).toHaveLength(1);
 
-    act(() => { onChanged({ sessionId: session.id, paths: [childPath] }); });
+    act(() => { onChanged({ sessionId: session.id, paths: [childPath], changedFiles: [`${childPath}\\latest`] }); });
     await waitFor(() => expect(childRequests).toHaveLength(2));
     await act(async () => { childRequests[1]([directory("latest", `${childPath}\\latest`)]); });
     await act(async () => { childRequests[0]([directory("stale", `${childPath}\\stale`)]); });
@@ -497,6 +497,47 @@ describe("RemoteFilePanel directory navigation", () => {
     fireEvent.doubleClick(patches.closest("button")!);
     await waitFor(() => expect(remoteFileApi.watchDirectories).toHaveBeenCalledWith(session.id, [rootPath, childPath]));
     expect(remoteFileApi.unwatchDirectories).not.toHaveBeenCalled();
+  });
+
+  it.each(["windows", "wsl"] as const)("reloads only changed open files in a %s session", async (type) => {
+    const root = type === "windows" ? rootPath : "/home/me/workspace";
+    const separator = type === "windows" ? "\\" : "/";
+    const entries = Array.from({ length: 20 }, (_, index) => ({
+      name: `file-${index}.txt`, path: `${root}${separator}file-${index}.txt`,
+      type: "file" as const, size: 1024 * 1024, modifiedAt: 1
+    }));
+    const remoteFileApi = createRemoteFileApi();
+    let onChanged!: Parameters<RemoteFileApi["onChanged"]>[0];
+    remoteFileApi.onChanged = vi.fn((callback) => { onChanged = callback; return () => undefined; });
+    remoteFileApi.getHome = vi.fn(async () => root);
+    remoteFileApi.list = vi.fn(async () => entries);
+    remoteFileApi.previewFile = vi.fn(async (_sessionId, path) => ({
+      kind: "text" as const, path, content: "x".repeat(1024 * 1024), size: 1024 * 1024,
+      version: "1", encoding: "utf-8" as const, bom: false, eol: "lf" as const
+    }));
+    remoteFileApi.readText = vi.fn();
+    window.remoteFileApi = remoteFileApi;
+    const session = { id: "watch-session", title: type, shell: "powershell.exe", cwd: root, createdAt: 1, type } as TerminalSession;
+    render(<RemoteFilePanel session={session} />);
+    for (const [index, entry] of entries.entries()) {
+      fireEvent.doubleClick((await screen.findByTitle(entry.path)).closest("button")!);
+      await waitFor(() => expect(remoteFileApi.previewFile).toHaveBeenCalledTimes(index + 1));
+    }
+    vi.mocked(remoteFileApi.previewFile).mockClear();
+    vi.mocked(remoteFileApi.list).mockClear();
+    await act(async () => {
+      onChanged({ sessionId: session.id, paths: [root], changedFiles: [`${root}${separator}unopened.log`] });
+    });
+    expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, root);
+    expect(remoteFileApi.previewFile).not.toHaveBeenCalled();
+    expect(remoteFileApi.readText).not.toHaveBeenCalled();
+
+    const changedPath = type === "windows" ? entries[3].path.toUpperCase().replace(/\\/g, "/") : entries[3].path;
+    await act(async () => {
+      onChanged({ sessionId: session.id, paths: [root], changedFiles: [changedPath, changedPath] });
+    });
+    expect(remoteFileApi.previewFile).toHaveBeenCalledExactlyOnceWith(session.id, entries[3].path);
+    expect(remoteFileApi.readText).not.toHaveBeenCalled();
   });
 
   it("adds an entry path to the graphical input without writing to the terminal", async () => {
