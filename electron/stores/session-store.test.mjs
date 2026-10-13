@@ -87,16 +87,18 @@ describe("session-store", () => {
     }
   });
 
-  it.each(["launch-write", "commit"])("rolls back session deletion after %s failure and commits both stores on retry", (failure) => {
+  it.each(["launch-write", "launch-delete", "usage-delete", "commit"])("rolls back session deletion after %s failure and commits both stores on retry", (failure) => {
     const sessionsFile = createTempSessionsFile();
     const templatesFile = path.join(path.dirname(sessionsFile), "launch-templates.json");
     const usageFile = path.join(path.dirname(sessionsFile), "template-usage.json");
     const writeError = Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
     let fail = false;
     let begins = 0;
+    let database;
     const dataStore = createBusinessDataStore({
       userData: path.dirname(sessionsFile),
       Database: class extends DatabaseSync {
+        constructor(file) { super(file); database = this; }
         exec(sql) {
           if (sql === "BEGIN IMMEDIATE") begins++;
           if (fail && failure === "commit" && sql === "COMMIT") throw writeError;
@@ -132,8 +134,12 @@ describe("session-store", () => {
       onChanged.mockClear();
       begins = 0;
       fail = true;
+      if (failure.endsWith("-delete")) {
+        const table = failure === "launch-delete" ? "app_launch_templates" : "app_template_usage";
+        database.exec(`CREATE TEMP TRIGGER fail_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT, 'injected deletion failure'); END`);
+      }
 
-      expect(() => store.removeFromLibrary("1")).toThrow(writeError);
+      expect(() => store.removeFromLibrary("1")).toThrow(failure.endsWith("-delete") ? "injected deletion failure" : writeError);
       expect(begins).toBe(1);
       expect(store.getLibrary()).toEqual(before);
       expect(launch.getAll()).toEqual(launchBefore);
@@ -141,6 +147,8 @@ describe("session-store", () => {
       expect(onChanged).not.toHaveBeenCalled();
 
       fail = false;
+      if (failure.endsWith("-delete")) database.exec("DROP TRIGGER fail_delete");
+      begins = 0;
       let notifiedState;
       onChanged.mockImplementation(() => { notifiedState = {
         sessions: store.exportLibrary(), launch: launch.getAll(),
@@ -148,6 +156,8 @@ describe("session-store", () => {
       }; });
       store.removeFromLibrary("1");
       expect(onChanged).toHaveBeenCalledTimes(1);
+      expect(begins).toBe(1);
+      expect(usage.getSummary("1").recentLaunchCount).toBe(0);
       expect(store.getLibrary().map(template => template.id)).toEqual(["2"]);
       expect(launch.getAll().map(template => template.sessionTemplateIds)).toEqual([[], ["2"]]);
       expect(notifiedState).toEqual({ sessions: store.exportLibrary(), launch: launch.getAll(),

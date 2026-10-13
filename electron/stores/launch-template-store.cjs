@@ -138,6 +138,8 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
     });
     return {
       dataStore,
+      filePath: templatesFile,
+      value: changed ? { schemaVersion: 1, launchTemplates: next } : undefined,
       persist() {
         if (changed) writeJson(dataStore, templatesFile, { schemaVersion: 1, launchTemplates: next });
       },

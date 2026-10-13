@@ -52,6 +52,20 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
     save();
   }
 
+  function prepareRemoval(templateId) {
+    const id = String(templateId || "").trim();
+    const changed = Boolean(id && Object.prototype.hasOwnProperty.call(launchesByTemplateId, id));
+    const next = { ...launchesByTemplateId };
+    delete next[id];
+    return {
+      dataStore,
+      filePath: usageFile,
+      value: changed ? next : undefined,
+      persist() { if (changed) writeJson(dataStore, usageFile, next); },
+      commit() { if (changed) launchesByTemplateId = next; }
+    };
+  }
+
   function remove(templateId) {
     const id = String(templateId || "").trim();
     if (!id || !Object.prototype.hasOwnProperty.call(launchesByTemplateId, id)) return;
@@ -84,7 +98,7 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
     return getSummaries([templateId]).get(String(templateId || "").trim());
   }
 
-  return { load, record, remove, getSummary, getSummaries };
+  return { load, record, remove, prepareRemoval, getSummary, getSummaries };
 }
 
 module.exports = {

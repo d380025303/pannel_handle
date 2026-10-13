@@ -307,22 +307,22 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
 
   function removeFromLibrary(id) {
     const updated = librarySessions.filter(s => s.id !== id);
-    const removal = launchTemplateStore?.prepareSessionTemplateRemoval?.(id);
-    if (removal) {
-      if (!dataStore?.transaction || removal.dataStore !== dataStore) {
-        throw new Error("Deleting a session with launch templates requires a shared transactional data store.");
+    const removals = [
+      launchTemplateStore?.prepareSessionTemplateRemoval?.(id),
+      templateUsageStore?.prepareRemoval?.(id)
+    ].filter(Boolean);
+    if (removals.length) {
+      if (!dataStore?.removeSessionTemplate || removals.some(removal => removal.dataStore !== dataStore)) {
+        throw new Error("Deleting a session with related data requires a shared transactional data store.");
       }
-      dataStore.transaction(() => {
-        writeJson(dataStore, sessionsFile, updated);
-        removal.persist();
-      });
-      removal.commit();
+      dataStore.removeSessionTemplate(sessionsFile, updated, removals);
+      for (const removal of removals) removal.commit();
     } else {
       writeJson(dataStore, sessionsFile, updated);
-      launchTemplateStore?.removeSessionTemplate(id);
     }
     librarySessions = updated;
-    templateUsageStore?.remove(id);
+    if (!launchTemplateStore?.prepareSessionTemplateRemoval) launchTemplateStore?.removeSessionTemplate(id);
+    if (!templateUsageStore?.prepareRemoval) templateUsageStore?.remove(id);
     try { onChanged(); }
     catch (err) { console.error("Failed to notify library change:", err); }
   }

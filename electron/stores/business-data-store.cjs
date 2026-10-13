@@ -231,6 +231,19 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     ensureOpen();
     transaction(() => writeDocument(sourceName(filePath), value));
   }
+  // Persist prepared snapshots together; callers publish their memory only after commit.
+  function removeSessionTemplate(sessionsFile, sessions, removals) {
+    ensureOpen();
+    for (const removal of removals) {
+      if (removal.dataStore !== this) throw new Error("Deleting a session requires a shared transactional data store.");
+    }
+    transaction(() => {
+      writeDocument(sourceName(sessionsFile), sessions);
+      for (const removal of removals) {
+        if (removal.value !== undefined) writeDocument(sourceName(removal.filePath), removal.value);
+      }
+    });
+  }
   function close() { const stopped = searchReader.close(); if (db) { db.close(); db = null; } return stopped; }
   function writeModuleOwnerTaskMetadata(templateId, metadata) {
     ensureOpen();
@@ -295,7 +308,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { transaction, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { transaction, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };
