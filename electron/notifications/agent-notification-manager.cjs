@@ -1,3 +1,5 @@
+const { isAgentPlanPending } = require("../core/agent-status.cjs");
+
 const NOTIFY_STATUSES = new Set([
   "waiting_for_permission",
   "completed",
@@ -40,12 +42,13 @@ function createAgentNotificationManager({
   }
 
   function handleStatus(payload) {
+    const notificationStatus = isAgentPlanPending(payload) ? "plan_pending" : payload.status;
     const previousStatus = lastStatusBySessionId.get(payload.id);
-    lastStatusBySessionId.set(payload.id, payload.status);
+    lastStatusBySessionId.set(payload.id, notificationStatus);
 
     try {
       if (
-        previousStatus === payload.status ||
+        previousStatus === notificationStatus ||
         !NOTIFY_STATUSES.has(payload.status) ||
         windowManager.isMainWindowFocused() ||
         !Notification.isSupported()
@@ -64,7 +67,7 @@ function createAgentNotificationManager({
       }
 
       const notification = new Notification({
-        title: `${getProviderName(payload.provider)} ${STATUS_LABELS[payload.status]}`,
+        title: `${getProviderName(payload.provider)} ${notificationStatus === "plan_pending" ? "等待计划确认" : STATUS_LABELS[payload.status]}`,
         body: buildBody(session, payload)
       });
       notificationsBySessionId.set(payload.id, notification);

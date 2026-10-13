@@ -1,4 +1,5 @@
 const { isDeepStrictEqual } = require("node:util");
+const { isAgentPlanPending } = require("./agent-status.cjs");
 const MAX_RESULT_NOTIFICATIONS = 20;
 
 function samePendingRequest(previous, current) {
@@ -195,7 +196,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
       }
       return;
     }
-    if (graphical?.pendingPlan && payload.status === "completed") {
+    if (isAgentPlanPending(payload) || (graphical?.pendingPlan && payload.status === "completed")) {
       if (run) run.finished = true;
       return;
     }

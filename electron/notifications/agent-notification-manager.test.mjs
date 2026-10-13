@@ -60,6 +60,31 @@ function status(statusName, provider = "claude", extra = {}) {
 
 describe("agent-notification-manager", () => {
   it.each([
+    ["AppServerPlanPending", "Codex 等待计划确认"],
+    ["AppServerTurn", "Codex 已完成"]
+  ])("uses the completion meaning of %s", (eventName, title) => {
+    const { manager, notifications } = createHarness();
+    manager.handleStatus(status("completed", "codex", { eventName }));
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].options).toEqual({ title, body: "会话：Main" });
+    expect(notifications[0].show).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["AppServerPlanPending", "AppServerTurn"],
+    ["AppServerTurn", "AppServerPlanPending"]
+  ])("notifies when completed changes meaning from %s to %s", (first, second) => {
+    const { manager, notifications } = createHarness();
+    for (const eventName of [first, first, second, second]) {
+      manager.handleStatus(status("completed", "codex", { eventName }));
+    }
+    expect(notifications.map(notification => notification.options.title)).toEqual(
+      [first, second].map(eventName => eventName === "AppServerPlanPending" ? "Codex 等待计划确认" : "Codex 已完成")
+    );
+    expect(notifications[0].close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     ["waiting_for_permission", "Claude 等待确认"],
     ["completed", "Claude 已完成"],
     ["failed", "Claude 失败"],

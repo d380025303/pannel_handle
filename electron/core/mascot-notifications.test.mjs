@@ -154,6 +154,18 @@ describe("mascot task notifications", () => {
     manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
     await settle(); expect(head()).toBeNull(); expect(readText).not.toHaveBeenCalled();
   });
+  it("does not show completion for a pending-plan event before the snapshot arrives", async () => {
+    status("a", "running");
+    status("a", "completed", { eventName: "AppServerPlanPending" });
+    await settle();
+    expect(manager.snapshot().pendingCount).toBe(0);
+    expect(head()).toBeNull();
+    status("a", "running");
+    items.push({ id: "reply", type: "agentMessage", text: "任务完成" });
+    status("a", "completed", { eventName: "AppServerTurn" });
+    await settle();
+    expect(head()).toMatchObject({ status: "completed", summary: "任务完成" });
+  });
   it("shows the full pending plan without a completion bubble, deduplicates and clears external handling", async () => {
     status("a", "running");
     const text = "计划内容".repeat(100);
