@@ -4,11 +4,13 @@ const { throwIfCancelled } = require("./search-task.cjs");
 
 async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, maxVisitedEntries, task, includeIgnored = false }) {
   const queue = [{ hostPath: hostRoot, relativePath: "" }];
+  let head = 0;
   let visitedEntries = 0;
 
-  while (queue.length > 0 && visitedEntries < maxVisitedEntries) {
+  while (head < queue.length && visitedEntries < maxVisitedEntries) {
     throwIfCancelled(task);
-    const current = queue.shift();
+    const current = queue[head];
+    queue[head++] = undefined;
     let dirents;
     try {
       dirents = await fsApi.promises.readdir(current.hostPath, { withFileTypes: true });
