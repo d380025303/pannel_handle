@@ -1,6 +1,27 @@
 const path = require("node:path");
 const SUMMARY_LIMIT = 500;
 
+function attachmentPaths(references) {
+  const paths = [];
+  let offset = 0;
+  while (offset < references.length) {
+    if (references[offset] !== '"') return null;
+    const start = offset++;
+    // Advance once through each string; never retry from an escaped quote.
+    while (offset < references.length && references[offset] !== '"') {
+      if (references.charCodeAt(offset) < 32) return null;
+      if (references[offset] === "\\") offset += 1;
+      offset += 1;
+    }
+    if (offset >= references.length) return null;
+    try { paths.push(JSON.parse(references.slice(start, ++offset))); }
+    catch { return null; }
+    if (offset === references.length) return paths;
+    if (references[offset++] !== "、" || offset === references.length) return null;
+  }
+  return null;
+}
+
 function displayItem(item) {
   if (item?.type === "dynamicToolCall") return { ...item,
     output: (item.contentItems || []).filter(part => part.type === "inputText").map(part => part.text).join("\n") };
@@ -23,15 +44,13 @@ function displayItem(item) {
       return raw;
     }
     const references = raw.slice(position + marker.length);
-    const matches = [...references.matchAll(/"(?:\\.|[^"\\])*"/g)];
-    if (!matches.length || matches.map(match => match[0]).join("、") !== references) {
+    const filePaths = attachmentPaths(references);
+    if (!filePaths) {
       parts.push({ type: "text", text: raw });
       return raw;
     }
     try {
-      for (const match of matches) {
-        const filePath = JSON.parse(match[0]);
-        if (typeof filePath !== "string") { parts.push({ type: "text", text: raw }); return raw; }
+      for (const filePath of filePaths) {
         attachments.push({ path: filePath, name: path.basename(filePath) });
       }
       const cleaned = raw.slice(0, position).trimEnd();
