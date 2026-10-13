@@ -1934,6 +1934,7 @@ export interface ModuleOwnerApi {
   deleteTask(id: string, input: { id: string }): Promise<ModuleOwnerTask[]>;
   listTemplates(): Promise<ModuleOwnerTemplate[]>;
   get(id: string): Promise<ModuleOwnerState>;
+  getGeneration(id: string): Promise<ModuleOwnerState["generation"]>;
   preview(id: string, input: ModuleOwnerSettings): Promise<unknown>;
   generate(id: string, input: ModuleOwnerSettings): Promise<{ result: SessionApiResult; state: ModuleOwnerState; request?: unknown }>;
   mutate(id: string, input: ModuleOwnerMutation): Promise<ModuleOwnerState>;

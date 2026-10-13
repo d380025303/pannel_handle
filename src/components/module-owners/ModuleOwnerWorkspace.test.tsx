@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModuleOwnerWorkspace } from "./ModuleOwnerWorkspace";
 import type { ModuleOwnerApi, ModuleOwnerState, ModuleOwnerTask, SessionApi } from "../../vite-env";
@@ -17,6 +17,7 @@ beforeEach(() => {
     copyTask: vi.fn().mockResolvedValue([]),
     runTask: vi.fn().mockResolvedValue([]), listTasks: vi.fn().mockResolvedValue([]), saveTask: vi.fn().mockResolvedValue([]), deleteTask: vi.fn().mockResolvedValue([]),
     listTemplates: vi.fn().mockResolvedValue([{ templateId: "one", title: "项目一", cwd: "C:/repo", supported: true }, { templateId: "two", title: "项目二", cwd: "C:/other", supported: false }]),
+    getGeneration: vi.fn().mockResolvedValue(null),
     get: vi.fn().mockResolvedValue(structuredClone(initial)), preview: vi.fn().mockResolvedValue({ templateId: "one", tools: [{ name: "add_module_owner" }], toolCallback: { bearerToken: "<临时授权>" } }),
     mutate: vi.fn().mockResolvedValue(initial), configure: vi.fn().mockResolvedValue(initial), restore: vi.fn().mockResolvedValue({ ...initial, records: [] }),
     generate: vi.fn().mockResolvedValue({ result: { status: 201, method: "POST", url: "http://localhost/api/v1/session-instances", elapsedMs: 1, body: { sessionId: "run", status: "started" } }, state: { ...initial, generation: { status: "running", sessionId: "run", error: "", startedAt: 1 } } }),
@@ -28,6 +29,33 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("module owner workspace", () => {
+  it("polls only generation, preserves records and stops when hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      let view!: ReturnType<typeof render>;
+      await act(async () => { view = render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />); });
+      expect(screen.getByRole("button", { name: "编辑 桌面" })).toBeTruthy();
+      expect(ownerApi.getGeneration).toHaveBeenCalledWith("one");
+      vi.mocked(ownerApi.get).mockClear();
+      vi.mocked(ownerApi.listHistory).mockClear();
+      const generation = { status: "running", sessionId: "run", error: "", startedAt: 1 };
+      vi.mocked(ownerApi.getGeneration).mockResolvedValue(generation);
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(ownerApi.get).not.toHaveBeenCalled();
+      expect(ownerApi.listHistory).not.toHaveBeenCalled();
+      expect(ownerApi.getGeneration).toHaveBeenCalledTimes(4);
+      expect(screen.getByRole("button", { name: "编辑 桌面" })).toBeTruthy();
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "AI 分析生成" })); });
+      expect(screen.getByText("分析进行中")).toBeTruthy();
+      vi.mocked(ownerApi.getGeneration).mockResolvedValue({ ...generation, status: "completed" });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(screen.getByText("分析已结束")).toBeTruthy();
+      view.rerender(<ModuleOwnerWorkspace visible={false} onOpenSession={() => {}} />);
+      vi.mocked(ownerApi.getGeneration).mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(ownerApi.getGeneration).not.toHaveBeenCalled();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
   it("counts enabled and disabled tasks for each owner and refreshes changes", async () => {
     const other = { ...record, id: "other", name: "移动端" };
     vi.mocked(ownerApi.get).mockResolvedValue({ ...initial, records: [record, other] });

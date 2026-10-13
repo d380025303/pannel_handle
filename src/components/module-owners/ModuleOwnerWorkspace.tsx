@@ -92,7 +92,7 @@ export function ModuleOwnerWorkspace({ visible, onOpenSession }: { visible: bool
   useEffect(() => {
     if (!visible || !templateId) return;
     let live = true;
-    const load = () => { void window.moduleOwnerApi.get(templateId).then(value => { if (live) setState(value); }).catch(err => { if (live) setError(String(err)); }); };
+    const load = () => { void window.moduleOwnerApi.getGeneration(templateId).then(generation => { if (live) setState(value => value ? { ...value, generation } : value); }).catch(err => { if (live) setError(String(err)); }); };
     load();
     const timer = window.setInterval(load, 2000);
     return () => { live = false; window.clearInterval(timer); };

@@ -811,5 +811,5 @@ export function installBrowserPreview() {
     resolveUncertain: async () => { previewWorkItem.status = "stopped"; return copy(previewWorkItem); },
     onChanged: callback => workItemChanges.subscribe(callback)
   };
-  Object.assign(window, apis, { workItemApi, moduleOwnerApi: { listTemplates: async () => [], onChanged: () => () => {} } });
+  Object.assign(window, apis, { workItemApi, moduleOwnerApi: { getGeneration: async () => null, listTemplates: async () => [], onChanged: () => () => {} } });
 }

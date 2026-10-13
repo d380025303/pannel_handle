@@ -130,6 +130,10 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     return job;
   }
   const publicJob = job => job ? { status: job.status, sessionId: job.sessionId, error: [job.error, job.historyError, job.resultError, job.progressError].filter(Boolean).join(" · "), startedAt: job.startedAt } : null;
+  function getGeneration(id) {
+    template(id);
+    return publicJob(refresh(jobs.get(id)));
+  }
   function get(id) {
     template(id);
     return { ...store.get(id), generation: publicJob(refresh(jobs.get(id))) };
@@ -312,7 +316,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     if (!dataStore) throw new Error("SQLite 历史存储不可用。");
     return detail ? dataStore.getTaskRun(id, parsed.taskId, parsed.id) : dataStore.listTaskRuns(id, parsed.taskId, parsed.page);
   }
-  return { ...require("./prompt-template-service.cjs").createPromptTemplateService({ store, listTemplates }), get, listTemplates, preview, generate, claimCreation, callback, workItems,
+  return { ...require("./prompt-template-service.cjs").createPromptTemplateService({ store, listTemplates }), get, getGeneration, listTemplates, preview, generate, claimCreation, callback, workItems,
     listTaskRuns: (id, input) => runQuery(id, input), getTaskRun: (id, input) => runQuery(id, input, true),
     deleteTaskRun: (id, input) => {
       template(id);

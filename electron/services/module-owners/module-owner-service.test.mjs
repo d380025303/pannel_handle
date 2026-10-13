@@ -43,6 +43,43 @@ async function fixture(withHistory = false) {
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const f of fixtures.splice(0)) { await f.api.stop(); f.owners.shutdown(); f.dataStore?.close(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("module owner generation through actual HTTP", () => {
+  it("queries generation without cloning storage and refreshes lifecycle within template scope", async () => {
+    const f = await fixture();
+    expect(f.owners.getGeneration("one")).toBeNull();
+    expect(() => f.owners.getGeneration("missing")).toThrow("来源会话模板不存在");
+    await f.owners.generate("one", settings);
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    for (let i = 0; i < 7; i++) {
+      expect(f.owners.getGeneration("one")).toMatchObject({ status: "running", sessionId: "run" });
+      expect(f.owners.getGeneration("two")).toBeNull();
+    }
+    const result = f.owners.getGeneration("one");
+    result.status = "tampered";
+    expect(f.owners.getGeneration("one").status).toBe("running");
+    f.sessions.get("run").busy = false;
+    expect(f.owners.getGeneration("one").status).toBe("completed");
+    expect(clone).not.toHaveBeenCalled();
+    expect((await f.callback("add_module_owner", fields)).status).toBe(401);
+  });
+  it("never accesses accumulated history during repeated generation queries", () => {
+    const entry = { kind: "owner", ownerId: "owner", before: { responsibilities: "a".repeat(5000) }, after: { responsibilities: "b".repeat(5000) } };
+    const state = { schemaVersion: 1, templates: { one: { revision: 5000, records: [], history: Array.from({ length: 5000 }, () => entry), settings } } };
+    const read = vi.fn(() => state);
+    const owners = createModuleOwnerService({ userData: "memory-only", dataStore: { read },
+      sessionStore: { getTemplate: id => id === "one" ? { id } : null, getLibrary: () => [] },
+      terminalManager: {}, graphicalService: {}, getSessionApi: () => null });
+    try {
+      const history = vi.fn(() => { throw new Error("history accessed"); });
+      Object.defineProperty(state.templates.one, "history", { get: history });
+      const clone = vi.spyOn(globalThis, "structuredClone");
+      read.mockClear();
+      for (let i = 0; i < 7; i++) expect(owners.getGeneration("one")).toBeNull();
+      expect(history).not.toHaveBeenCalled();
+      expect(clone).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+    } finally { owners.shutdown(); }
+  });
+
   it("lists all owners or filters by an optional exact module name within the source template", async () => {
     const f = await fixture();
     f.owners.mutate("one", { operation: "add", ...fields });

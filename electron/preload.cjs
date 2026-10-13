@@ -695,6 +695,7 @@ contextBridge.exposeInMainWorld("moduleOwnerApi", {
   deleteTask: (id, input) => ipcRenderer.invoke("module-owners:deleteTask", id, input),
   listTemplates: () => ipcRenderer.invoke("module-owners:templates"),
   get: id => ipcRenderer.invoke("module-owners:get", id),
+  getGeneration: id => ipcRenderer.invoke("module-owners:getGeneration", id),
   preview: (id, input) => ipcRenderer.invoke("module-owners:preview", id, input),
   generate: (id, input) => ipcRenderer.invoke("module-owners:generate", id, input),
   mutate: (id, input) => ipcRenderer.invoke("module-owners:mutate", id, input),
