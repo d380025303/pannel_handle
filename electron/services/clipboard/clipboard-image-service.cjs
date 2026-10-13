@@ -76,6 +76,7 @@ function getPngBuffer(image) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     return undefined;
   }
+  validateImageFile("clipboard.png", buffer.length);
   return buffer;
 }
 
