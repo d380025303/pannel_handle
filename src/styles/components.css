@@ -538,7 +538,16 @@
 }
 
 .auto-restore-checkbox {
-  display: none;
+  position: absolute;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  opacity: 0;
+}
+
+.auto-restore-checkbox:focus-visible + .auto-restore-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .auto-restore-track {
