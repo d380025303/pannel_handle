@@ -1,6 +1,6 @@
 const path = require("node:path");
-const { StringDecoder } = require("node:string_decoder");
-const { DEFAULT_EXCLUDED_DIRS, MAX_TEXT_FILE_SIZE, MAX_TEXT_RESULTS, SEARCH_TIMEOUT_MS } = require("./search-limits.cjs");
+const { Worker } = require("node:worker_threads");
+const { DEFAULT_EXCLUDED_DIRS, MAX_TEXT_FILE_SIZE, SEARCH_TIMEOUT_MS } = require("./search-limits.cjs");
 const { getWorkspaceRoot, toDisplayPath, toDisplayRelativePath } = require("./search-paths.cjs");
 const { createProcessError } = require("./search-task.cjs");
 
@@ -107,7 +107,7 @@ function isRipgrepUnavailable(code, stderr) {
     || /(?:not found|no such file).*(?:rg|ripgrep)/i.test(stderr);
 }
 
-function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task }) {
+function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task, timeoutMs = SEARCH_TIMEOUT_MS }) {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -125,11 +125,23 @@ function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task
     }
 
     task.child = child;
-    const results = [];
-    const stdoutDecoder = new StringDecoder("utf8");
-    let stdoutBuffer = "";
+    let worker;
+    try {
+      worker = new Worker(path.join(__dirname, "ripgrep-search-worker.cjs"), {
+        workerData: { session: { type: session.type }, displayRoot }
+      });
+    } catch (error) {
+      child.kill();
+      task.child = null;
+      reject(error);
+      return;
+    }
     let stderr = "";
     let settled = false;
+    let processClosed = false;
+    let parserDone = false;
+    let exitCode;
+    let results = [];
     let reachedLimit = false;
 
     const settle = (callback, value) => {
@@ -137,70 +149,87 @@ function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task
       settled = true;
       clearTimeout(timer);
       if (task.child === child) task.child = null;
+      if (task.cancelMatching === cancel) task.cancelMatching = null;
+      void worker.terminate();
+      // Drain a killed process pipe even when backpressure paused stdout.
+      child.stdout?.resume();
       callback(value);
     };
-
-    const consumeLine = (line) => {
-      if (!line || reachedLimit) return;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        return;
-      }
-      const result = parseRipgrepMatch(event, session, displayRoot);
-      if (!result) return;
-      results.push(result);
-      if (results.length >= MAX_TEXT_RESULTS) {
-        reachedLimit = true;
-        child.kill();
+    const cancel = () => {
+      child.kill();
+      settle(reject, createProcessError("Project search was cancelled.", "SEARCH_CANCELLED"));
+    };
+    task.cancelMatching = cancel;
+    const finish = () => {
+      if (settled || !processClosed || !parserDone) return;
+      if (task.cancelled) return cancel();
+      if (reachedLimit || exitCode === 0 || exitCode === 1) {
+        settle(resolve, results);
+      } else if (isRipgrepUnavailable(exitCode, stderr)) {
+        settle(reject, createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
+      } else {
+        settle(reject, new Error(stderr.trim() || `ripgrep failed with exit code ${exitCode}.`));
       }
     };
-
     const timer = setTimeout(() => {
       task.timedOut = true;
       child.kill();
-    }, SEARCH_TIMEOUT_MS);
+      settle(reject, createProcessError("Project search timed out.", "SEARCH_TIMEOUT"));
+    }, timeoutMs);
 
+    worker.on("message", (message) => {
+      if (settled) return;
+      if (message.type === "ack") {
+        child.stdout?.resume();
+      } else if (message.type === "done") {
+        results = message.results;
+        reachedLimit = message.reachedLimit;
+        parserDone = true;
+        if (reachedLimit) {
+          child.kill();
+          child.stdout?.resume();
+        }
+        finish();
+      }
+    });
+    worker.on("error", (error) => {
+      child.kill();
+      settle(reject, error);
+    });
+    worker.on("exit", (code) => {
+      if (!settled) {
+        child.kill();
+        settle(reject, new Error(`Ripgrep search worker exited unexpectedly (${code}).`));
+      }
+    });
     child.stdout?.on("data", (chunk) => {
-      stdoutBuffer += Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk);
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() || "";
-      for (const line of lines) consumeLine(line);
+      if (settled || parserDone) return;
+      child.stdout.pause();
+      worker.postMessage({ type: "chunk", chunk });
     });
     child.stderr?.on("data", (chunk) => {
       if (stderr.length < 8192) {
-        stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk);
+        stderr += (Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk)).slice(0, 8192 - stderr.length);
       }
     });
     child.on("error", (error) => {
-      if (error?.code === "ENOENT") {
-        settle(reject, createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
-        return;
-      }
-      settle(reject, error);
+      settle(reject, error?.code === "ENOENT"
+        ? createProcessError("ripgrep is not available.", "RG_UNAVAILABLE") : error);
     });
     child.on("close", (code) => {
-      stdoutBuffer += stdoutDecoder.end();
-      consumeLine(stdoutBuffer);
-      if (task.cancelled) {
-        settle(reject, createProcessError("Project search was cancelled.", "SEARCH_CANCELLED"));
-        return;
+      if (settled) return;
+      processClosed = true;
+      exitCode = code;
+      if (task.cancelled) return cancel();
+      if (!parserDone) {
+        if (!child.stdout || child.stdout.readableEnded) worker.postMessage({ type: "end" });
+        else child.stdout.once("end", () => {
+          if (!settled && !parserDone) worker.postMessage({ type: "end" });
+        });
       }
-      if (task.timedOut) {
-        settle(reject, createProcessError("Project search timed out.", "SEARCH_TIMEOUT"));
-        return;
-      }
-      if (reachedLimit || code === 0 || code === 1) {
-        settle(resolve, results);
-        return;
-      }
-      if (isRipgrepUnavailable(code, stderr)) {
-        settle(reject, createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
-        return;
-      }
-      settle(reject, new Error(stderr.trim() || `ripgrep failed with exit code ${code}.`));
+      finish();
     });
+    if (task.cancelled) cancel();
   });
 }
 
