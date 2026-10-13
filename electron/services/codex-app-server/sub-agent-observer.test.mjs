@@ -58,8 +58,8 @@ describe("Codex read-only sub-agent observer", () => {
     observer.reset("root"); await settle(); await vi.advanceTimersByTimeAsync(100);
     expect(reads()).toBe(1);
     changed.mockClear(); request.mockClear();
-    await vi.advanceTimersByTimeAsync(4500);
-    expect(request.mock.calls.filter(([method]) => method === "thread/list")).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(request.mock.calls.filter(([method]) => method === "thread/list")).toHaveLength(3);
     expect(reads()).toBe(0);
     expect(changed).not.toHaveBeenCalled();
     expect(observer.snapshot().members[0].status).toBe("completed");
@@ -100,6 +100,70 @@ describe("Codex read-only sub-agent observer", () => {
     await vi.advanceTimersByTimeAsync(4500);
     expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(2);
     expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("publishes changed history even when running metadata stays identical", async () => {
+    vi.useFakeTimers();
+    let text = "first";
+    const { observer, changed } = fixture(async method => method === "thread/list" ? { data: [] }
+      : { thread: { id: "a", status: { type: "active" }, turns: [{ id: "turn", status: "inProgress",
+        items: [{ id: "msg", type: "agentMessage", text }] }] } });
+    observer.reset("root", [spawn("a")]); await settle(); await vi.advanceTimersByTimeAsync(100);
+    changed.mockClear();
+    text = "second";
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot().members[0].items[0].text).toBe("second");
+    changed.mockClear();
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("invalidates completed history when list polling discovers a new active turn", async () => {
+    vi.useFakeTimers();
+    let active = false;
+    const thread = () => ({ id: "a", parentThreadId: "root", status: { type: active ? "active" : "idle" },
+      turns: [{ id: active ? "new-turn" : "old-turn", status: active ? "inProgress" : "completed",
+        items: [{ id: active ? "new-msg" : "old-msg", type: "agentMessage", text: active ? "new" : "old" }] }] });
+    const { observer, request, changed } = fixture(async method => method === "thread/list"
+      ? { data: [thread()] } : { thread: thread() });
+    observer.reset("root"); await settle(); await vi.advanceTimersByTimeAsync(100);
+    request.mockClear(); changed.mockClear();
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(0);
+    active = true;
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(1);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot().members[0]).toMatchObject({ status: "running", items: [{ text: "old" }, { text: "new" }] });
+  });
+
+  it("publishes polling errors and recovery once, retaining cached completed history", async () => {
+    vi.useFakeTimers();
+    let listError = null;
+    const thread = { id: "a", parentThreadId: "root", status: { type: "idle" },
+      turns: [{ id: "turn", status: "completed", items: [{ id: "msg", type: "agentMessage", text: "cached" }] }] };
+    const { observer, request, changed } = fixture(async method => {
+      if (method === "thread/list") {
+        if (listError) throw new Error(listError);
+        return { data: [thread] };
+      }
+      return { thread };
+    });
+    observer.reset("root"); await settle(); await vi.advanceTimersByTimeAsync(100);
+    request.mockClear(); changed.mockClear();
+    listError = "temporary list failure";
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot().error).toBe(listError);
+    changed.mockClear();
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(changed).not.toHaveBeenCalled();
+    listError = null;
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(observer.snapshot()).toMatchObject({ error: null, members: [{ items: [{ text: "cached" }] }] });
+    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(0);
   });
 
   it("keeps collapsed 1MiB streams silent and emits only new text when expanded", async () => {

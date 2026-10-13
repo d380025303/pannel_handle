@@ -101,11 +101,20 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     if (index < 0) {
       if (itemIndices) itemIndices.set(item.id, member.items.length);
       member.items.push(value);
-    } else member.items[index] = value;
+    } else {
+      if (isDeepStrictEqual(previous, value)) {
+        if (commandOutputLengths.has(value)) commandOutputLengths.set(previous, commandOutputLengths.get(value));
+        return false;
+      }
+      member.items[index] = value;
+    }
+    return true;
   }
   async function run(epoch, force) {
     // Automatic polls publish only the final, changed state; loading indicators are for explicit refreshes.
-    const previous = force ? null : snapshot();
+    // Compare metadata only: cached terminal histories must not be copied or traversed on every poll.
+    const previous = force ? null : viewState(false);
+    let historyChanged = false;
     if (force) loading = true;
     error = null; if (force) notify();
     try {
@@ -151,7 +160,9 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
           // Keep streamed items missing from a not-yet-flushed rollout.
           const turnStatuses = new Map((result.thread.turns || []).map(turn => [turn.id, turn.status]));
           const itemIndices = new Map(member.items.map((item, index) => [item.id, index]));
-          for (const item of historyItems(result.thread)) merge(member, item, turnStatuses.get(item.turnId) === "inProgress", itemIndices);
+          for (const item of historyItems(result.thread)) {
+            historyChanged = merge(member, item, turnStatuses.get(item.turnId) === "inProgress", itemIndices) || historyChanged;
+          }
           for (const item of member.items) collaboration(item, member.threadId);
           const turn = result.thread.turns?.at(-1);
           if (turn?.status === "failed") member.status = "failed";
@@ -165,7 +176,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     }
     if (valid(epoch)) {
       loading = false;
-      if (force || !isDeepStrictEqual(previous, snapshot())) notify();
+      if (force || historyChanged || !isDeepStrictEqual(previous, viewState(false))) notify();
     }
   }
   function refresh(force = true) {
@@ -244,10 +255,12 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     textDeltas = []; expanded = value; selected = threadId; notify();
     if (expanded) void refresh(); else { clearTimeout(timer); timer = null; }
   }
-  function snapshot() {
+  function viewState(includeItems) {
     return { expanded, selectedThreadId: selected, loading, error, warning,
-      members: [...members.values()].sort((a, b) => a.createdAt - b.createdAt).map(({ eventRevision, historyRevision, ...member }) => ({ ...member, items: member.items.map(item => ({ ...item })) })) };
+      members: [...members.values()].sort((a, b) => a.createdAt - b.createdAt).map(({ eventRevision, historyRevision, items, ...member }) => ({ ...member,
+        ...(includeItems ? { items: items.map(item => ({ ...item })) } : {}) })) };
   }
+  function snapshot() { return viewState(true); }
   function dispose() { loading = false; for (const member of members.values()) member.loading = false; disposed = true; textDeltas = []; generation += 1; clearTimeout(timer); clearTimeout(publishTimer); }
   return { reset, observe, setView, refresh, snapshot, takeTextDeltas, dispose };
 }
