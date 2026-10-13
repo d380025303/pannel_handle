@@ -78,6 +78,57 @@ afterEach(() => {
 });
 
 describe("remote-agent-bridge-service", () => {
+  it("accumulates 4096 streaming chunks without scanning historical output", async () => {
+    const harness = createHarness({}, { broadcast: () => {} });
+    await harness.service.createBinding("run-1");
+    const chunk = "x".repeat(1024);
+    let scannedCharacters = 0;
+    harness.sshSessionRuntime.execStreaming.mockImplementation(async (_sessionId, _command, options) => {
+      const byteLength = Buffer.byteLength;
+      const spy = vi.spyOn(Buffer, "byteLength").mockImplementation((value, ...args) => {
+        if (typeof value === "string") scannedCharacters += value.length;
+        return byteLength(value, ...args);
+      });
+      try {
+        for (let index = 0; index < 4096; index += 1) options.onStdout(chunk);
+      } finally {
+        spy.mockRestore();
+      }
+      return { promise: Promise.resolve({ exitCode: 0 }), cancel: vi.fn() };
+    });
+    try {
+      const result = await harness.service.runConfiguredCommand("run-1", "build");
+      expect(result.stdout).toBe(chunk.repeat(4096));
+      expect(result.stderr).toBe("");
+      expect(result.truncated).toBe(false);
+      expect(scannedCharacters).toBeLessThanOrEqual(4 * 1024 * 1024);
+    } finally {
+      await harness.service.shutdown();
+    }
+  });
+
+  it("shares the byte limit across streams and ignores chunks after truncation", async () => {
+    const harness = createHarness({}, { broadcast: () => {} });
+    await harness.service.createBinding("run-1");
+    const prefix = "x".repeat(4 * 1024 * 1024 - 4);
+    const ignored = { toString: vi.fn(() => "ignored") };
+    harness.sshSessionRuntime.execStreaming.mockImplementation(async (_sessionId, _command, options) => {
+      options.onStdout(prefix);
+      options.onStderr("中ab");
+      for (let index = 0; index < 4096; index += 1) options.onStdout(ignored);
+      return { promise: Promise.resolve({ exitCode: 0 }), cancel: vi.fn() };
+    });
+    try {
+      const result = await harness.service.runConfiguredCommand("run-1", "build");
+      expect(result.stdout).toBe(prefix);
+      expect(result.stderr).toBe("中a");
+      expect(result.truncated).toBe(true);
+      expect(ignored.toString).not.toHaveBeenCalled();
+    } finally {
+      await harness.service.shutdown();
+    }
+  });
+
   it("reuses persistent Codex slots while isolating concurrent sessions and projects", async () => {
     const harness = createHarness({ agentProvider: "codex" });
     const first = await harness.service.createBinding("run-1");

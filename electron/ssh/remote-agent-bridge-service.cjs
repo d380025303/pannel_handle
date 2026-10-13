@@ -522,16 +522,18 @@ function createRemoteAgentBridgeService({
     const remoteCommand = buildRemoteCommand(binding.platform, cwd, command);
     let stdout = "";
     let stderr = "";
+    let outputBytes = 0;
     let truncated = false;
     const append = (kind, chunk) => {
-      const value = String(chunk);
-      const currentBytes = Buffer.byteLength(stdout) + Buffer.byteLength(stderr);
-      const remaining = Math.max(0, MAX_COMMAND_OUTPUT_BYTES - currentBytes);
+      const remaining = Math.max(0, MAX_COMMAND_OUTPUT_BYTES - outputBytes);
       if (remaining === 0) {
         truncated = true;
         return;
       }
-      const accepted = Buffer.from(value).subarray(0, remaining).toString("utf-8");
+      const value = String(chunk);
+      const bytes = Buffer.from(value);
+      const accepted = bytes.subarray(0, remaining).toString("utf-8");
+      outputBytes += bytes.length <= remaining ? bytes.length : Buffer.byteLength(accepted);
       if (kind === "stdout") stdout += accepted; else stderr += accepted;
       if (accepted.length < value.length) truncated = true;
       emitAudit(binding.sessionId, {
