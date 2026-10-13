@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
@@ -57,6 +58,48 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
 }
 
 describe("SettingsModal navigation", () => {
+  it("keeps forward and backward keyboard navigation inside settings and restores the opener", async () => {
+    const user = userEvent.setup();
+    const opener = document.createElement("button");
+    opener.textContent = "打开设置";
+    const backgroundAction = vi.fn();
+    opener.onclick = backgroundAction;
+    document.body.append(opener);
+    opener.focus();
+    const view = renderSettingsModal();
+    const close = screen.getByRole("button", { name: "关闭" });
+    const dialog = screen.getByRole("dialog");
+    expect(document.activeElement).toBe(close);
+    await user.tab({ shift: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.tab();
+    expect(document.activeElement).toBe(close);
+    for (let index = 0; index < 50; index++) {
+      await user.tab({ shift: index >= 25 });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement?.closest('[hidden]')).toBeNull();
+    }
+    await user.keyboard("{Enter}");
+    expect(backgroundAction).not.toHaveBeenCalled();
+    view.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  }, 15000);
+
+  it("allows portal search focus and returns Tab navigation to the settings controls", async () => {
+    const user = userEvent.setup();
+    renderSettingsModal();
+    const theme = screen.getByRole("combobox", { name: "主题" });
+    await user.click(theme);
+    const search = screen.getByRole("combobox", { name: "搜索选项..." });
+    expect(document.activeElement).toBe(search);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "语言" }));
+    await user.click(theme);
+    await user.tab({ shift: true });
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(theme);
+  });
   it("opens the companion category and saves its toggle", async () => {
     let finish!: () => void;
     const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
@@ -300,7 +343,13 @@ describe("SettingsModal navigation", () => {
     fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
     fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发代理" } });
     fireEvent.click(screen.getByRole("tab", { name: "项目工具" }));
-    expect(await screen.findByRole("alertdialog", { name: "保存环境变量更改？" })).toBeTruthy();
+    const confirmation = await screen.findByRole("alertdialog", { name: "保存环境变量更改？" });
+    expect(confirmation.contains(document.activeElement)).toBe(true);
+    const user = userEvent.setup();
+    for (let index = 0; index < 8; index++) {
+      await user.tab({ shift: index >= 4 });
+      expect(confirmation.contains(document.activeElement)).toBe(true);
+    }
     fireEvent.click(screen.getByText("继续编辑"));
     expect(screen.getByRole("tab", { name: "环境变量" }).getAttribute("aria-selected")).toBe("true");
 
@@ -412,6 +461,12 @@ describe("SettingsModal navigation", () => {
     renderSettingsModal({ onCancel });
     fireEvent.click(screen.getByRole("tab", { name: "项目工具" }));
     fireEvent.click(await screen.findByRole("button", { name: "详情 list_module_owners" }));
+    const detail = screen.getByRole("dialog", { name: "list_module_owners" });
+    const user = userEvent.setup();
+    for (let index = 0; index < 6; index++) {
+      await user.tab({ shift: index >= 3 });
+      expect(detail.contains(document.activeElement)).toBe(true);
+    }
     fireEvent.keyDown(screen.getByRole("dialog", { name: "list_module_owners" }), { key: "Escape" });
     expect(onCancel).not.toHaveBeenCalled();
     expect(screen.getByRole("tab", { name: "项目工具" }).getAttribute("aria-selected")).toBe("true");

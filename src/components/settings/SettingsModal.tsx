@@ -109,9 +109,57 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const { t } = useI18n();
   const environmentRef = useRef<EnvironmentSettingsHandle>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useLayoutEffect(() => {
+    const trigger = document.activeElement;
+    closeButtonRef.current?.focus();
+    return () => {
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+    };
+  }, []);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || event.defaultPrevented) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const visible = (element: HTMLElement) => {
+      if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+      for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+        const style = window.getComputedStyle(parent);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+      }
+      return true;
+    };
+    const scope = Array.from(dialog.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'))
+      .filter(visible).at(-1) ?? dialog;
+    const items = Array.from(scope.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex], [contenteditable="true"]'))
+      .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && visible(element));
+    // Portal menus share aria-controls with their trigger. Continue from that
+    // trigger after the menu's own Tab handler closes it.
+    const target = event.target as HTMLElement;
+    const controls = target.closest('[aria-controls]')?.getAttribute('aria-controls');
+    const owner = !dialog.contains(target) && controls
+      ? items.find(element => element.getAttribute('aria-controls') === controls)
+      : undefined;
+    const index = items.indexOf(owner ?? document.activeElement as HTMLElement);
+    const next = index < 0 ? (event.shiftKey ? items.length - 1 : 0)
+      : (index + (event.shiftKey ? -1 : 1) + items.length) % items.length;
+    event.preventDefault();
+    (items[next] ?? scope).focus();
+  };
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("general");
   const [environmentDirty, setEnvironmentDirty] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (!pendingAction) return;
+    const previous = document.activeElement;
+    dialogRef.current?.querySelector<HTMLElement>('[role="alertdialog"] button')?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [pendingAction]);
   const [savingDraft, setSavingDraft] = useState(false);
   const [dingTalkEnabled, setDingTalkEnabled] = useState(false);
   const [hasWebhook, setHasWebhook] = useState(false);
@@ -405,13 +453,13 @@ export function SettingsModal({
 
   return (
     <div className="modal-overlay">
-      <div className="modal-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+      <div ref={dialogRef} tabIndex={-1} onKeyDown={handleDialogKeyDown} className="modal-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
         <header className="settings-dialog-header">
           <div>
             <h3 id="settings-dialog-title">{t("settings.title")}</h3>
             <span>{t("settings.subtitle")}</span>
           </div>
-          <button className="icon-button" type="button" title={t("settings.close")} aria-label={t("settings.close")} onClick={requestClose}>
+          <button ref={closeButtonRef} className="icon-button" type="button" title={t("settings.close")} aria-label={t("settings.close")} onClick={requestClose}>
             <X aria-hidden="true" />
           </button>
         </header>
