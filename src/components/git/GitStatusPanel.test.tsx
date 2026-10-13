@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
@@ -90,7 +90,7 @@ function createGitApi(snapshotBySession: Record<string, GitRepositorySnapshot>) 
     })),
     getSnapshot: vi.fn(async (target: GitRepositoryTarget) => snapshotBySession[target.sessionId]),
     getStatus: vi.fn(async (target: GitRepositoryTarget) => snapshotBySession[target.sessionId].status),
-    getDiff: vi.fn(async (_target: { sessionId: string; cwd: string }, request: { scope: string }) => ({
+    getDiff: vi.fn(async (_target: { sessionId: string; cwd: string }, request: { scope: string }): Promise<GitDiffResult> => ({
       cwd: "C:\\work",
       path: "",
       status: "M",
@@ -142,6 +142,56 @@ describe("GitStatusPanel", () => {
     cleanup();
     vi.restoreAllMocks();
   });
+
+  it.each(["long-line", "multiple-cells", "exact-limit", "ordinary"])(
+    "bounds diff search highlights and preserves navigation for %s",
+    async (scenario) => {
+      const session = createSession(`search-${scenario}`);
+      const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+      const rows: GitDiffResult["rows"] = scenario === "multiple-cells"
+        ? [0, 1].map((index) => ({ type: "modify", oldLineNumber: index + 1, newLineNumber: index + 1, oldText: "a".repeat(400), newText: "a".repeat(400) }))
+        : [{ type: "add", newLineNumber: 1, newText: scenario === "long-line" ? "a".repeat(50000) : scenario === "exact-limit" ? "a".repeat(1000) : "Aa xx aA" }];
+      api.getDiff.mockResolvedValue({
+        cwd: session.cwd, path: "working.ts", status: "M", scope: "working", kind: "text",
+        rows, truncated: false, capturedBytes: 50000
+      });
+      window.gitApi = api;
+      const scrollIntoView = vi.fn();
+      Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+      const user = userEvent.setup();
+      const { container } = renderPanel(session);
+      await user.click((await screen.findByText("working.ts")).closest("button")!);
+      const input = await screen.findByRole("textbox", { name: "搜索差异" });
+      const assertMatches = (count: number, truncated: boolean) => {
+        expect(container.querySelectorAll("mark")).toHaveLength(count);
+        expect(container.querySelector('[role="status"]') !== null).toBe(truncated);
+        if (truncated) expect(screen.getByText(/匹配结果已截断/)).toBeTruthy();
+        expect(container.querySelector(".git-diff-match-count")?.textContent).toBe(`1 / ${count}`);
+      };
+      fireEvent.change(input, { target: { value: "a" } });
+      const count = scenario === "ordinary" ? 4 : 1000;
+      assertMatches(count, scenario === "long-line" || scenario === "multiple-cells");
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      expect(container.querySelector(".git-diff-match-count")?.textContent).toBe(`${count} / ${count}`);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(container.querySelector(".git-diff-match-count")?.textContent).toBe(`1 / ${count}`);
+      expect(container.querySelectorAll("mark.active")).toHaveLength(1);
+      expect(scrollIntoView).toHaveBeenCalled();
+      fireEvent.change(input, { target: { value: "aa" } });
+      assertMatches(scenario === "ordinary" ? 2 : scenario === "long-line" ? 1000 : scenario === "exact-limit" ? 500 : 800, scenario === "long-line");
+      if (scenario === "multiple-cells") {
+        await user.click(screen.getByRole("button", { name: "HEAD" }));
+        assertMatches(400, false);
+      }
+      fireEvent.change(input, { target: { value: "missing" } });
+      expect(container.querySelectorAll("mark")).toHaveLength(0);
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(container.querySelector(".git-diff-match-count")?.textContent).toBe("0 / 0");
+      fireEvent.change(input, { target: { value: "" } });
+      expect(container.querySelectorAll("mark")).toHaveLength(0);
+      expect(container.querySelector(".git-diff-cell.new code")?.textContent).toBe(rows[0].newText);
+    }
+  );
 
   it.each(["R", "M", "C"])("unstages the correct paths for index status %s", async (indexStatus) => {
     const session = createSession("unstage-panel");

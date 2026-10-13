@@ -130,17 +130,7 @@ function statusClass(status: string) {
   return status.toLowerCase();
 }
 
-function getMatches(text: string | undefined, query: string) {
-  if (!text || !query) return [];
-  const matches: Array<{ start: number; end: number }> = [];
-  const normalized = text.toLocaleLowerCase();
-  let start = normalized.indexOf(query);
-  while (start !== -1) {
-    matches.push({ start, end: start + query.length });
-    start = normalized.indexOf(query, start + query.length);
-  }
-  return matches;
-}
+const MAX_DIFF_SEARCH_MATCHES = 1000;
 
 function HighlightText({ text, matches, activeMatchId }: {
   text: string;
@@ -176,22 +166,34 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   const gridRef = useRef<HTMLDivElement>(null);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const rows = state.status === "ready" && state.result.kind === "text" ? state.result.rows : [];
-  const matches = useMemo<DiffSearchMatch[]>(() => {
-    if (!normalizedQuery) return [];
+  const { matches, searchTruncated } = useMemo(() => {
     const collected: DiffSearchMatch[] = [];
-    rows.forEach((row, rowIndex) => {
-      const sides: Array<"old" | "new"> = side === "both" ? ["old", "new"] : [side];
-      sides.forEach((cellSide) => {
+    if (!normalizedQuery) return { matches: collected, searchTruncated: false };
+    const sides: Array<"old" | "new"> = side === "both" ? ["old", "new"] : [side];
+    for (const [rowIndex, row] of rows.entries()) {
+      for (const cellSide of sides) {
         const value = cellSide === "old" ? row.oldText : row.newText;
-        getMatches(value, normalizedQuery).forEach((match, matchIndex) => collected.push({
-          id: `${rowIndex}:${cellSide}:${matchIndex}`,
-          rowIndex,
-          side: cellSide,
-          ...match
-        }));
-      });
-    });
-    return collected;
+        if (!value) continue;
+        const normalized = value.toLocaleLowerCase();
+        let start = normalized.indexOf(normalizedQuery);
+        let matchIndex = 0;
+        while (start !== -1) {
+          // Probe one extra match to distinguish an exact limit from truncation.
+          if (collected.length === MAX_DIFF_SEARCH_MATCHES) {
+            return { matches: collected, searchTruncated: true };
+          }
+          collected.push({
+            id: `${rowIndex}:${cellSide}:${matchIndex++}`,
+            rowIndex,
+            side: cellSide,
+            start,
+            end: start + normalizedQuery.length
+          });
+          start = normalized.indexOf(normalizedQuery, start + normalizedQuery.length);
+        }
+      }
+    }
+    return { matches: collected, searchTruncated: false };
   }, [normalizedQuery, rows, side]);
   const matchesByCell = useMemo(() => {
     const grouped = new Map<string, DiffSearchMatch[]>();
@@ -260,6 +262,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
           <div className="git-diff-empty">{t("git.noTextChanges")}</div>
         ) : (
           <>
+            {searchTruncated && <div className="git-diff-truncated" role="status">{t("git.diffSearchTruncated", { count: MAX_DIFF_SEARCH_MATCHES })}</div>}
             {state.result.truncated && <div className="git-diff-truncated">{t("git.diffTruncated")}</div>}
             <div className="git-diff-grid" role="table" ref={gridRef}>
               <div className="git-diff-column-title old" role="columnheader">{t("git.head")}</div>

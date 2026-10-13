@@ -1037,6 +1037,7 @@ export type TranslationKey =
   | "git.stagedCount"
   | "git.commitDraftPresent"
   | "git.changeCount"
+  | "git.diffSearchTruncated"
   | "git.diffTruncated"
   | "git.stashManager"
   | "git.stashMessage"
@@ -2137,6 +2138,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.stagedCount": "{count} 个已暂存",
     "git.commitDraftPresent": "有草稿",
     "git.changeCount": "{count} 个文件",
+    "git.diffSearchTruncated": "匹配结果已截断，仅高亮并导航前 {count} 处匹配。",
     "git.diffTruncated": "差异过大，已显示安全范围内的预览。请在终端中审阅完整差异。",
     "git.stashManager": "储藏管理",
     "git.stashMessage": "储藏说明（可选）",
@@ -3229,6 +3231,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.stagedCount": "{count} staged",
     "git.commitDraftPresent": "Draft",
     "git.changeCount": "{count} files",
+    "git.diffSearchTruncated": "Search results truncated. Only the first {count} matches are highlighted and available for navigation.",
     "git.diffTruncated": "This diff is too large. A safe preview is shown; review the complete diff in the terminal.",
     "git.stashManager": "Stash manager",
     "git.stashMessage": "Stash message (optional)",
