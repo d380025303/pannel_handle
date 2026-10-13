@@ -378,6 +378,7 @@ export type GitDiffResult = {
   status: string;
   scope: GitDiffScope;
   kind: "text" | "binary";
+  comparisonBase?: "ours";
   rows: GitDiffRow[];
   truncated: boolean;
   capturedBytes: number;

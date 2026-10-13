@@ -338,6 +338,39 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it("previews merge conflict markers against ours while preserving ordinary working diffs", async () => {
+    const { directory, session, service } = createRepository();
+    const target = repositoryTarget(session.id, directory);
+    git(directory, "config", "core.autocrlf", "false");
+    const filePath = path.join(directory, "conflict.txt");
+    fs.writeFileSync(filePath, "base\n");
+    git(directory, "add", ".");
+    git(directory, "commit", "-m", "base");
+    git(directory, "checkout", "-b", "theirs");
+    fs.writeFileSync(filePath, "their content\n");
+    git(directory, "commit", "-am", "theirs");
+    git(directory, "checkout", "-b", "ours", "HEAD~1");
+    fs.writeFileSync(filePath, "our content\n");
+    git(directory, "commit", "-am", "ours");
+    expect(() => git(directory, "merge", "theirs")).toThrow();
+    expect(git(directory, "diff", "--", "conflict.txt")).toContain("@@@");
+    const status = await service.getStatus(target);
+    const file = status.files.find((entry) => entry.path === "conflict.txt");
+    expect(file).toMatchObject({ conflicted: true, status: "U" });
+    const diff = await service.getDiff(target, { ...file, scope: "working" });
+    expect(diff).toMatchObject({ comparisonBase: "ours", kind: "text", truncated: false });
+    expect(diff.rows.length).toBeGreaterThan(0);
+    const content = diff.rows.map((row) => row.newText ?? "").join("\n");
+    for (const text of ["<<<<<<<", "our content", "=======", "their content", ">>>>>>>"]) {
+      expect(content).toContain(text);
+    }
+    git(directory, "merge", "--abort");
+    fs.writeFileSync(filePath, "ordinary change\n");
+    const workingDiff = await service.getDiff(target, { scope: "working", path: "conflict.txt", status: "M" });
+    expect(workingDiff.comparisonBase).toBeUndefined();
+    expect(workingDiff.rows).toEqual([{ type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "our content", newText: "ordinary change" }]);
+  }, 15000);
+
   it("lists and previews each untracked file inside a new directory", async () => {
     const { directory, session, service } = createRepository();
     const target = repositoryTarget(session.id, directory);

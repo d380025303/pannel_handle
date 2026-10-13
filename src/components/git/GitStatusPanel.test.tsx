@@ -134,6 +134,22 @@ function renderPanel(session: TerminalSession) {
 }
 
 describe("GitStatusPanel", () => {
+  it("labels the ours comparison base in the preview and search selector", async () => {
+    const session = createSession("ours-diff");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    api.getDiff.mockResolvedValue({
+      cwd: session.cwd, path: "working.ts", status: "U", scope: "working", kind: "text",
+      comparisonBase: "ours", rows: [{ type: "add", newLineNumber: 1, newText: "<<<<<<< HEAD" }],
+      truncated: false, capturedBytes: 100
+    });
+    window.gitApi = api;
+    const user = userEvent.setup();
+    renderPanel(session);
+    await user.click((await screen.findByText("working.ts")).closest("button")!);
+    expect(await screen.findByRole("columnheader", { name: "我方（索引 stage 2）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "我方（索引 stage 2）" })).toBeTruthy();
+  });
+
   beforeEach(() => {
     Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
   });

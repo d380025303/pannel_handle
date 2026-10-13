@@ -161,6 +161,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const oldSideLabel = state.status === "ready" && state.result.comparisonBase === "ours" ? t("git.oursStage2") : t("git.head");
   const [side, setSide] = useState<DiffSearchSide>("both");
   const [activeIndex, setActiveIndex] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -244,7 +245,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
             />
             <div className="git-diff-search-scope" aria-label={t("git.diffSearchSide")}>
               <button type="button" className={side === "both" ? "active" : ""} onClick={() => setSide("both")}>{t("git.all")}</button>
-              <button type="button" className={side === "old" ? "active" : ""} onClick={() => setSide("old")}>{t("git.head")}</button>
+              <button type="button" className={side === "old" ? "active" : ""} onClick={() => setSide("old")}>{oldSideLabel}</button>
               <button type="button" className={side === "new" ? "active" : ""} onClick={() => setSide("new")}>{t("git.workingTree")}</button>
             </div>
             <span className="git-diff-match-count">{matches.length ? activeIndex + 1 : 0} / {matches.length}</span>
@@ -265,7 +266,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
             {searchTruncated && <div className="git-diff-truncated" role="status">{t("git.diffSearchTruncated", { count: MAX_DIFF_SEARCH_MATCHES })}</div>}
             {state.result.truncated && <div className="git-diff-truncated">{t("git.diffTruncated")}</div>}
             <div className="git-diff-grid" role="table" ref={gridRef}>
-              <div className="git-diff-column-title old" role="columnheader">{t("git.head")}</div>
+              <div className="git-diff-column-title old" role="columnheader">{oldSideLabel}</div>
               <div className="git-diff-column-title new" role="columnheader">{t("git.workingTree")}</div>
               {state.result.rows.map((row, index) => (
                 <div className={`git-diff-row row-${row.type}`} role="row" key={`${index}:${row.oldLineNumber || ""}:${row.newLineNumber || ""}`}>

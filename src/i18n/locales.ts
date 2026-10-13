@@ -1018,6 +1018,7 @@ export type TranslationKey =
   | "git.all"
   | "git.head"
   | "git.workingTree"
+  | "git.oursStage2"
   | "git.clearDiffSearch"
   | "git.loadingDiff"
   | "git.binaryDiff"
@@ -2119,6 +2120,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.all": "全部",
     "git.head": "HEAD",
     "git.workingTree": "工作区",
+    "git.oursStage2": "我方（索引 stage 2）",
     "git.clearDiffSearch": "清除差异搜索",
     "git.loadingDiff": "正在加载差异...",
     "git.binaryDiff": "二进制文件，无法预览差异。",
@@ -3212,6 +3214,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.all": "All",
     "git.head": "HEAD",
     "git.workingTree": "Working tree",
+    "git.oursStage2": "Ours (index stage 2)",
     "git.clearDiffSearch": "Clear diff search",
     "git.loadingDiff": "Loading diff...",
     "git.binaryDiff": "Binary file. Diff preview is not available.",

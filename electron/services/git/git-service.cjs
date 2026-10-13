@@ -673,13 +673,14 @@ function createGitService({
     const scope = request?.scope || "combined";
     const repoPath = request?.path ? validateRepoPath(request.path) : undefined;
     const oldPath = request?.oldPath ? validateRepoPath(request.oldPath) : undefined;
+    const compareOurs = scope === "working" && request?.status === "U";
     let args;
     let allowExitCodes = [0];
     if (scope === "working") {
       const isUntracked = request?.indexStatus === "?" || request?.status === "?";
       args = isUntracked
         ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
-        : ["diff", "--no-color", "--find-renames", "--", literalPathspec(repoPath)];
+        : ["diff", "--no-color", "--find-renames", ...(compareOurs ? ["--ours"] : []), "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     } else if (scope === "staged") {
       args = ["diff", "--cached", "--no-color", "--find-renames", "--", literalPathspec(repoPath), ...(oldPath ? [literalPathspec(oldPath)] : [])];
@@ -710,6 +711,7 @@ function createGitService({
       oldPath,
       status: request?.status || "M",
       scope,
+      ...(compareOurs ? { comparisonBase: "ours" } : {}),
       kind: parsed.kind,
       rows: parsed.rows,
       truncated: result.truncated || parsed.truncated,
