@@ -5,6 +5,7 @@ const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const DEFAULT_SCROLLBACK = 5000;
 const MAX_DELTA_BYTES = 2 * 1024 * 1024;
+const MAX_DELTA_COUNT = 16 * 1024;
 const MIN_DELTA_COMPACT_COUNT = 1024;
 const MAX_WRITE_BATCH_CHARS = 64 * 1024;
 
@@ -53,7 +54,8 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     const event = { seq: state.seq, data: text };
     state.deltas.push(event);
     state.deltaBytes += Buffer.byteLength(text, "utf8");
-    while (state.deltas.length - state.deltaHead > 1 && state.deltaBytes > maxDeltaBytes) {
+    while (state.deltas.length - state.deltaHead > 1 &&
+      (state.deltaBytes > maxDeltaBytes || state.deltas.length - state.deltaHead > MAX_DELTA_COUNT)) {
       const removed = state.deltas[state.deltaHead];
       state.deltas[state.deltaHead] = null;
       state.deltaHead += 1;
@@ -174,6 +176,7 @@ module.exports = {
   DEFAULT_ROWS,
   DEFAULT_SCROLLBACK,
   MAX_DELTA_BYTES,
+  MAX_DELTA_COUNT,
   MAX_WRITE_BATCH_CHARS,
   createTerminalStateHub
 };

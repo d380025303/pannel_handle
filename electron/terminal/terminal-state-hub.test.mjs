@@ -1,7 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTerminalStateHub, MAX_WRITE_BATCH_CHARS } from "./terminal-state-hub.cjs";
+import { createTerminalStateHub, MAX_DELTA_COUNT, MAX_WRITE_BATCH_CHARS } from "./terminal-state-hub.cjs";
 
 describe("terminal state hub", () => {
+  it("bounds single-byte deltas through repeated compaction without losing snapshot output", async () => {
+    const hub = createTerminalStateHub();
+    try {
+      const state = hub.start("run-1");
+      const count = MAX_DELTA_COUNT * 3 + 1;
+      for (let seq = 1; seq <= count; seq += 1) {
+        hub.write("run-1", "x");
+        expect(state.deltas.length - state.deltaHead).toBe(Math.min(seq, MAX_DELTA_COUNT));
+      }
+      const first = count - MAX_DELTA_COUNT + 1;
+      expect(state.deltaBytes).toBe(MAX_DELTA_COUNT);
+      expect(state.deltas.length).toBeLessThan(MAX_DELTA_COUNT * 2);
+      expect(state.deltas.slice(0, state.deltaHead).every((event) => event === null)).toBe(true);
+      expect(hub.getDeltas("run-1", first - 2)).toBeNull();
+      expect(hub.getDeltas("run-1", first - 1)).toEqual(
+        Array.from({ length: MAX_DELTA_COUNT }, (_, index) => ({ seq: first + index, data: "x" }))
+      );
+      expect(hub.getDeltas("run-1", count - 1)).toEqual([{ seq: count, data: "x" }]);
+      expect(hub.getDeltas("run-1", count)).toEqual([]);
+      const snapshot = await hub.getSnapshot("run-1");
+      expect(snapshot.seq).toBe(count);
+      expect(snapshot.ansi.match(/x/g)).toHaveLength(count);
+    } finally {
+      hub.shutdown();
+    }
+  });
+
   it("preserves delta boundaries through repeated eviction and compaction", async () => {
     const hub = createTerminalStateHub({ maxDeltaBytes: 24 });
     try {
