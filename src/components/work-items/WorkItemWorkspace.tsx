@@ -1,3 +1,4 @@
+import { useWorkItemDialog } from "./useWorkItemDialog";
 import { BATCH_ACTIONS, useWorkItemBatch } from "./useWorkItemBatch";
 import { useWorkItemActions } from "./useWorkItemActions";
 import { WorkItemQuickPrompts } from "./WorkItemQuickPrompts";
@@ -7,7 +8,7 @@ import remarkGfm from "remark-gfm";
 import "../../styles/markdown-content.css";
 import { WorkItemSummary } from "./WorkItemSummary";
 import { WorkItemMenu } from "./WorkItemMenu";
-import type { WorkItem, WorkItemAttempt, WorkItemPage, WorkItemStatus } from "../../vite-env";
+import type { WorkItemPage, WorkItemStatus } from "../../vite-env";
 import { OwnerDialog } from "../module-owners/OwnerDialog";
 import "../module-owners/module-owners.css";
 import "./work-items.css";
@@ -32,14 +33,10 @@ function readFilters() {
 }
 const active = (status: WorkItemStatus) => ["creating", "running", "uncertain"].includes(status);
 const time = (at?: number) => at ? new Date(at).toLocaleString() : "—";
-type Dialog = { id: string; kind: "detail" | "execute" | "attempts" | "void" | "restore" | "resolve" };
 const titles = { detail: "任务详情", execute: "执行任务", attempts: "执行记录", void: "作废任务", restore: "恢复任务", resolve: "核对执行结果" };
 
 export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean; onOpenSession: (id: string) => void }) {
   const ref = useRef<HTMLElement>(null);
-  const promptInitialized = useRef(false);
-  const [prompt, setPrompt] = useState("");
-  const [promptMode, setPromptMode] = useState<"preview" | "edit">("preview");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
   const [initialFilters] = useState(readFilters);
   const [templateId, setTemplateId] = useState(initialFilters.templateId); const [ownerId, setOwnerId] = useState(initialFilters.ownerId);
@@ -48,12 +45,12 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   const [followUp, setFollowUp] = useState(initialFilters.followUp);
   const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
-  const [dialog, setDialog] = useState<Dialog | null>(null); const [item, setItem] = useState<WorkItem | null>(null);
-  const [preview, setPreview] = useState<Awaited<ReturnType<typeof window.workItemApi.preview>> | null>(null);
-  const [dialogLoading, setDialogLoading] = useState(false); const [dialogError, setDialogError] = useState("");
-  const [reason, setReason] = useState("");
-  const [attemptPage, setAttemptPage] = useState(0); const [attempts, setAttempts] = useState<Awaited<ReturnType<typeof window.workItemApi.listAttempts>> | null>(null);
-  const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
+  const {
+    dialog, setDialog, item, setItem, preview, dialogLoading, dialogError, setDialogError,
+    prompt, setPrompt, promptMode, setPromptMode, reason, setReason,
+    attemptPage, setAttemptPage, attempts, selectedAttemptId, setSelectedAttemptId, attempt, setAttempt,
+    open: openDialog,
+  } = useWorkItemDialog(window.workItemApi, visible, reload);
 
   const batch = useWorkItemBatch(window.workItemApi, () => setReload(value => value + 1));
   const selectionFilter = JSON.stringify([templateId, ownerId, statuses, keyword, followUp]);
@@ -98,41 +95,9 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     background.setAttribute("aria-hidden", "true");
     return () => { background.inert = false; background.removeAttribute("aria-hidden"); };
   }, [dialog, batch.operation]);
-  useEffect(() => {
-    if (!dialog || !visible) return;
-    let live = true;
-    setDialogLoading(true);
-    void (async () => {
-      const value = await window.workItemApi.get({ id: dialog.id });
-      if (live) setItem(value);
-      if (dialog.kind === "execute" && !active(value.status) && value.status !== "void") {
-        const initialPrompt = !promptInitialized.current
-          ? [value.output, ...(await window.workItemApi.listQuickPrompts()).filter(record => record.persistent).map(record => record.prompt)].filter(Boolean).join("\n\n")
-          : undefined;
-        if (!live) return;
-        const body = await window.workItemApi.preview({ id: value.id, version: value.version, ...(initialPrompt === undefined ? {} : { prompt: initialPrompt }) });
-        if (live) {
-          setPreview(body);
-          if (initialPrompt !== undefined) { setPrompt(initialPrompt); promptInitialized.current = true; }
-        }
-      }
-      if (dialog.kind === "attempts") {
-        const value = await window.workItemApi.listAttempts({ id: dialog.id, page: attemptPage });
-        if (live) setAttempts(value);
-        if (selectedAttemptId) {
-          const detail = await window.workItemApi.getAttempt({ id: dialog.id, attemptId: selectedAttemptId });
-          if (live) setAttempt(detail);
-        }
-      }
-    })().catch(err => { if (live) setDialogError(String(err)); }).finally(() => { if (live) setDialogLoading(false); });
-    return () => { live = false; };
-  }, [dialog, visible, reload, attemptPage, selectedAttemptId]);
-
-  function open(id: string, kind: Dialog["kind"]) {
+  function open(...args: Parameters<typeof openDialog>) {
     if (batch.operation || batch.busy || busy) return;
-    promptInitialized.current = false; setPrompt(""); setPromptMode("preview");
-    setItem(null); setPreview(null); setAttempts(null); setAttempt(null); setSelectedAttemptId(""); setAttemptPage(0);
-    setDialogError(""); setReason(""); setDialog({ id, kind });
+    openDialog(...args);
   }
   async function openSession(id: string) {
     try {
