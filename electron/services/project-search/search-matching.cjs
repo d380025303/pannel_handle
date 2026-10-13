@@ -26,7 +26,12 @@ function isLikelyBinary(buffer) {
 function getLineMatches(content, query, limit, options = {}) {
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = options.regex ? query : escaped;
-  const matcher = new RegExp(options.wholeWord ? `\\b(?:${pattern})\\b` : pattern, options.caseSensitive ? "g" : "gi");
+  // Match ripgrep's Unicode word characters, including combining marks and join controls.
+  const wordCharacter = "[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\u200c\\u200d]";
+  const matcher = new RegExp(
+    options.wholeWord ? `(?<!${wordCharacter})(?:${pattern})(?!${wordCharacter})` : pattern,
+    `${options.caseSensitive ? "g" : "gi"}${options.wholeWord ? "u" : ""}`
+  );
   const lines = content.split(/\r?\n/);
   const matches = [];
   for (let index = 0; index < lines.length && matches.length < limit; index += 1) {

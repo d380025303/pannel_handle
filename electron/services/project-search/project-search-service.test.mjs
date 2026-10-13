@@ -496,7 +496,10 @@ describe("project-search-service", () => {
     [true, false, "foo", [1, 2, 3]],
     [true, true, "foo", [2]],
     [true, true, "foo|food", [2, 3]],
-    [true, true, "(f)\\1|foo", [2]]
+    [true, true, "(f)\\1|foo", [2]],
+    [false, true, "中文", [4]],
+    [false, false, "中文", [4, 5, 6]],
+    [true, true, "中文", [4]]
   ])("respects regex=%s and wholeWord=%s for WSL non-Git fallback query %s", async (regex, wholeWord, query, lineNumbers) => {
     const spawnProcess = vi.fn((_command, args) => {
       const child = args.includes("rg")
@@ -515,7 +518,7 @@ describe("project-search-service", () => {
       spawnProcess,
       fsApi: createDirectoryFsApi({
         readdir: vi.fn(async () => [{ name: "app.txt", isDirectory: () => false, isFile: () => true }]),
-        readFile: vi.fn(async () => Buffer.from("foobar\nfoo\nfood", "utf-8"))
+        readFile: vi.fn(async () => Buffer.from("foobar\nfoo\nfood\n中文\n中文abc\nabc中文", "utf-8"))
       })
     });
 
