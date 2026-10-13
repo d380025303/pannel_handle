@@ -111,7 +111,7 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
   }
   function listQuickPrompts() { return database().listWorkItemPrompts(); }
   function mutateQuickPrompt(input) {
-    const fields = { name: z.string().trim().min(1).max(100), prompt: z.string().min(1).max(100000).refine(value => Boolean(value.trim()), "提示词不能为空。") };
+    const fields = { persistent: z.boolean().default(false), name: z.string().trim().min(1).max(100), prompt: z.string().min(1).max(100000).refine(value => Boolean(value.trim()), "提示词不能为空。") };
     const parsed = z.discriminatedUnion("operation", [
       z.object({ operation: z.literal("add"), ...fields }).strict(),
       z.object({ operation: z.literal("update"), ...identity.shape, ...fields }).strict(),

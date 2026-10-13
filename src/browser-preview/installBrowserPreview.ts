@@ -792,8 +792,8 @@ export function installBrowserPreview() {
       const index = quickPrompts.findIndex(value => value.id === ("id" in input ? input.id : ""));
       if (input.operation !== "add" && (index < 0 || quickPrompts[index].version !== input.version)) throw new Error("常用提示词已修改或删除，请刷新后重试。");
       if (input.operation === "delete") quickPrompts.splice(index, 1);
-      else if (input.operation === "add") quickPrompts.push({ id: `preview-prompt-${nextId++}`, version: 1, name: input.name, prompt: input.prompt });
-      else quickPrompts[index] = { id: input.id, version: input.version + 1, name: input.name, prompt: input.prompt };
+      else if (input.operation === "add") quickPrompts.push({ id: `preview-prompt-${nextId++}`, version: 1, name: input.name, prompt: input.prompt, persistent: input.persistent === true });
+      else quickPrompts[index] = { id: input.id, version: input.version + 1, name: input.name, prompt: input.prompt, persistent: input.persistent === true };
       workItemChanges.emit(); return copy(quickPrompts);
     },
     list: async () => ({ records: [{ ...copy(previewWorkItem), summary: previewWorkItem.output }], total: 1, templates: [], owners: [] }),

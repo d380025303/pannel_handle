@@ -1876,8 +1876,8 @@ export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItem
   sessionId?: string; threadId?: string; turnId?: string; input: { prompt: string; [key: string]: unknown }; configuration: Record<string, unknown>; output: string; error: string };
 export type WorkItemIdentity = { id: string; version: number };
 export type WorkItemPage = { records: WorkItemSummary[]; total: number; storageErrors?: string[]; templates: { id: string; name: string }[]; owners: { id: string; name: string; templateId: string }[] };
-export type WorkItemQuickPrompt = { id: string; version: number; name: string; prompt: string };
-export type WorkItemQuickPromptMutation = { operation: "add"; name: string; prompt: string } | ({ operation: "update" } & WorkItemQuickPrompt) | { operation: "delete"; id: string; version: number };
+export type WorkItemQuickPrompt = { id: string; version: number; name: string; prompt: string; persistent?: boolean };
+export type WorkItemQuickPromptMutation = { operation: "add"; name: string; prompt: string; persistent?: boolean } | ({ operation: "update" } & WorkItemQuickPrompt) | { operation: "delete"; id: string; version: number };
 export interface WorkItemApi {
   listQuickPrompts(): Promise<WorkItemQuickPrompt[]>;
   mutateQuickPrompt(input: WorkItemQuickPromptMutation): Promise<WorkItemQuickPrompt[]>;

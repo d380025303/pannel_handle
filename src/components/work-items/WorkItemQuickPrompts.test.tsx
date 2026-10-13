@@ -18,7 +18,7 @@ it("manages shared prompts, refreshes external changes and retains drafts on con
   fireEvent.change(screen.getByLabelText("按钮名称"), { target: { value: record.name } });
   fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: record.prompt } });
   fireEvent.click(save);
-  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "add", name: record.name, prompt: record.prompt }));
+  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "add", name: record.name, prompt: record.prompt, persistent: false }));
   fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
   vi.mocked(api.mutateQuickPrompt).mockRejectedValueOnce(new Error("版本冲突"));
   fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: "保留草稿" } });
@@ -30,8 +30,9 @@ it("manages shared prompts, refreshes external changes and retains drafts on con
   await act(async () => changed());
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("常用提示词正文"), { target: { value: "修改正文" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "常驻（默认追加）" }));
   fireEvent.click(screen.getByRole("button", { name: "保存常用提示词" }));
-  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "update", id: "one", version: 2, name: "手机更新", prompt: "修改正文" }));
+  await waitFor(() => expect(api.mutateQuickPrompt).toHaveBeenCalledWith({ operation: "update", id: "one", version: 2, name: "手机更新", prompt: "修改正文", persistent: true }));
   await waitFor(() => expect(screen.queryByLabelText("常用提示词正文")).toBeNull());
   vi.mocked(api.mutateQuickPrompt).mockResolvedValueOnce([]);
   fireEvent.click(screen.getByRole("button", { name: "删除" }));

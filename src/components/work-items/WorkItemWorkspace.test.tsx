@@ -391,3 +391,42 @@ it("keeps edited prompt on manual completion conflict", async () => {
   expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("保留编辑");
   expect(screen.getByRole("dialog", { name: "执行任务" })).toBeTruthy();
 });
+
+it("initializes persistent prompts once, permits removal and reloads defaults on reopen", async () => {
+  const { api } = setup();
+  vi.mocked(api.listQuickPrompts).mockResolvedValue([
+    { id: "a", version: 1, name: "常驻一", prompt: "测试", persistent: true },
+    { id: "b", version: 1, name: "手动", prompt: "不追加" },
+    { id: "c", version: 1, name: "常驻二", prompt: "构建", persistent: true },
+  ]);
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  const input = screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement;
+  expect(input.value).toBe("最终执行方案\n\n测试\n\n构建");
+  expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ prompt: input.value }));
+  fireEvent.change(input, { target: { value: "本次移除常驻" } });
+  await act(async () => { vi.mocked(api.onChanged).mock.calls[0][0](); });
+  await waitFor(() => expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(input.value).toBe("本次移除常驻");
+  fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
+  vi.mocked(api.listQuickPrompts).mockResolvedValue([{ id: "a", version: 2, name: "常驻一", prompt: "新配置", persistent: true }]);
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  expect((screen.getByRole("textbox", { name: "实际提示词" }) as HTMLTextAreaElement).value).toBe("最终执行方案\n\n新配置");
+  fireEvent.change(screen.getByRole("textbox", { name: "实际提示词" }), { target: { value: "最终输入" } });
+  fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(api.execute).toHaveBeenCalledWith(expect.objectContaining({ prompt: "最终输入" })));
+});
+it("blocks execution when persistent prompt loading fails and allows retry", async () => {
+  const { api } = setup();
+  vi.mocked(api.listQuickPrompts).mockRejectedValue(new Error("常驻加载失败"));
+  fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+  await screen.findByRole("button", { name: "重新查询" });
+  expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(true);
+  vi.mocked(api.listQuickPrompts).mockResolvedValue([{ id: "a", version: 1, name: "常驻", prompt: "恢复", persistent: true }]);
+  fireEvent.click(screen.getByRole("button", { name: "重新查询" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "确认执行" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ prompt: "最终执行方案\n\n恢复" }));
+});

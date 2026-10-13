@@ -113,6 +113,7 @@
       "target": [
         "portable"
       ]
-    }
+    },
+    "beforePack": "scripts/stage-packaged-dependencies.cjs"
   }
 }

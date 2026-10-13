@@ -531,3 +531,11 @@
   width: 100%;
   min-width: 0;
 }
+
+.work-items-quick-form .work-items-quick-persistent {
+  flex-direction: row;
+  align-items: center;
+}
+.work-items-quick-persistent input[type="checkbox"] {
+  width: auto;
+}

@@ -610,3 +610,12 @@
 .mobile-work-items-overlay button:not(:disabled):hover {
   border-color: #579ad8;
 }
+
+.work-items-quick-form .work-items-quick-persistent {
+  flex-direction: row;
+  align-items: center;
+}
+.mobile-work-items-overlay .work-items-quick-persistent input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+}

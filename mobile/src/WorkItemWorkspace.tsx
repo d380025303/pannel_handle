@@ -102,10 +102,14 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions, onClo
       const value = await api.get({ id: dialog.id });
       if (live) setItem(value);
       if (dialog.kind === "execute" && !active(value.status) && value.status !== "void") {
-        const body = await api.preview({ id: value.id, version: value.version });
+        const initialPrompt = !promptInitialized.current
+          ? [value.output, ...(await api.listQuickPrompts()).filter(record => record.persistent).map(record => record.prompt)].filter(Boolean).join("\n\n")
+          : undefined;
+        if (!live) return;
+        const body = await api.preview({ id: value.id, version: value.version, ...(initialPrompt === undefined ? {} : { prompt: initialPrompt }) });
         if (live) {
           setPreview(body);
-          if (!promptInitialized.current) { setPrompt(value.output); promptInitialized.current = true; }
+          if (initialPrompt !== undefined) { setPrompt(initialPrompt); promptInitialized.current = true; }
         }
       }
       if (dialog.kind === "attempts") {
@@ -205,7 +209,7 @@ export function WorkItemWorkspace({ api, visible, onOpenSession, sessions, onClo
               <section className="work-items-prompt" aria-label="实际提示词">
                 <div className="work-items-prompt-toolbar"><strong>实际提示词</strong><div role="group" aria-label="提示词显示模式"><button type="button" aria-pressed={promptMode === "preview"} disabled={busy} onClick={() => setPromptMode("preview")}>预览</button><button type="button" aria-pressed={promptMode === "edit"} disabled={busy} onClick={() => setPromptMode("edit")}>编辑</button></div></div>
                 {promptMode === "preview" ? <div className="work-items-prompt-preview"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{prompt || "提示词为空，请切换到编辑填写。"}</ReactMarkdown></div>
-                  : <textarea className="work-items-prompt-editor" aria-label="实际提示词" autoFocus rows={12} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} />}
+                  : <textarea className="work-items-prompt-editor" aria-label="实际提示词" autoFocus rows={12} value={prompt} disabled={busy || dialogLoading} onChange={event => setPrompt(event.target.value)} />}
               </section>
               <details className="work-items-execute-config" key={dialog.id}><summary>执行配置</summary><h3>当前模板配置</h3><pre className="work-items-content">{JSON.stringify(preview.configuration, null, 2)}</pre><p>负责人工具：{preview.body.tools?.map(tool => tool.name).join("、") || "无"}</p></details>
             </>}

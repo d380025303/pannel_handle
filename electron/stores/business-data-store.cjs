@@ -281,7 +281,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       if (input.operation !== "add" && (index < 0 || records[index].version !== input.version)) throw new Error("常用提示词已修改或删除，请刷新后重试。");
       if (input.operation === "delete") records.splice(index, 1);
       else {
-        const record = { id: input.id || require("node:crypto").randomUUID(), name: input.name, prompt: input.prompt, version: input.operation === "add" ? 1 : records[index].version + 1 };
+        const record = { id: input.id || require("node:crypto").randomUUID(), name: input.name, prompt: input.prompt, persistent: input.persistent === true, version: input.operation === "add" ? 1 : records[index].version + 1 };
         if (index < 0) records.push(record); else records[index] = record;
       }
       putSetting("work-item-prompts", "records", records);
