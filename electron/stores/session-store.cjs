@@ -48,8 +48,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       return undefined;
     }
     if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
-      console.error("Failed to save SSH secret: Electron safeStorage encryption is not available.");
-      return undefined;
+      throw new Error("无法保存 SSH 密码：系统安全存储加密不可用。");
     }
     return safeStorage.encryptString(value).toString("base64");
   }

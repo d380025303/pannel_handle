@@ -47,6 +47,46 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each(["json", "sqlite"])("preserves SSH credentials and all template fields when encryption is unavailable (%s)", (backend) => {
+    const sessionsFile = createTempSessionsFile();
+    const dataStore = backend === "sqlite"
+      ? createBusinessDataStore({ userData: path.dirname(sessionsFile) }).open()
+      : undefined;
+    const safeStorage = createSafeStorageMock();
+    const onChanged = vi.fn();
+    const store = createSessionStore({ sessionsFile, dataStore, safeStorage,
+      getDefaultShell: () => "powershell.exe", onChanged });
+    const readPersisted = () => dataStore ? dataStore.read(sessionsFile) : JSON.parse(readFileSync(sessionsFile, "utf8"));
+    try {
+      store.addToLibrary({ id: "1", title: "Original", type: "ssh", tags: ["saved"],
+        sshConfig: { host: "example.com", username: "user", secret: "old-secret" } });
+      const before = structuredClone(store.getTemplate("1"));
+      const persistedBefore = readPersisted();
+      onChanged.mockClear();
+      safeStorage.encryptString.mockClear();
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+
+      expect(() => store.updateLibrary("1", { title: "Changed", tags: ["changed"],
+        sshConfig: { host: "changed.example.com", secret: "new-secret" } }))
+        .toThrow("无法保存 SSH 密码：系统安全存储加密不可用。");
+      expect(store.getTemplate("1")).toEqual(before);
+      expect(readPersisted()).toEqual(persistedBefore);
+      expect(onChanged).not.toHaveBeenCalled();
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+
+      safeStorage.isEncryptionAvailable.mockReturnValue(true);
+      store.updateLibrary("1", { sshConfig: { secret: "new-secret" } });
+      const after = store.getTemplate("1");
+      expect(after).toEqual({ ...before, sshConfig: { ...before.sshConfig,
+        encryptedSecret: Buffer.from("encrypted:new-secret").toString("base64") } });
+      expect(store.decryptSecret(after.sshConfig.encryptedSecret)).toBe("new-secret");
+      expect(readPersisted()).toEqual(JSON.parse(JSON.stringify([after])));
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    } finally {
+      dataStore?.close();
+    }
+  });
+
   it.each(["launch-write", "commit"])("rolls back session deletion after %s failure and commits both stores on retry", (failure) => {
     const sessionsFile = createTempSessionsFile();
     const templatesFile = path.join(path.dirname(sessionsFile), "launch-templates.json");
