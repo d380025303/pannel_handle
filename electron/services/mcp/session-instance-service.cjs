@@ -7,8 +7,13 @@ function apiError(message, statusCode = 422) {
 
 const GRAPHICAL_AGENTS = new Set(["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"]);
 const sourceFor = template => template.modelSource || (EXTERNAL_SOURCES.has(template.codexBackend) ? template.codexBackend : "native");
-const configuredModel = template => sourceFor(template) !== "native" ? template.modelId || template.codexModel || null
-  : template.codexAppServerModel || template.codeBuddyGraphicalOptions?.model || template.openCodeGraphicalOptions?.model || null;
+function configuredModel(template) {
+  if (sourceFor(template) !== "native") return template.modelId || template.codexModel || null;
+  if (template.agentProvider === "codex") return template.codexAppServerModel || null;
+  if (template.agentProvider === "codebuddy") return template.codeBuddyGraphicalOptions?.model || null;
+  if (template.agentProvider === "opencode") return template.openCodeGraphicalOptions?.model || null;
+  return null;
+}
 const isGraphical = template => GRAPHICAL_AGENTS.has(template.agentProvider) && template.graphicalSessionEnabled !== false;
 
 function createSessionInstanceService({ sessionStore, agentSessionLauncher, terminalManager, graphicalService }) {

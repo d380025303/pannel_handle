@@ -29,6 +29,35 @@ const injection = { tools: [{ name: "lookup", description: "Lookup", inputSchema
   toolCallback: { url: "http://localhost/tools", bearerToken: "private-token" } };
 
 describe("MCP session instances", () => {
+  it.each([
+    ["codex", "cx-model"], ["codebuddy", "cb-model"], ["opencode", "oc-model"],
+    ["claude", null], ["qoder", null], ["gemini", null], ["grok", null]
+  ])("lists only the native model configured for %s", (agentProvider, modelId) => {
+    const f = fixture([{ id: "saved", agentProvider, modelSource: "native",
+      codexAppServerModel: "cx-model", codeBuddyGraphicalOptions: { model: "cb-model" },
+      openCodeGraphicalOptions: { model: "oc-model" } }]);
+    expect(f.service.listTemplates().templates[0]).toMatchObject({ agentProvider, modelSource: "native", modelId });
+  });
+  it.each([
+    { agentProvider: "opencode", codeBuddyGraphicalOptions: { model: "cb-model" } },
+    { agentProvider: "codebuddy", openCodeGraphicalOptions: { model: "oc-model" } },
+    { agentProvider: "codex", codeBuddyGraphicalOptions: { model: "cb-model" } }
+  ])("returns null when the native model for $agentProvider is missing", template => {
+    const f = fixture([{ id: "saved", ...template }]);
+    expect(f.service.listTemplates().templates[0].modelId).toBeNull();
+  });
+  it.each(["codex", "codebuddy", "opencode"])("preserves external model selection for %s", agentProvider => {
+    const templates = [
+      { modelSource: "minimax", modelId: "external-model", codexModel: "legacy-model" },
+      { codexBackend: "openrouter", codexModel: "legacy-model" }
+    ].map((selection, index) => ({ id: `saved-${index}`, agentProvider,
+      codexAppServerModel: "cx-model", codeBuddyGraphicalOptions: { model: "cb-model" },
+      openCodeGraphicalOptions: { model: "oc-model" }, ...selection }));
+    expect(fixture(templates).service.listTemplates().templates).toMatchObject([
+      { modelSource: "minimax", modelId: "external-model" },
+      { modelSource: "openrouter", modelId: "legacy-model" }
+    ]);
+  });
   it("passes tools only as runtime options and keeps templates unchanged", async () => {
     const f = fixture(); const before = structuredClone(f.templates);
     await f.service.create({ ...args, ...injection });
