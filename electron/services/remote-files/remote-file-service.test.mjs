@@ -218,6 +218,85 @@ describe("remote-file-service", () => {
     }
   });
 
+  it.each(["cancel", "overwrite"])("renames only the case of a Windows entry with %s without deleting it", async (policy) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-case-rename-"));
+    const source = path.join(dir, "note.txt");
+    const target = path.join(dir, "NOTE.txt");
+    const content = Buffer.from("preserved\r\n内容");
+    const trashItem = vi.fn(async (entry) => fs.promises.rename(entry, path.join(dir, "trashed")));
+    const rm = vi.fn(fs.promises.rm);
+    fs.writeFileSync(source, content);
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        fsApi: { ...fs, promises: { ...fs.promises, rm } },
+        shellApi: createShellMock({ trashItem })
+      });
+      await expect(service.moveEntry("run-1", source, dir, "NOTE.txt", policy)).resolves.toEqual({
+        status: "completed", path: target, name: "NOTE.txt"
+      });
+      expect(fs.readdirSync(dir)).toEqual(["NOTE.txt"]);
+      expect(fs.readFileSync(target)).toEqual(content);
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(rm).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([false, true])("keeps case-sensitive Windows entries distinct (hard links: %s)", async (hardLinks) => {
+    const dir = path.resolve("case-sensitive");
+    const source = path.join(dir, "note.txt");
+    const target = path.join(dir, "NOTE.txt");
+    const rename = vi.fn();
+    const trashItem = vi.fn();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+      fsApi: { promises: {
+        lstat: vi.fn(async (entry) => ({ dev: 1n, ino: entry === source || hardLinks ? 2n : 3n })),
+        realpath: vi.fn(async (entry) => entry),
+        rename
+      } },
+      shellApi: createShellMock({ trashItem })
+    });
+    await expect(service.moveEntry("run-1", source, dir, "NOTE.txt")).resolves.toEqual({
+      status: "conflict", path: target, name: "NOTE.txt"
+    });
+    expect(rename).not.toHaveBeenCalled();
+    expect(trashItem).not.toHaveBeenCalled();
+    await service.moveEntry("run-1", source, dir, "NOTE.txt", "overwrite");
+    expect(trashItem).toHaveBeenCalledExactlyOnceWith(target);
+    expect(rename).toHaveBeenCalledExactlyOnceWith(source, target);
+  });
+
+  it("keeps conflicts and overwrite behavior for distinct Windows files", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-overwrite-"));
+    const source = path.join(dir, "source.txt");
+    const target = path.join(dir, "target.txt");
+    const trashItem = vi.fn(async (entry) => fs.promises.rename(entry, path.join(dir, "trashed")));
+    fs.writeFileSync(source, "source content");
+    fs.writeFileSync(target, "target content");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        shellApi: createShellMock({ trashItem })
+      });
+      await expect(service.moveEntry("run-1", source, dir, "target.txt")).resolves.toEqual({
+        status: "conflict", path: target, name: "target.txt"
+      });
+      expect(trashItem).not.toHaveBeenCalled();
+      await expect(service.moveEntry("run-1", source, dir, "target.txt", "overwrite")).resolves.toEqual({
+        status: "completed", path: target, name: "target.txt"
+      });
+      expect(trashItem).toHaveBeenCalledExactlyOnceWith(target);
+      expect(fs.readFileSync(target, "utf8")).toBe("source content");
+      expect(fs.readFileSync(path.join(dir, "trashed"), "utf8")).toBe("target content");
+      expect(fs.existsSync(source)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("connects with saved SSH password and lists files", async () => {
     const session = {
       id: "run-1",

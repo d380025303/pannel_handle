@@ -830,6 +830,31 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
       ? joinRemotePath(normalizeRemotePath(targetDirectory), name)
       : joinLocalPath(session, targetDirectory, name);
     if (targetPath === sourcePath) return { status: "completed", path: sourcePath, name };
+    if (session.type === "windows") {
+      const sourceHostPath = toLocalHostPath(session, sourcePath);
+      const targetHostPath = toLocalHostPath(session, targetPath);
+      if (sourceHostPath.toLowerCase() === targetHostPath.toLowerCase()) {
+        let sameEntry = false;
+        try {
+          const [sourceStat, targetStat, sourceRealPath, targetRealPath] = await Promise.all([
+            fsApi.promises.lstat(sourceHostPath, { bigint: true }),
+            fsApi.promises.lstat(targetHostPath, { bigint: true }),
+            fsApi.promises.realpath(sourceHostPath),
+            fsApi.promises.realpath(targetHostPath)
+          ]);
+          // Keep distinct entries in case-sensitive directories on the conflict path,
+          // including hard links and symbolic links to the same file.
+          sameEntry = sourceStat.ino !== 0n && sourceStat.ino === targetStat.ino
+            && sourceStat.dev === targetStat.dev && sourceRealPath === targetRealPath;
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (sameEntry) {
+          await fsApi.promises.rename(sourceHostPath, targetHostPath);
+          return { status: "completed", path: targetPath, name };
+        }
+      }
+    }
     const target = await resolveConflictPath(sessionId, session, targetDirectory, name, conflictPolicy);
     if (target.status === "conflict" || target.status === "skipped") return target;
     if (target.path === sourcePath) return { status: "completed", path: sourcePath, name: target.name };
