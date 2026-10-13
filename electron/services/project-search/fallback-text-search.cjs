@@ -103,7 +103,7 @@ function runFallbackTextSearch(args) {
 async function runFallbackTextSearchImpl({ fsApi, spawnProcess, session, query, root, task, options = {}, matchLines }) {
   const { hostRoot, displayRoot } = root;
   const results = [];
-  const gitFiles = session.type === "wsl"
+  const gitFiles = session.type === "wsl" && !options.includeIgnored
     ? await listWslGitFiles({ spawnProcess, session, displayRoot, task }).catch((error) => {
       if (error?.code === "SEARCH_CANCELLED") throw error;
       return null;
