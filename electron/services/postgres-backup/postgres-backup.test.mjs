@@ -1,5 +1,6 @@
 import { dashboardRows } from "./remote-dashboard-fixture.mjs";
 import { createRequire } from "node:module";
+import crypto from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,11 +13,44 @@ const { createPostgresBackupService } = require("./postgres-backup-service.cjs")
 const { SAVED_MESSAGE_VERSION } = require("../conversation-history/saved-message.cjs");
 
 describe("portable session backup", () => {
-  it("restores a secret with the backup passphrase and rejects a different one", () => {
-    const payload = encryptPortable(JSON.stringify([{ sshConfig: { secret: "sensitive" } }]), "shared-passphrase");
-    expect(decryptPortable(payload, "shared-passphrase")).toContain("sensitive");
-    expect(() => decryptPortable(payload, "different-passphrase")).toThrow(/incorrect/);
+  it("restores a secret with the backup passphrase and rejects a different one", async () => {
+    const payload = await encryptPortable(JSON.stringify([{ sshConfig: { secret: "sensitive" } }]), "shared-passphrase");
+    expect(await decryptPortable(payload, "shared-passphrase")).toContain("sensitive");
+    await expect(decryptPortable(payload, "different-passphrase")).rejects.toThrow(/incorrect/);
     expect(JSON.stringify(payload)).not.toContain("sensitive");
+  });
+
+  it("decrypts the original synchronous format and keeps new archives compatible", async () => {
+    const salt = Buffer.alloc(16, 1);
+    const nonce = Buffer.alloc(12, 2);
+    const key = crypto.scryptSync("legacy-passphrase", salt, 32);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
+    const data = Buffer.concat([cipher.update("[]", "utf8"), cipher.final()]);
+    const legacy = { version: 1, salt: salt.toString("base64"), nonce: nonce.toString("base64"),
+      tag: cipher.getAuthTag().toString("base64"), data: data.toString("base64") };
+    expect(await decryptPortable(legacy, "legacy-passphrase")).toBe("[]");
+
+    const payload = await encryptPortable("[]", "legacy-passphrase");
+    expect(payload.version).toBe(1);
+    const decipher = crypto.createDecipheriv("aes-256-gcm",
+      crypto.scryptSync("legacy-passphrase", Buffer.from(payload.salt, "base64"), 32),
+      Buffer.from(payload.nonce, "base64"));
+    decipher.setAuthTag(Buffer.from(payload.tag, "base64"));
+    expect(Buffer.concat([decipher.update(Buffer.from(payload.data, "base64")), decipher.final()]).toString("utf8")).toBe("[]");
+  });
+
+  it("allows zero-delay timers to run while encryption and decryption derive keys", async () => {
+    async function withTimer(work) {
+      let completed = false;
+      const timer = new Promise(resolve => setTimeout(() => resolve(completed), 0));
+      const operation = work().then(value => { completed = true; return value; });
+      const completedBeforeTimer = await timer;
+      const value = await operation;
+      expect(completedBeforeTimer).toBe(false);
+      return value;
+    }
+    const payload = await withTimer(() => encryptPortable("[]", "timer-passphrase"));
+    expect(await withTimer(() => decryptPortable(payload, "timer-passphrase"))).toBe("[]");
   });
 });
 
@@ -83,6 +117,8 @@ describe("PostgreSQL backup service", () => {
       expect(restored.importedCount).toBe(1);
       expect(imported[0].sshConfig.secret).toBe("ssh-password");
       expect(imported[0].sshConfig.encryptedSecret).toBeUndefined();
+      await expect(service.restoreSnapshot(snapshots[0].id, "wrong-passphrase")).rejects.toThrow(/incorrect/);
+      expect(sessionStore.importLibrary).toHaveBeenCalledTimes(1);
       const writeError = new Error("attempt to write a readonly database");
       sessionStore.importLibrary.mockImplementationOnce(() => { throw writeError; });
       await expect(service.restoreSnapshot(snapshots[0].id, "portable-passphrase")).rejects.toBe(writeError);

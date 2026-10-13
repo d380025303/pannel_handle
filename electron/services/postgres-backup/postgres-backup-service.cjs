@@ -248,7 +248,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
       .update(JSON.stringify(data)).digest("hex")}`;
     const previous = await client.query("SELECT data FROM ph_session_snapshots WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1", [state.deviceId]);
     if (previous.rows[0]?.data?.hash === hash) return;
-    const archive = encryptPortable(JSON.stringify(data), decryptLocal(state.passphrase));
+    const archive = await encryptPortable(JSON.stringify(data), decryptLocal(state.passphrase));
     await client.query("INSERT INTO ph_session_snapshots(id,device_id,data) VALUES($1,$2,$3)",
       [crypto.randomUUID(), state.deviceId, { hash, sessionCount: data.length, archive }]);
   }
@@ -394,7 +394,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
       const result = await client.query("SELECT data FROM ph_session_snapshots WHERE id=$1", [snapshotId]);
       if (!result.rows.length) throw new Error("Backup snapshot was not found.");
       const key = passphrase || decryptLocal(state.passphrase);
-      const sessions = JSON.parse(decryptPortable(result.rows[0].data.archive, key));
+      const sessions = JSON.parse(await decryptPortable(result.rows[0].data.archive, key));
       return sessionStore.importLibrary(sessions);
     });
   }
