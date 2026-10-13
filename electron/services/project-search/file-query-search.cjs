@@ -1,13 +1,20 @@
 const { Worker } = require("node:worker_threads");
 const path = require("node:path");
 const { matchesFileQuery } = require("./search-matching.cjs");
-const { SEARCH_TIMEOUT_MS } = require("./search-limits.cjs");
+const { SEARCH_TIMEOUT_MS, MAX_FILE_RESULTS } = require("./search-limits.cjs");
 
 async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIMEOUT_MS) {
   if (!options.regex || !query) {
-    return search((name, relativePath) => !query
-      || matchesFileQuery(name, query, options)
-      || matchesFileQuery(relativePath, query, options));
+    return search((entries, limit) => {
+      const indices = [];
+      for (let index = 0; index < entries.length && indices.length < limit; index += 1) {
+        const { name, relativePath } = entries[index];
+        if (!query || matchesFileQuery(name, query, options) || matchesFileQuery(relativePath, query, options)) {
+          indices.push(index);
+        }
+      }
+      return indices;
+    });
   }
 
   const worker = new Worker(path.join(__dirname, "file-query-worker.cjs"), {
@@ -40,11 +47,11 @@ async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIM
     fail(error);
     void worker.terminate();
   }, timeoutMs);
-  const matches = (name, relativePath) => {
+  const matches = (entries, limit) => {
     if (failure) return Promise.reject(failure);
     return new Promise((resolve, reject) => {
       pending = { resolve, reject };
-      worker.postMessage([name, relativePath]);
+      worker.postMessage({ entries: entries.map(({ name, relativePath }) => [name, relativePath]), limit });
     });
   };
   try {
@@ -55,4 +62,23 @@ async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIM
   }
 }
 
-module.exports = { runFileQuerySearch };
+// Keep traversal streaming and preserve its order without a Worker round trip per entry.
+function createFileQueryCollector(matches, results, batchSize) {
+  let entries = [];
+  const flush = async () => {
+    if (!entries.length) return;
+    const batch = entries;
+    entries = [];
+    const indices = await matches(batch, MAX_FILE_RESULTS - results.length);
+    for (const index of indices) results.push(batch[index]);
+  };
+  return {
+    async add(entry) {
+      entries.push(entry);
+      if (entries.length >= batchSize) await flush();
+    },
+    flush
+  };
+}
+
+module.exports = { runFileQuerySearch, createFileQueryCollector };

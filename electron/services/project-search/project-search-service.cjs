@@ -1,4 +1,4 @@
-const { runFileQuerySearch } = require("./file-query-search.cjs");
+const { runFileQuerySearch, createFileQueryCollector } = require("./file-query-search.cjs");
 const { runFallbackTextSearch } = require("./fallback-text-search.cjs");
 const { parseRipgrepMatch, resolveBundledRipgrepPath, createRipgrepInvocation, runRipgrepSearch } = require("./ripgrep-search.cjs");
 const { walkProject } = require("./project-walker.cjs");
@@ -66,6 +66,7 @@ function createProjectSearchService({
     const session = getSession(terminalManager, sessionId);
     const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, session, rootPath);
     const results = [];
+    const collector = createFileQueryCollector(matchesQuery, results, options.regex ? 256 : 1);
 
     await walkProject({
       fsApi,
@@ -74,19 +75,16 @@ function createProjectSearchService({
       maxResults: () => results.length >= MAX_FILE_RESULTS,
       onFile: async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(session, relativePath);
-        if (
-          await matchesQuery(name, displayRelativePath)
-        ) {
-          results.push({
-            path: toDisplayPath(session, displayRoot, relativePath),
-            relativePath: displayRelativePath,
-            name
-          });
-        }
+        await collector.add({
+          path: toDisplayPath(session, displayRoot, relativePath),
+          relativePath: displayRelativePath,
+          name
+        });
       },
       includeIgnored: options.includeIgnored
     });
 
+    await collector.flush();
     return { root: displayRoot, results };
   }
 
@@ -97,6 +95,7 @@ function createProjectSearchService({
     }
 
     const results = [];
+    const collector = createFileQueryCollector(matchesQuery, results, options.regex ? 256 : 1);
 
     if (session.type !== "ssh") {
       const localSession = getSession(terminalManager, sessionId);
@@ -112,14 +111,12 @@ function createProjectSearchService({
       const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, localSession, configuredRoot);
       const addResult = (type) => async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(localSession, relativePath);
-        if (await matchesQuery(name, displayRelativePath)) {
-          results.push({
-            path: toDisplayPath(localSession, displayRoot, relativePath),
-            relativePath: displayRelativePath,
-            name,
-            type
-          });
-        }
+        await collector.add({
+          path: toDisplayPath(localSession, displayRoot, relativePath),
+          relativePath: displayRelativePath,
+          name,
+          type
+        });
       };
       await walkProject({
         fsApi,
@@ -130,6 +127,7 @@ function createProjectSearchService({
         onFile: addResult("file"),
         includeIgnored: options.includeIgnored
       });
+      await collector.flush();
       return { root: displayRoot, results };
     }
 
@@ -163,16 +161,15 @@ function createProjectSearchService({
           ? path.posix.join(current.relativePath, entry.name)
           : entry.name;
         if (entry.type === "directory" && (!isExcludedDirectory(entry.name) || (options.includeIgnored && ![".git", ".hg", ".svn"].includes(entry.name)))) {
-          if (await matchesQuery(entry.name, relativePath)) {
-            results.push({ path: entry.path, relativePath, name: entry.name, type: "directory" });
-          }
+          await collector.add({ path: entry.path, relativePath, name: entry.name, type: "directory" });
           queue.push({ path: entry.path, relativePath });
-        } else if (entry.type === "file" && await matchesQuery(entry.name, relativePath)) {
-          results.push({ path: entry.path, relativePath, name: entry.name, type: "file" });
+        } else if (entry.type === "file") {
+          await collector.add({ path: entry.path, relativePath, name: entry.name, type: "file" });
         }
       }
     }
 
+    await collector.flush();
     return { root, results };
   }
 
