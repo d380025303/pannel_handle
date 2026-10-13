@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const { createMcpConfigService, replaceCodexServer, MAX_CONFIG_BYTES } = require("./mcp-config-service.cjs");
 const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 const { parse: parseToml } = require("smol-toml");
+const { parse: parseJsonc } = require("jsonc-parser");
 
 const roots = [];
 
@@ -647,6 +648,42 @@ describe("mcp-config-service", () => {
       { action: "docs_server_read", resource: "*", effect: "ask" },
       { action: "docs_server_write_file", resource: "*", effect: "allow" }
     ]);
+  });
+
+  it.each([
+    '[ /* empty */ ]',
+    '[{"action":"read","resource":"*","effect":"allow"}]',
+    '[\n\t\t// before\n\t\t{"action":"read","resource":"*","effect":"allow"} // after\n\t]',
+    '[\n\t\t{"action":"read","resource":"*","effect":"allow"}, /* trailing */\n\t]'
+  ])("batch appends permissions preserving JSONC contents: %s", (permissions) => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.jsonc");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    const tools = Array.from({ length: 500 }, (_, i) => `tool_${i}`);
+    writeFileSync(codexPath, `[mcp_servers.local]\ncommand = "node"\nenabled_tools = ${JSON.stringify(tools)}\n`);
+    const original = `{\r\n\t"mcp": {"servers": {}},\r\n\t"permissions": ${permissions.replace(/\n/g, "\r\n")}\r\n}\r\n`;
+    writeFileSync(openCodePath, original);
+    const source = service.list({ provider: "codex", scope: "user" });
+    const destination = service.list({ provider: "opencode", scope: "user" });
+    const request = { source: { provider: "codex", scope: "user" }, name: "local",
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version };
+    expect(service.copy({ ...request, expectedDestinationVersion: "stale" })).toEqual({ status: "conflict" });
+    expect(readFileSync(openCodePath, "utf8")).toBe(original);
+    expect(service.copy(request)).toMatchObject({ status: "copied", permissionsCopied: true });
+    const text = readFileSync(openCodePath, "utf8");
+    const errors = [];
+    const document = parseJsonc(text, errors, { allowTrailingComma: true });
+    expect(errors).toEqual([]);
+    const existing = parseJsonc(permissions);
+    expect(document.permissions).toEqual([...existing,
+      { action: "local_*", resource: "*", effect: "deny" },
+      ...tools.map(tool => ({ action: `local_${tool}`, resource: "*", effect: "allow" }))]);
+    for (const comment of permissions.match(/\/\*.*?\*\/|\/\/[^\n]*/g) || []) expect(text).toContain(comment);
+    if (existing.length) expect(text).toContain('{"action":"read","resource":"*","effect":"allow"}');
+    expect(text.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(text).toContain('\r\n\t\t{\r\n\t\t\t"action": "local_*"');
   });
 
   it("maps an empty allowlist to deny all server tools", () => {

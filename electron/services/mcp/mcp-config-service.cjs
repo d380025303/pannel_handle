@@ -1,7 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { applyEdits, modify, parse: parseJsonc, printParseErrorCode } = require("jsonc-parser");
+const { applyEdits, modify, parseTree, findNodeAtLocation, parse: parseJsonc, printParseErrorCode } = require("jsonc-parser");
 const { parse: parseToml, stringify: stringifyToml } = require("smol-toml");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
@@ -449,6 +449,25 @@ function jsonFormattingOptions(text) {
 function applyJsonValue(text, pathSegments, value) {
   const source = text.trim() ? text : "{}\n";
   return applyEdits(source, modify(source, pathSegments, value, { formattingOptions: jsonFormattingOptions(source) }));
+}
+
+function appendJsonArrayValues(text, pathSegments, values) {
+  const array = findNodeAtLocation(parseTree(text), pathSegments);
+  const previous = array.children.at(-1);
+  const { insertSpaces, tabSize, eol } = jsonFormattingOptions(text);
+  const unit = insertSpaces ? " ".repeat(tabSize) : "\t";
+  const lineStart = text.lastIndexOf("\n", array.offset) + 1;
+  const parentIndent = text.slice(lineStart, array.offset).match(/^[ \t]*/)[0];
+  const indent = parentIndent + unit;
+  const content = values.map(value => JSON.stringify(value, null, unit)
+    .replace(/\n/g, eol + indent)).join("," + eol + indent);
+  // Insert after the last value, leaving all original comments and any trailing comma intact.
+  // Parse and edit the document once, regardless of the number of appended rules.
+  return applyEdits(text, [{
+    offset: previous ? previous.offset + previous.length : array.offset + 1,
+    length: 0,
+    content: (previous ? "," : "") + eol + indent + content
+  }]);
 }
 
 function assertVersion(record, expectedVersion) {
@@ -925,10 +944,7 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
       if (destination.permissions !== undefined && !Array.isArray(destination.permissions))
         throw new Error("OpenCode permissions 必须是数组，无法复制 MCP 工具权限。");
       if (!destination.permissions) nextText = applyJsonValue(nextText, ["permissions"], permissionRules);
-      else for (const [index, rule] of permissionRules.entries()) {
-        nextText = applyEdits(nextText, modify(nextText, ["permissions", destination.permissions.length + index], rule,
-          { formattingOptions: jsonFormattingOptions(nextText), isArrayInsertion: true }));
-      }
+      else nextText = appendJsonArrayValues(nextText, ["permissions"], permissionRules);
     }
     if (readConfigFile(sourceTarget.filePath, fsApi).version !== sourceRecord.version
       || readConfigFile(destinationTarget.filePath, fsApi).version !== destinationRecord.version) return { status: "conflict" };
