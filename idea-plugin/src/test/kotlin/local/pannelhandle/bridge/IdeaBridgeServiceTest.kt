@@ -7,8 +7,14 @@ import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.util.ui.UIUtil
+import com.google.gson.JsonParser
 import java.io.OutputStream
 import java.lang.reflect.InvocationTargetException
+import java.net.Socket
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.concurrent.ExecutorService
 
 class IdeaBridgeServiceTest : BasePlatformTestCase() {
     private lateinit var bridge: IdeaBridgeService
@@ -49,6 +55,71 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
     fun testStopUnknownInstance() {
         val error = expectNotFound("stopExecution", "missing")
         assertEquals("The IDEA execution instance no longer exists", error.message)
+    }
+
+    fun testIdleUnauthenticatedClientsDoNotStarveMaintenance() {
+        val path = bridgeField("discoveryPath") as Path
+        val discovery = JsonParser.parseString(Files.readString(path)).asJsonObject
+        val port = discovery.get("port").asInt
+        val authenticated = Socket("127.0.0.1", port).apply { soTimeout = 2_000 }
+        val idle = List(5) { Socket("127.0.0.1", port).apply { soTimeout = 2_000 } }
+        try {
+            val reader = authenticated.getInputStream().bufferedReader()
+            authenticated.getOutputStream().bufferedWriter().apply {
+                write("""{"type":"auth","protocolVersion":1,"token":"${discovery.get("token").asString}"}""")
+                newLine()
+                flush()
+            }
+            assertTrue(JsonParser.parseString(reader.readLine()).asJsonObject.get("ok").asBoolean)
+            // Observe production heartbeat intervals for longer than Electron's 20-second expiry.
+            var updatedAt = discovery.get("updatedAt").asLong
+            repeat(5) { interval ->
+                awaitCondition(7_000) {
+                    JsonParser.parseString(Files.readString(path)).asJsonObject.get("updatedAt").asLong > updatedAt
+                }
+                updatedAt = JsonParser.parseString(Files.readString(path)).asJsonObject.get("updatedAt").asLong
+                IdeaBridgeService::class.java.getDeclaredMethod("scheduleSnapshotBroadcast")
+                    .apply { isAccessible = true }.invoke(bridge)
+                awaitCondition(3_000) { reader.ready() }
+                assertEquals("snapshotChanged", JsonParser.parseString(reader.readLine()).asJsonObject.get("event").asString)
+                if (interval == 1) {
+                    idle.forEach { assertEquals("Unauthenticated socket must time out", -1, it.getInputStream().read()) }
+                }
+            }
+        } finally {
+            authenticated.close()
+            idle.forEach(Socket::close)
+        }
+    }
+
+    fun testDisposeClosesPendingAuthenticationAndExecutors() {
+        val discovery = JsonParser.parseString(Files.readString(bridgeField("discoveryPath") as Path)).asJsonObject
+        Socket("127.0.0.1", discovery.get("port").asInt).use { socket ->
+            socket.soTimeout = 2_000
+            awaitCondition(2_000) {
+                synchronized(bridgeField("socketLock")) { (bridgeField("sockets") as Set<*>).isNotEmpty() }
+            }
+            bridge.dispose()
+            assertEquals(-1, socket.getInputStream().read())
+            listOf("scheduler", "ioExecutor").forEach {
+                val executor = bridgeField(it) as ExecutorService
+                assertTrue(executor.isShutdown)
+                awaitCondition(2_000) { executor.isTerminated }
+            }
+            assertFalse(Files.exists(bridgeField("discoveryPath") as Path))
+        }
+    }
+
+    private fun bridgeField(name: String): Any = IdeaBridgeService::class.java.getDeclaredField(name)
+        .apply { isAccessible = true }.get(bridge)
+
+    private fun awaitCondition(timeoutMillis: Long, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) fail("Condition did not complete within $timeoutMillis ms")
+            UIUtil.dispatchAllInvocationEvents()
+            Thread.sleep(10)
+        }
     }
 
     private fun registerDeletedConfigurationExecution(): RecordingProcessHandler {

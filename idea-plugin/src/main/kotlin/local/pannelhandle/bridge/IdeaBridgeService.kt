@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val PROTOCOL_VERSION = 1
 private const val MAX_MESSAGE_CHARS = 1024 * 1024
+private const val AUTH_TIMEOUT_MILLIS = 10_000
 
 data class BridgeDiscovery(
     val protocolVersion: Int,
@@ -128,6 +129,11 @@ class IdeaBridgeService : Disposable {
     private val scheduler = Executors.newScheduledThreadPool(6) { runnable ->
         Thread(runnable, "pannel-handle-idea-bridge").apply { isDaemon = true }
     }
+    private val ioExecutor = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "pannel-handle-idea-bridge-io").apply { isDaemon = true }
+    }
+    private val socketLock = Any()
+    private val sockets = mutableSetOf<Socket>()
     private val clients = CopyOnWriteArraySet<ClientConnection>()
     private val projectConnections = ConcurrentHashMap<Project, MessageBusConnection>()
     private val activeExecutions = ConcurrentHashMap<String, ActiveExecution>()
@@ -137,7 +143,7 @@ class IdeaBridgeService : Disposable {
     init {
         writeDiscovery()
         scheduler.scheduleAtFixedRate(::writeDiscoverySafely, 5, 5, TimeUnit.SECONDS)
-        scheduler.execute(::acceptConnections)
+        ioExecutor.execute(::acceptConnections)
         ProjectManager.getInstance().openProjects.forEach(::registerProject)
     }
 
@@ -187,8 +193,22 @@ class IdeaBridgeService : Disposable {
         while (!stopped.get()) {
             try {
                 val socket = serverSocket.accept()
-                socket.tcpNoDelay = true
-                scheduler.execute { handleClient(socket) }
+                synchronized(socketLock) {
+                    if (stopped.get()) {
+                        socket.close()
+                    } else {
+                        sockets.add(socket)
+                        try {
+                            socket.tcpNoDelay = true
+                            socket.soTimeout = AUTH_TIMEOUT_MILLIS
+                            ioExecutor.execute { handleClient(socket) }
+                        } catch (error: Exception) {
+                            sockets.remove(socket)
+                            socket.close()
+                            throw error
+                        }
+                    }
+                }
             } catch (error: Exception) {
                 if (!stopped.get()) log.warn("IDEA bridge accept failed", error)
             }
@@ -196,8 +216,12 @@ class IdeaBridgeService : Disposable {
     }
 
     private fun handleClient(socket: Socket) {
-        val client = ClientConnection(socket)
+        var client: ClientConnection? = null
+        var authTimeout: ScheduledFuture<*>? = null
         try {
+            // Also bound the total handshake time when a peer trickles bytes.
+            authTimeout = scheduler.schedule({ socket.close() }, AUTH_TIMEOUT_MILLIS.toLong(), TimeUnit.MILLISECONDS)
+            client = ClientConnection(socket)
             val authLine = client.reader.readLine() ?: return
             if (authLine.length > MAX_MESSAGE_CHARS) return
             val auth = gson.fromJson(authLine, JsonObject::class.java)
@@ -208,6 +232,8 @@ class IdeaBridgeService : Disposable {
                 client.send(mapOf("type" to "auth", "ok" to false, "error" to "Authentication failed"))
                 return
             }
+            authTimeout.cancel(false)
+            socket.soTimeout = 0
             client.authenticated.set(true)
             clients.add(client)
             client.send(mapOf("type" to "auth", "ok" to true, "protocolVersion" to PROTOCOL_VERSION))
@@ -219,8 +245,10 @@ class IdeaBridgeService : Disposable {
         } catch (error: Exception) {
             if (!stopped.get()) log.info("IDEA bridge client disconnected: ${error.message}")
         } finally {
+            authTimeout?.cancel(false)
             clients.remove(client)
-            client.close()
+            try { socket.close() } catch (_: Exception) { }
+            synchronized(socketLock) { sockets.remove(socket) }
         }
     }
 
@@ -495,10 +523,14 @@ class IdeaBridgeService : Disposable {
     override fun dispose() {
         if (!stopped.compareAndSet(false, true)) return
         pendingBroadcast.getAndSet(null)?.cancel(false)
-        clients.forEach(ClientConnection::close)
+        synchronized(socketLock) {
+            sockets.forEach { try { it.close() } catch (_: Exception) { } }
+            sockets.clear()
+        }
         clients.clear()
         try { serverSocket.close() } catch (_: Exception) { }
         scheduler.shutdownNow()
+        ioExecutor.shutdownNow()
         try { Files.deleteIfExists(discoveryPath) } catch (error: Exception) { log.warn("Failed to remove IDEA bridge discovery", error) }
     }
 
