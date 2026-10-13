@@ -13,6 +13,80 @@ function deferred() {
 }
 
 describe("file-transfer-manager", () => {
+  it("coalesces progress and publishes final, canceled, retried and cleared states", async () => {
+    vi.useFakeTimers();
+    try {
+      const runs = [deferred(), deferred()];
+      let options;
+      let attempt = 0;
+      const broadcast = vi.fn();
+      const manager = createFileTransferManager({
+        broadcast,
+        remoteFileService: {
+          downloadFile: vi.fn((_session, _remote, _local, currentOptions) => {
+            options = currentOptions;
+            return runs[attempt++].promise;
+          }),
+          cancelDownload: vi.fn(async () => {
+            runs[0].reject(Object.assign(new Error("canceled"), { code: "DOWNLOAD_CANCELED" }));
+            return true;
+          })
+        }
+      });
+      const task = manager.enqueueDownload("s1", "/a", "a", "a");
+      for (let i = 1; i <= 1000; i++) {
+        options.onProgress({ transferredBytes: i, totalBytes: 2000, percent: i / 20 });
+      }
+      expect(manager.list()[0].transferredBytes).toBe(1000);
+      expect(broadcast).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast.mock.lastCall[1][0]).toMatchObject({ status: "running", percent: 50 });
+      expect(await manager.cancel(task.id)).toBe(true);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(broadcast.mock.lastCall[1][0].status).toBe("canceled");
+      expect(manager.retry(task.id)).toBe(true);
+      expect(manager.list()[0]).toMatchObject({ status: "running", transferredBytes: 0, percent: null });
+      await vi.advanceTimersByTimeAsync(150);
+      expect(broadcast.mock.lastCall[1][0].status).toBe("running");
+      runs[1].resolve();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(broadcast.mock.lastCall[1][0]).toMatchObject({ status: "completed", percent: 100 });
+      manager.clear(task.id);
+      await manager.shutdown();
+      expect(broadcast.mock.lastCall[1]).toEqual([]);
+      const calls = broadcast.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(300);
+      expect(broadcast).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([1000, 2000, 5000])("coalesces an immediate batch of %i downloads into one final snapshot", async (count) => {
+    const broadcast = vi.fn();
+    const finished = deferred();
+    let downloads = 0;
+    const manager = createFileTransferManager({
+      broadcast,
+      remoteFileService: {
+        downloadFile: async () => { if (++downloads === count) finished.resolve(); },
+        cancelDownload: vi.fn()
+      }
+    });
+    manager.enqueueDownloads("s1", Array.from({ length: count }, (_, i) => ({
+      remotePath: `/file-${i}`, localPath: `file-${i}`, fileName: `file-${i}`
+    })));
+    await finished.promise;
+    // Drain the final attempts without polling list() for every task.
+    await new Promise((resolve) => setImmediate(resolve));
+    await manager.shutdown();
+    expect(downloads).toBe(count);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    expect(broadcast.mock.lastCall[1]).toHaveLength(50);
+    expect(broadcast.mock.lastCall[1].every((task) => task.status === "completed" && task.percent === 100)).toBe(true);
+  });
+
   it("replaces an existing file only after a batch download succeeds", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "panel-batch-download-"));
     const target = path.join(dir, "note.txt");

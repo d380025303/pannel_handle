@@ -4,6 +4,8 @@ const fs = require("node:fs");
 function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, concurrency = 2, historyLimit = 50 }) {
   const tasks = new Map();
   const queue = [];
+  const completedTasks = new Map();
+  let notifyTimer = null;
   const activeRuns = new Set();
   let running = 0;
 
@@ -16,20 +18,37 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
     return Array.from(tasks.values()).map(serialize).sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  function notify() {
+  function flushNotify() {
+    if (notifyTimer === null) return;
+    clearTimeout(notifyTimer);
+    notifyTimer = null;
     broadcast("file-transfers:changed", list());
   }
 
-  function prune() {
-    const completed = Array.from(tasks.values())
-      .filter((task) => !task.attemptRunning && ["completed", "canceled", "failed"].includes(task.status))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-    for (const task of completed.slice(historyLimit)) tasks.delete(task.id);
+  function notify() {
+    if (notifyTimer !== null) return;
+    // Construct the snapshot only when publishing, never on each progress event.
+    notifyTimer = setTimeout(flushNotify, 150);
+    notifyTimer.unref?.();
+  }
+
+  function prune(task) {
+    if (task.attemptRunning || !["completed", "canceled", "failed"].includes(task.status)) return;
+    completedTasks.set(task.id, task);
+    // Only inspect bounded terminal history, not the entire pending batch.
+    const completed = Array.from(completedTasks.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const expired of completed.slice(historyLimit)) {
+      completedTasks.delete(expired.id);
+      tasks.delete(expired.id);
+    }
   }
 
   function update(task, patch) {
     Object.assign(task, patch, { updatedAt: Date.now() });
-    prune();
+    if (patch.status) {
+      completedTasks.delete(task.id);
+      prune(task);
+    }
     notify();
   }
 
@@ -93,7 +112,7 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
     } finally {
       task.attemptRunning = false;
       running -= 1;
-      prune();
+      prune(task);
       notify();
       schedule();
     }
@@ -191,10 +210,16 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
   function clear(id) {
     if (id) {
       const task = tasks.get(id);
-      if (task && !task.attemptRunning && !["queued", "running"].includes(task.status)) tasks.delete(id);
+      if (task && !task.attemptRunning && !["queued", "running"].includes(task.status)) {
+        tasks.delete(id);
+        completedTasks.delete(id);
+      }
     } else {
       for (const [taskId, task] of tasks) {
-        if (!task.attemptRunning && !["queued", "running"].includes(task.status)) tasks.delete(taskId);
+        if (!task.attemptRunning && !["queued", "running"].includes(task.status)) {
+          tasks.delete(taskId);
+          completedTasks.delete(taskId);
+        }
       }
     }
     notify();
@@ -208,6 +233,7 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
   async function shutdown() {
     await Promise.all(Array.from(tasks.values()).filter((task) => ["queued", "running"].includes(task.status)).map((task) => cancel(task.id)));
     await Promise.allSettled(Array.from(activeRuns));
+    flushNotify();
   }
 
   return { list, enqueueUploads, enqueueDownload, enqueueDownloads, cancel, retry, resolveConflict, clear, hasActiveForSession, shutdown };
