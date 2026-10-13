@@ -1,4 +1,4 @@
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 const { randomUUID, createHash } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const readline = require("node:readline");
@@ -101,7 +101,7 @@ function buildInvocation(session, runtime, environment) {
     env: mergeEnvironment([process.env, environment], true) };
 }
 
-function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
+function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, execFileProcess = execFile,
   conversationArchive = null, sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
   const turnListeners = new Set();
@@ -1721,7 +1721,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw error;
     }
   }
-  function fileInput(entry, filePath) {
+  async function fileInput(entry, filePath) {
     if (entry.pastedImages.has(filePath)) return { path: filePath, image: true };
     if (typeof filePath !== "string" || !path.win32.isAbsolute(filePath)) throw new Error("只能附加本地绝对路径文件。");
     const stat = fs.statSync(filePath);
@@ -1729,11 +1729,16 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     let targetPath = filePath;
     if (entry.session.type === "wsl") {
       const distro = entry.session.wslDistro;
-      const converted = spawnSyncProcess("wsl.exe", ["-d", distro, "--", "wslpath", "-a", "-u", filePath], { encoding: "utf8", windowsHide: true, timeout: 10000 });
-      if (converted.status !== 0 || !converted.stdout?.trim()) throw new Error(`WSL 无法访问文件：${filePath}`);
-      targetPath = converted.stdout.trim();
-      const checked = spawnSyncProcess("wsl.exe", ["-d", distro, "--", "test", "-f", targetPath], { windowsHide: true, timeout: 10000 });
-      if (checked.status !== 0) throw new Error(`WSL 无法访问文件：${filePath}`);
+      const runWsl = args => new Promise((resolve, reject) => {
+        execFileProcess("wsl.exe", ["-d", distro, "--", ...args],
+          { encoding: "utf8", windowsHide: true, timeout: 10000 }, (error, stdout) => {
+            if (error) reject(new Error(`WSL 无法访问文件：${filePath}`));
+            else resolve(String(stdout || "").trim());
+          });
+      });
+      targetPath = await runWsl(["wslpath", "-a", "-u", filePath]);
+      if (!targetPath) throw new Error(`WSL 无法访问文件：${filePath}`);
+      await runWsl(["test", "-f", targetPath]);
     }
     return { path: targetPath, image: /\.(png|jpe?g|gif|webp|bmp)$/i.test(filePath),
       ...(isRemote(entry) ? { localPath: filePath } : {}) };
@@ -1813,7 +1818,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.uploading = true;
     const uploaded = [];
     let files;
-    try { files = await prepareRemoteFiles(entry, filePaths.map(filePath => fileInput(entry, filePath)), uploaded); }
+    try {
+      const inputs = [];
+      for (const filePath of filePaths) inputs.push(await fileInput(entry, filePath));
+      files = await prepareRemoteFiles(entry, inputs, uploaded);
+    }
     catch (error) { entry.uploading = false; await removeUploadedFiles(entry, uploaded); throw error; }
     let turnRequestSent = false;
     let startingTurn = false;

@@ -1806,21 +1806,36 @@ describe("Codex App Server session", () => {
     const filePath = path.join(directory, "notes.txt");
     fs.writeFileSync(filePath, "notes");
     const received = [];
-    const convert = vi.fn(() => ({ status: 1, stdout: "" }));
+    const convert = vi.fn((_command, _args, _options, callback) => callback(new Error("failed"), ""));
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => fakeProcess(received),
-      spawnSyncProcess: convert });
+      execFileProcess: convert });
     try {
       await service.start({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", shell: "bash", cwd: "/repo" });
       service.allowFiles("run-1", [filePath]);
       await expect(service.submit("run-1", "检查", [filePath])).rejects.toThrow("WSL 无法访问文件");
       expect(received.some(item => item.method === "turn/start")).toBe(false);
-      expect(convert).toHaveBeenCalledWith("wsl.exe", ["-d", "Ubuntu", "--", "wslpath", "-a", "-u", filePath], expect.any(Object));
-      convert.mockReturnValueOnce({ status: 0, stdout: "/mnt/c/files/notes.txt\n" }).mockReturnValueOnce({ status: 0 });
-      await service.submit("run-1", "检查", [filePath]);
+      expect(convert).toHaveBeenCalledWith("wsl.exe", ["-d", "Ubuntu", "--", "wslpath", "-a", "-u", filePath], { encoding: "utf8", windowsHide: true, timeout: 10000 }, expect.any(Function));
+      convert.mockImplementationOnce((_command, _args, _options, callback) => callback(null, "/mnt/c/files/notes.txt\n"));
+      await expect(service.submit("run-1", "检查", [filePath])).rejects.toThrow("WSL 无法访问文件");
+      expect(received.some(item => item.method === "turn/start")).toBe(false);
+      convert.mockReset();
+      convert.mockImplementation((_command, args, _options, callback) => {
+        setTimeout(() => callback(null, args.includes("wslpath") ? "/mnt/c/files/notes.txt\n" : ""), 150);
+      });
+      let completed = false;
+      const sending = service.submit("run-1", "检查", [filePath]).then(() => { completed = true; });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(completed).toBe(false);
+      expect(convert).toHaveBeenCalledTimes(1);
+      await sending;
+      expect(convert).toHaveBeenCalledTimes(2);
+      expect(convert).toHaveBeenLastCalledWith("wsl.exe", ["-d", "Ubuntu", "--", "test", "-f", "/mnt/c/files/notes.txt"],
+        { encoding: "utf8", windowsHide: true, timeout: 10000 }, expect.any(Function));
       expect(received.find(item => item.method === "turn/start").params.input[0].text).toContain('"/mnt/c/files/notes.txt"');
       service.allowFiles("run-1", [filePath]);
-      convert.mockReturnValueOnce({ status: 0, stdout: "/mnt/c/files/notes.txt\n" }).mockReturnValueOnce({ status: 0 });
+      convert.mockImplementationOnce((_command, _args, _options, callback) => callback(null, "/mnt/c/files/notes.txt\n"))
+        .mockImplementationOnce((_command, _args, _options, callback) => callback(null, ""));
       await service.submit("run-1", "补充检查", [filePath]);
       expect(received.find(item => item.method === "turn/steer").params.input[0].text)
         .toContain('"/mnt/c/files/notes.txt"');
