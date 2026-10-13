@@ -47,3 +47,65 @@ it("terminates a cancelled authentication channel", async () => {
   expect(f.stream.signal).toHaveBeenCalledWith("TERM"); expect(f.stream.end).toHaveBeenCalledOnce();
   expect(exit).not.toHaveBeenCalled();
 });
+
+const utf8Text = "中文🚀";
+const utf8Bytes = Buffer.from(utf8Text);
+for (const channel of ["stdout", "stderr"]) {
+  for (let split = 1; split < utf8Bytes.length; split += 1) {
+    it(`preserves UTF-8 on ${channel} split at byte ${split}`, async () => {
+      const f = fixture();
+      const term = await f.transport.createInteractiveTransport("one", { command: "login" });
+      const chunks = []; term.onData(text => chunks.push(text));
+      const source = channel === "stdout" ? f.stream : f.stream.stderr;
+      source.emit("data", utf8Bytes.subarray(0, split));
+      source.emit("data", utf8Bytes.subarray(split));
+      f.stream.emit("close");
+      expect(chunks.join("")).toBe(utf8Text);
+    });
+  }
+
+  it(`preserves byte-by-byte UTF-8 on ${channel}`, async () => {
+    const f = fixture();
+    const term = await f.transport.createInteractiveTransport("one", { command: "login" });
+    const chunks = []; term.onData(text => chunks.push(text));
+    const source = channel === "stdout" ? f.stream : f.stream.stderr;
+    for (const byte of utf8Bytes) source.emit("data", Buffer.from([byte]));
+    f.stream.emit("close");
+    expect(chunks.join("")).toBe(utf8Text);
+  });
+}
+
+it("decodes interleaved stdout and stderr independently", async () => {
+  const f = fixture();
+  const term = await f.transport.createInteractiveTransport("one", { command: "login" });
+  const chunks = []; term.onData(text => chunks.push(text));
+  const stderr = Buffer.from("登录🌟");
+  for (let i = 0; i < utf8Bytes.length; i += 1) {
+    f.stream.emit("data", utf8Bytes.subarray(i, i + 1));
+    f.stream.stderr.emit("data", stderr.subarray(i, i + 1));
+  }
+  f.stream.emit("close");
+  expect(chunks).toEqual(["中", "登", "文", "录", "🚀", "🌟"]);
+});
+
+for (const reason of ["remote-exit", "connection-close", "transport-error"]) {
+  it(`flushes incomplete tails once before ${reason}`, async () => {
+    const f = fixture();
+    const term = await f.transport.createInteractiveTransport("one", { command: "login" });
+    const events = []; term.onData(text => events.push(text));
+    const exit = vi.fn(value => events.push(value.reason)); term.onExit(exit);
+    f.stream.emit("data", Buffer.from("中").subarray(0, 2));
+    f.stream.stderr.emit("data", Buffer.from("🚀").subarray(0, 3));
+    expect(events).toEqual([]);
+    if (reason === "remote-exit") f.stream.emit("close");
+    else if (reason === "connection-close") f.client.emit("close");
+    else f.stream.emit("error", new Error("disconnected"));
+    f.stream.emit("close"); f.client.emit("close");
+    f.client.emit("error", new Error("late error"));
+    f.stream.emit("data", Buffer.from("late stdout"));
+    f.stream.stderr.emit("data", Buffer.from("late stderr"));
+    expect(events).toEqual(["�", "�", reason]);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(f.client.end).toHaveBeenCalledOnce();
+  });
+}

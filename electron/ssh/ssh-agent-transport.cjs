@@ -84,14 +84,23 @@ function createSshAgentTransport({ sshSessionRuntime }) {
         let closed = false;
         let exitCode = null;
         let exitSignal = null;
+        const stdoutDecoder = new StringDecoder("utf8");
+        const stderrDecoder = new StringDecoder("utf8");
+        const emitData = text => { if (text) events.emit("data", text); };
         const finish = reason => {
           if (closed) return;
           closed = true;
+          emitData(stdoutDecoder.end());
+          emitData(stderrDecoder.end());
           events.emit("exit", { exitCode, signal: exitSignal, reason });
           client.end();
         };
-        stream.on("data", data => events.emit("data", String(data)));
-        stream.stderr?.on("data", data => events.emit("data", String(data)));
+        stream.on("data", data => {
+          if (!closed) emitData(Buffer.isBuffer(data) ? stdoutDecoder.write(data) : String(data));
+        });
+        stream.stderr?.on("data", data => {
+          if (!closed) emitData(Buffer.isBuffer(data) ? stderrDecoder.write(data) : String(data));
+        });
         stream.on("exit", (code, signal) => { exitCode = Number.isInteger(code) ? code : null; exitSignal = signal; });
         stream.on("close", () => finish("remote-exit"));
         stream.on("error", () => finish("transport-error"));
