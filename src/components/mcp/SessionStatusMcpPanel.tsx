@@ -39,7 +39,7 @@ export function SessionStatusMcpPanel() {
   const bearer = token || "<ACCESS_TOKEN>";
   const examples = [
     { name: "Codex", value: `[mcp_servers.pannel_handle]\nurl = "${url}"\nbearer_token_env_var = "PANNEL_HANDLE_MCP_TOKEN"` },
-    { name: "OpenCode", value: `"mcp": { "pannel_handle": { "type": "remote", "url": "${url}", "headers": { "Authorization": "Bearer {env:PANNEL_HANDLE_MCP_TOKEN}" } } }` },
+    { name: "OpenCode", value: `"mcp": { "servers": { "pannel_handle": { "type": "remote", "url": "${url}", "headers": { "Authorization": "Bearer {env:PANNEL_HANDLE_MCP_TOKEN}" } } } }` },
     { name: "Claude", value: `"mcpServers": { "pannel_handle": { "type": "http", "url": "${url}", "headers": { "Authorization": "Bearer ${bearer}" } } }` }
   ];
 
