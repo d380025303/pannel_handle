@@ -26,7 +26,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     const allowed = allowedRoots || roots().map(root => pathApi.resolve(root));
     const root = allowed.find(item => key(target) === key(item) || key(target).startsWith(key(item.endsWith(pathApi.sep) ? item : `${item}${pathApi.sep}`)));
     if (!root) throw new Error("此位置不属于可访问的本地磁盘。");
-    // Only list() supplies a parent validated within the same request.
+    // Listing and archive traversal supply a parent validated within the same request.
     if (validatedParent && key(pathApi.dirname(target)) !== key(validatedParent)) {
       throw new Error("文件路径无效。");
     }
@@ -86,7 +86,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
       if (isCancelled()) return;
       const child = pathApi.join(directory, name);
       let info;
-      try { ({ info } = await safePath(child, allowedRoots)); }
+      try { ({ info } = await safePath(child, allowedRoots, directory)); }
       catch (error) {
         if (error.code === "EACCES" || error.code === "EPERM" || error.code === "ENOENT"
           || /符号链接|重定向/.test(error.message)) continue;

@@ -93,11 +93,12 @@ it.each([1, 6, 12])("validates shared ancestors once per large listing at depth 
   await expect(files.list(directory)).rejects.toThrow(/符号链接/);
 });
 
-it.each([false, true])("probes drives once per folder download and validates children (nested: %s)", async nested => {
-  const directory = "C:\\folder";
+it.each([{ depth: 1, nested: false }, { depth: 1, nested: true }, { depth: 8, nested: false }])(
+  "validates shared ancestors once per folder download at depth $depth (nested: $nested)", async ({ depth, nested }) => {
+  const directory = path.win32.join("C:\\", ...Array.from({ length: depth }, (_, index) => index ? `level-${index}` : "folder"));
   const childDirectory = path.win32.join(directory, "nested");
   const names = Array.from({ length: 1000 }, (_, index) => `file-${index}.txt`);
-  const unsafeNames = ["symlink", "junction", "redirected"];
+  const unsafeNames = depth === 8 ? [] : ["symlink", "junction", "redirected"];
   const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
   const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 4 };
   const fsApi = {
@@ -126,11 +127,13 @@ it.each([false, true])("probes drives once per folder download and validates chi
     const result = await receive(files, socket, url);
     expect(result.status).toBe(200);
     expect(fsApi.statSync).toHaveBeenCalledTimes(26);
+    expect(fsApi.promises.lstat).toHaveBeenCalledTimes(depth + (nested ? 1 : 0) + names.length + unsafeNames.length);
+    expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === directory)).toHaveLength(1);
     expect(archived).toHaveBeenCalledTimes(1000);
     const parent = nested ? childDirectory : directory;
     for (const name of names) {
       expect(archived).toHaveBeenCalledWith(path.win32.join(parent, name),
-        { name: `folder/${nested ? "nested/" : ""}${name}` });
+        { name: `${path.win32.basename(directory)}/${nested ? "nested/" : ""}${name}` });
       expect(fsApi.promises.lstat).toHaveBeenCalledWith(path.win32.join(parent, name));
       expect(fsApi.promises.realpath).toHaveBeenCalledWith(path.win32.join(parent, name));
     }
@@ -201,12 +204,14 @@ it("downloads nested folders as a ZIP and invalidates tickets on disconnect", as
   const folder = path.join(root, "folder");
   fs.mkdirSync(path.join(folder, "nested"), { recursive: true });
   fs.writeFileSync(path.join(folder, "nested", "note.txt"), "zip content");
+  fs.symlinkSync(path.join(folder, "nested"), path.join(folder, "junction"), "junction");
   const { url } = await files.prepare(socket, folder);
   const result = await receive(files, socket, url);
   expect(result.status).toBe(200);
   expect(result.headers["Content-Type"]).toBe("application/zip");
   expect(result.body.subarray(0, 2).toString()).toBe("PK");
   expect(result.body.includes(Buffer.from("folder/nested/note.txt"))).toBe(true);
+  expect(result.body.includes(Buffer.from("folder/junction/"))).toBe(false);
   const next = await files.prepare(socket, folder);
   files.releaseSocket(socket);
   expect((await receive(files, socket, next.url)).status).toBe(403);
