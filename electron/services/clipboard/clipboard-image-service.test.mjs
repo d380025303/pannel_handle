@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createClipboardImageService, createImageFileName, resolveSessionWorkingDirectory } from "./clipboard-image-service.cjs";
+import { createRemoteFileService } from "../remote-files/remote-file-service.cjs";
 
 function createNativeImageMock(buffer) {
   return {
@@ -118,7 +119,7 @@ describe("clipboard-image-service", () => {
     const writeBinaryFile = vi.fn(async (_id, remotePath) => ({ remotePath }));
     const service = createClipboardImageService({ clipboard,
       terminalManager: { getSession: () => ({ type, cwd: type === "windows" ? "C:\\work" : "/work" }) },
-      remoteFileService: { writeBinaryFile } });
+      remoteFileService: { getHome: async () => "C:\\work", writeBinaryFile } });
     const result = await service.pasteImageToSession("run-1", { image: { name: "original.JPG", bytes: new Uint8Array([1, 2, 3]) } });
     expect(result.path).toMatch(/\.jpg$/);
     expect(result.path).toContain(".pannel-handle-images");
@@ -207,7 +208,7 @@ describe("clipboard-image-service", () => {
   it("saves images under the configured Windows working directory", async () => {
     const pngBuffer = Buffer.from([7, 8, 9]);
     const remoteFileService = {
-      getHome: vi.fn(async () => "C:\\Users\\me"),
+      getHome: vi.fn(async () => "C:\\work space"),
       writeBinaryFile: vi.fn(async (_sessionId, remotePath) => ({ remotePath }))
     };
     const service = createClipboardImageService({
@@ -223,7 +224,38 @@ describe("clipboard-image-service", () => {
       status: "saved",
       path: "C:\\work space\\.pannel-handle-images\\image-20260617-153000-a1b2c3.png"
     }));
-    expect(remoteFileService.getHome).not.toHaveBeenCalled();
+    expect(remoteFileService.getHome).toHaveBeenCalledWith("run-1");
+  });
+
+  it.skipIf(process.platform !== "win32").each(
+    ["relative", "absolute", "empty"].flatMap(cwd => ["clipboard", "paste", "upload"].map(entry => [cwd, entry]))
+  )("uses the real file service working directory for %s cwd through %s", async (cwdKind, entry) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-image-cwd-"));
+    const bytes = Buffer.from([1, 2, 3]);
+    try {
+      vi.spyOn(os, "homedir").mockReturnValue(directory);
+      const cwd = cwdKind === "relative" ? "project"
+        : cwdKind === "absolute" ? path.join(directory, "absolute project") : "";
+      const terminalManager = { getSession: () => ({ id: "run-1", type: "windows", cwd }) };
+      const remoteFileService = createRemoteFileService({ terminalManager });
+      const service = createClipboardImageService({
+        clipboard: { readImage: () => createNativeImageMock(bytes) },
+        terminalManager,
+        remoteFileService
+      });
+      const home = await remoteFileService.getHome("run-1");
+      expect(home).toBe(cwdKind === "empty" ? directory : path.join(directory, cwdKind === "relative" ? "project" : "absolute project"));
+      const sourcePath = path.join(directory, "source.png");
+      fs.writeFileSync(sourcePath, bytes);
+      const result = await (entry === "upload" ? service.uploadImageToSession("run-1", sourcePath)
+        : entry === "paste" ? service.pasteImageToSession("run-1", { image: { name: "source.png", bytes } })
+          : service.pasteImageToSession("run-1"));
+      expect(result.status).toBe("saved");
+      expect(path.dirname(result.path)).toBe(path.join(home, ".pannel-handle-images"));
+      expect(fs.readFileSync(result.path)).toEqual(bytes);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("resolves WSL and SSH tilde working directories from the session home", async () => {

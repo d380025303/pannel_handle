@@ -47,20 +47,17 @@ function joinSessionPath(session, basePath, fileName) {
 }
 
 async function resolveSessionWorkingDirectory(session, remoteFileService, sessionId) {
-  const configuredCwd = String(session.cwd || "").trim();
-  if (session.type === "windows" && path.win32.isAbsolute(configuredCwd)) {
-    return path.win32.normalize(configuredCwd);
+  if (session.type === "windows") {
+    return remoteFileService.getHome(sessionId);
   }
-  if (session.type !== "windows" && configuredCwd.startsWith("/")) {
+  const configuredCwd = String(session.cwd || "").trim();
+  if (configuredCwd.startsWith("/")) {
     return path.posix.normalize(configuredCwd);
   }
 
   const home = await remoteFileService.getHome(sessionId);
   if (!configuredCwd || configuredCwd === "~") {
     return home;
-  }
-  if (session.type === "windows") {
-    return path.win32.resolve(home, configuredCwd);
   }
   return path.posix.resolve(home, configuredCwd.replace(/^~\/?/, ""));
 }
