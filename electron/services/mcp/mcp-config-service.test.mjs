@@ -60,6 +60,22 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it.each(["ssh", "wsl"])("rejects %s remote copies before accessing local configuration", type => {
+    const { homeDir } = setup();
+    const session = { id: "remote", type, agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    const localAccess = vi.fn(() => { throw new Error("Unexpected local filesystem access"); });
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => "/srv/app" },
+      fsApi: new Proxy({}, { get: localAccess }) });
+    for (const scope of ["user", "project"]) {
+      expect(() => service.copy({ source: { provider: "codex", scope, sessionId: "remote" },
+        name: "remote_demo", expectedSourceVersion: "remote-version", expectedDestinationVersion: "missing" }))
+        .toThrow("暂不支持复制远程 Codex MCP 配置（SSH/WSL）。");
+    }
+    expect(localAccess).not.toHaveBeenCalled();
+  });
+
   it.each(["\n", "\r\n"])("preserves long Unicode comments when editing Codex servers with %j line endings", (eol) => {
     const comment = `#${"a".repeat(40000)}\u2028# comment\u2029# comment${eol}`;
     const text = `${comment}[mcp_servers.demo]${eol}command="node"${eol}`;

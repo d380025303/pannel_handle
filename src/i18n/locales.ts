@@ -709,6 +709,7 @@ export type TranslationKey =
   | "mcp.reveal"
   | "mcp.saving"
   | "mcp.saved"
+  | "mcp.remoteCopyUnsupported"
   | "mcp.copyTo"
   | "mcp.copied"
   | "mcp.copiedWithPermissions"
@@ -1811,6 +1812,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.reveal": "揭示敏感值",
     "mcp.saving": "保存中…",
     "mcp.saved": "MCP 配置已保存。",
+    "mcp.remoteCopyUnsupported": "暂不支持复制远程 Codex MCP 配置（SSH/WSL）。",
     "mcp.copyTo": "复制到 {provider}",
     "mcp.copied": "已复制到 {provider}，请重启对应 Agent 会话以加载配置。",
     "mcp.copiedWithPermissions": "服务和工具权限已复制到 {provider}，请重启对应 Agent 会话以加载配置。",
@@ -2905,6 +2907,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.reveal": "Reveal sensitive value",
     "mcp.saving": "Saving…",
     "mcp.saved": "MCP configuration saved.",
+    "mcp.remoteCopyUnsupported": "Copying remote Codex MCP configuration (SSH/WSL) is not supported yet.",
     "mcp.copyTo": "Copy to {provider}",
     "mcp.copied": "Copied to {provider}. Restart the corresponding Agent session to load the configuration.",
     "mcp.copiedWithPermissions": "Server and tool permissions copied to {provider}. Restart the corresponding Agent session to load the configuration.",

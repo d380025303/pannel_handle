@@ -910,6 +910,7 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
     const { source, name, expectedSourceVersion, expectedDestinationVersion } = request || {};
     if (!source || !["codex", "opencode"].includes(source.provider) || !["user", "project"].includes(source.scope))
       throw new Error("不支持的 MCP 复制来源。");
+    if (remoteTarget(source)) throw new Error("暂不支持复制远程 Codex MCP 配置（SSH/WSL）。");
     const destinationProvider = source.provider === "codex" ? "opencode" : "codex";
     const sourceTarget = resolveTarget(source, context);
     const destinationRequest = { provider: destinationProvider, scope: source.scope, sessionId: source.sessionId };

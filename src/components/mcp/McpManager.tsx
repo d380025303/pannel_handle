@@ -135,6 +135,10 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
 
   const requestTarget = useCallback(() => targetFor(provider, scope), [provider, scope, targetFor]);
 
+  const remoteCopyUnsupported = provider === "codex" && Boolean(requestTarget().sessionId)
+    && session?.runtimeMode === "app-server"
+    && (session.type === "wsl" || (session.type === "ssh" && session.agentLocation !== "local"));
+
   const selectServer = useCallback((server: McpServerSummary | undefined) => {
     if (!server) {
       setSelectedName(null);
@@ -251,7 +255,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
   };
 
   const copyServer = async () => {
-    if (!document || !originalName || dirty || (provider !== "codex" && provider !== "opencode")) return;
+    if (remoteCopyUnsupported || !document || !originalName || dirty || (provider !== "codex" && provider !== "opencode")) return;
     const destinationProvider: McpProvider = provider === "codex" ? "opencode" : "codex";
     setSaving(true);
     setError("");
@@ -321,8 +325,8 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
           <div><h1>{t("mcp.title")}</h1><p>{t("mcp.description")}</p></div>
         </div>
         <div className="mcp-header-actions">
-          {!embeddedCodex && !embeddedCodeBuddy && originalName && (provider === "codex" || provider === "opencode") &&
-            <button className="mcp-copy" type="button" disabled={saving || dirty || loading} onClick={() => void copyServer()}>
+          {(remoteCopyUnsupported || (!embeddedCodex && !embeddedCodeBuddy)) && originalName && (provider === "codex" || provider === "opencode") &&
+            <button className="mcp-copy" type="button" disabled={remoteCopyUnsupported || saving || dirty || loading} title={remoteCopyUnsupported ? t("mcp.remoteCopyUnsupported") : undefined} onClick={() => void copyServer()}>
               <Copy aria-hidden="true" />{t("mcp.copyTo", { provider: provider === "codex" ? "OpenCode" : "Codex" })}
             </button>}
           {originalName && <button className="mcp-delete" type="button" disabled={saving} onClick={() => void remove()}><Trash2 aria-hidden="true" />{t("common.delete")}</button>}
@@ -344,6 +348,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
         ))}
       </div>
 
+      {remoteCopyUnsupported && <p className="mcp-notice" role="status">{t("mcp.remoteCopyUnsupported")}</p>}
       <div className="mcp-workspace">
         <aside className="mcp-sidebar">
           <div className="mcp-list-toolbar">

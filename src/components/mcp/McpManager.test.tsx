@@ -141,6 +141,20 @@ describe("McpManager", () => {
     expect(await screen.findByText(/已复制到 OpenCode/)).toBeTruthy();
   });
 
+  it.each(["ssh", "wsl"])("explains unsupported copying in an embedded %s Codex session", async type => {
+    render(<I18nProvider locale="zh-CN"><McpManager embeddedCodex
+      session={{ ...windowsSession, type, runtimeMode: "app-server", agentLocation: "remote", cwd: "/srv/app" } as TerminalSession}
+      onDirtyChange={() => undefined} onRegisterSave={() => undefined} /></I18nProvider>);
+    await screen.findByRole("heading", { name: "local-tools" });
+    expect(screen.getByText("暂不支持复制远程 Codex MCP 配置（SSH/WSL）。")).toBeTruthy();
+    expect(list).toHaveBeenCalledWith({ provider: "codex", scope: "user", sessionId: "session-1" });
+    const button = screen.getByRole("button", { name: "复制到 OpenCode" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(copy).not.toHaveBeenCalled();
+    expect(list.mock.calls.some(([target]) => target.provider === "opencode")).toBe(false);
+  });
+
   it("reports when tool permissions are copied with the server", async () => {
     copy.mockImplementationOnce(async ({ name }) => ({ status: "copied", serverName: name, permissionsCopied: true,
       document: { ...documentFor("opencode", "user"), servers: [{ ...codexServer, provider: "opencode", name }] } }));
