@@ -1,4 +1,12 @@
+const { isDeepStrictEqual } = require("node:util");
 const MAX_RESULT_NOTIFICATIONS = 20;
+
+function samePendingRequest(previous, current) {
+  if (previous.kind !== current.kind || previous.key !== current.key || previous.requestId !== current.requestId) return false;
+  if (current.kind === "plan") return previous.text === current.text;
+  return isDeepStrictEqual(previous.request, current.request)
+    && isDeepStrictEqual(previous.items, current.items);
+}
 
 function cleanSummary(value) {
   return String(value || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
@@ -64,10 +72,12 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     const requests = [];
     if (value.pendingPlan) requests.push({ kind: "plan", requestId: value.pendingPlan.itemId,
       text: value.items?.find(item => item.id === value.pendingPlan.itemId)?.text || "" });
-    for (const request of value.approvals || []) requests.push({ kind: "approval", requestId: request.requestId, request,
-      items: (value.items || []).filter(item => item.id === request.params.itemId) });
-    for (const request of value.questions || []) requests.push({ kind: "question", requestId: request.requestId, request });
-    for (const request of value.elicitations || []) requests.push({ kind: "elicitation", requestId: request.requestId, request });
+    // Snapshot wrappers and top-level item fields can change independently of params.
+    // Retain their values so in-place text/submitting updates remain observable.
+    for (const request of value.approvals || []) requests.push({ kind: "approval", requestId: request.requestId, request: { ...request },
+      items: (value.items || []).filter(item => item.id === request.params.itemId).map(item => ({ ...item })) });
+    for (const request of value.questions || []) requests.push({ kind: "question", requestId: request.requestId, request: { ...request } });
+    for (const request of value.elicitations || []) requests.push({ kind: "elicitation", requestId: request.requestId, request: { ...request } });
     return requests.map(request => ({ ...request, key: JSON.stringify([value.threadId, request.kind, request.requestId]) }));
   }
   function pendingStatus(request, previous, provider, id) {
@@ -102,7 +112,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
         if (!request) { queue.splice(index, 1); dirty = true; }
         else {
           const agentStatus = pendingStatus(request, statuses.get(id), value.provider || session.agentProvider || "codex", id);
-          if (JSON.stringify(notification.action) !== JSON.stringify(request) || JSON.stringify(notification.agentStatus) !== JSON.stringify(agentStatus)) {
+          if (!samePendingRequest(notification.action, request) || !isDeepStrictEqual(notification.agentStatus, agentStatus)) {
             notification.action = request; notification.agentStatus = agentStatus; dirty = true;
           }
         }

@@ -19,6 +19,40 @@ describe("mascot task notifications", () => {
   const status = (id, value, extra = {}) => manager.handleDesktopEvent("agent:status", { id, status: value, provider: "codex", timestamp: Date.now(), ...extra });
   const settle = () => vi.advanceTimersByTimeAsync(200);
   const head = () => manager.snapshot().notification;
+  it.each(["plan", "approval", "question", "elicitation"])("deduplicates long unchanged %s requests without serializing content", kind => {
+    const text = "x".repeat(1000000);
+    const item = { id: "item", type: kind === "plan" ? "plan" : "commandExecution", text };
+    const request = { requestId: 7, method: "approval", params: { itemId: "item", text }, submitting: false };
+    const send = () => manager.handleDesktopEvent("codex-app-server:changed", { id: "a", snapshot: {
+      threadId: "thread-1", items: [item], ...(kind === "plan" ? { pendingPlan: { itemId: "item" } }
+        : { [kind === "approval" ? "approvals" : kind === "question" ? "questions" : "elicitations"]: [{ ...request }] }),
+    } });
+    send();
+    const revision = manager.snapshot().revision;
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      for (let index = 0; index < 100; index++) send();
+      expect(manager.snapshot().revision).toBe(revision);
+      expect(stringify.mock.calls.every(([value]) => Array.isArray(value) && value.length === 3)).toBe(true);
+    } finally { stringify.mockRestore(); }
+    if (kind === "plan") item.text += "changed";
+    else request.params = { ...request.params, text: "changed" };
+    send();
+    expect(manager.snapshot().revision).toBe(revision + 1);
+    if (kind === "plan") expect(head().action.text).toBe(item.text);
+    else expect(head().action.request.params.text).toBe("changed");
+    if (kind === "approval") {
+      item.text = "updated command";
+      send();
+      expect(manager.snapshot().revision).toBe(revision + 2);
+      expect(head().action.items[0].text).toBe(item.text);
+    } else if (kind !== "plan") {
+      request.submitting = true;
+      send();
+      expect(head().action.request.submitting).toBe(true);
+      expect(manager.snapshot().revision).toBe(revision + 2);
+    }
+  });
   it("reuses full event snapshots without copying long history again", () => {
     const history = Array.from({ length: 10000 }, (_, index) => ({ id: String(index), type: "agentMessage", text: "history" }));
     graphical.snapshot = vi.fn(() => ({ items: [...history], provider: "codex", threadId: "thread-1" }));
