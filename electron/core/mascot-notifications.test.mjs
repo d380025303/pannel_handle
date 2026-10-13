@@ -1,7 +1,11 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createMascotNotifications, cleanSummary, MAX_RESULT_NOTIFICATIONS } = require("./mascot-notifications.cjs");
+
+const { createCodexAppServerSessionService } = require("../services/codex-app-server/session-service.cjs");
 
 describe("mascot task notifications", () => {
   let manager, sessions, items, turn, readText, graphical, pending;
@@ -180,7 +184,6 @@ describe("mascot task notifications", () => {
     pending.questions = [{ requestId: 8, params: { questions: [] } }];
     manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
     expect(manager.snapshot().pendingCount).toBe(2);
-    await expect(manager.processAction(head().id, { type: "approve", decision: "acceptForSession" })).rejects.toThrow("已失效");
     let finish;
     graphical.resolveApproval = vi.fn(() => new Promise(resolve => { finish = () => { pending.approvals = []; resolve(); }; }));
     const first = manager.processAction(head().id, { type: "approve", decision: "accept" });
@@ -189,18 +192,6 @@ describe("mascot task notifications", () => {
     graphical.answerQuestion = vi.fn(async () => { pending.questions = []; });
     await manager.processAction(head().id, { type: "answer", answers: { q: { answers: ["A"] } } });
     expect(graphical.answerQuestion).toHaveBeenCalledWith("a", 8, { q: { answers: ["A"] } }); expect(head()).toBeNull();
-  });
-  it.each(["codex", undefined])("accepts equivalent boolean and string approvals for provider %s", async provider => {
-    pending.provider = provider;
-    for (const decision of [true, "accept", false, "decline"]) {
-      pending.approvals = [{ requestId: 7, method: "item/commandExecution/requestApproval",
-        params: { availableDecisions: ["accept", "decline"], choices: [{ id: "accept" }, { id: "decline" }] } }];
-      graphical.resolveApproval = vi.fn(async () => { pending.approvals = []; });
-      manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
-      await manager.processAction(head().id, { type: "approve", decision });
-      expect(graphical.resolveApproval).toHaveBeenCalledWith("a", 7, decision);
-      expect(head()).toBeNull();
-    }
   });
   it("retains only the latest unseen result across 1,000 paused turns", async () => {
     for (let index = 0; index < 1000; index++) {
@@ -238,17 +229,6 @@ describe("mascot task notifications", () => {
     expect(summaries).toEqual(Array.from({ length: MAX_RESULT_NOTIFICATIONS }, (_, index) => `${1000 - MAX_RESULT_NOTIFICATIONS + index}:` + "x".repeat(10240)));
     expect(summaries.join("").length).toBeLessThan(MAX_RESULT_NOTIFICATIONS * 10250);
   });
-  it.each([[true, "decline"], [false, "accept"], ["accept", "decline"], ["decline", "accept"]])(
-    "rejects approval %s when only %s is allowed", async (decision, allowed) => {
-      pending.approvals = [{ requestId: 7, method: "item/commandExecution/requestApproval",
-        params: { availableDecisions: [allowed] } }];
-      graphical.resolveApproval = vi.fn();
-      manager.handleDesktopEvent("codex-app-server:changed", { id: "a" });
-      const id = head().id;
-      await expect(manager.processAction(id, { type: "approve", decision })).rejects.toThrow("授权选择已失效");
-      expect(graphical.resolveApproval).not.toHaveBeenCalled();
-      expect(head().id).toBe(id);
-    });
   it.each([true, false, "allow-once"])("preserves other providers' approval decision %s", async decision => {
     pending.provider = "codebuddy";
     pending.approvals = [{ requestId: 7, params: { choices: [{ id: decision }] } }];
@@ -276,5 +256,76 @@ describe("mascot task notifications", () => {
   it("cleans control sequences and limits summary length", () => {
     expect(cleanSummary("\u001b[31m完成\u001b[0m\n\t 摘要")).toBe("完成\n\t 摘要");
     expect(cleanSummary("字".repeat(200))).toHaveLength(200);
+  });
+});
+
+
+describe("mascot approvals through the Codex session service", () => {
+  let service, manager, child, received;
+  beforeEach(async () => {
+    received = [];
+    child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => child.emit("exit", 0);
+    let buffer = "";
+    child.stdin.on("data", chunk => {
+      buffer += chunk.toString();
+      for (let index = buffer.indexOf("\n"); index >= 0; index = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, index));
+        buffer = buffer.slice(index + 1); received.push(request);
+        if (request.id == null || !request.method) continue;
+        const result = request.method === "thread/start" ? { thread: { id: "thread-1", model: "test-model" } }
+          : request.method === "model/list" ? { data: [{ id: "test-model", isDefault: true }] } : {};
+        child.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+      }
+    });
+    const session = { id: "a", type: "windows", shell: "cmd.exe", cwd: "C:\\project", runtimeMode: "app-server" };
+    service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus() {} }, spawnProcess: () => child,
+      broadcast: (channel, payload) => manager?.handleDesktopEvent(channel, payload) });
+    await service.start(session);
+    manager = createMascotNotifications({ terminalManager: { getSession: id => id === "a" ? session : undefined },
+      graphicalService: service, onChanged() {} });
+  });
+  afterEach(() => { manager?.shutdown(); service?.shutdown(); });
+  const command = "item/commandExecution/requestApproval";
+  const permissions = { network: { enabled: true } };
+  it.each([
+    ["boolean accept", command, { availableDecisions: ["accept"] }, true, { decision: "accept" }],
+    ["boolean decline", command, { availableDecisions: ["decline"] }, false, { decision: "decline" }],
+    ["command amendment", command, { availableDecisions: [{ acceptWithExecpolicyAmendment: {} }], proposedExecpolicyAmendment: ["pnpm", "test"] },
+      "acceptWithExecpolicyAmendment", { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["pnpm", "test"] } } }],
+    ["session permissions", "item/permissions/requestApproval", { permissions }, "acceptForSession", { permissions, scope: "session" }],
+    ["turn permissions", "item/permissions/requestApproval", { permissions }, true, { permissions, scope: "turn" }],
+    ["declined permissions", "item/permissions/requestApproval", { permissions }, false, { permissions: {}, scope: "turn" }],
+  ])("sends a valid %s response and removes its notification", async (_, method, params, decision, result) => {
+    child.stdout.write(`${JSON.stringify({ id: 7, method, params: { threadId: "thread-1", ...params } })}\n`);
+    await vi.waitFor(() => expect(manager.snapshot().notification?.action.requestId).toBe(7));
+    await manager.processAction(manager.snapshot().notification.id, { type: "approve", decision });
+    expect(received.filter(message => message.id === 7 && message.result)).toEqual([{ id: 7, result }]);
+    expect(service.snapshot("a").approvals).toHaveLength(0);
+    expect(manager.snapshot().pendingCount).toBe(0);
+  });
+  it.each([
+    ["invalid decision", command, {}, {}, "无效的审批选择", "decline"],
+    ["restricted boolean accept", command, { availableDecisions: ["decline"] }, true, "不允许", false],
+    ["restricted boolean decline", command, { availableDecisions: ["accept"] }, false, "不允许", true],
+    ["restricted session accept", command, { availableDecisions: ["decline"] }, "acceptForSession", "不允许", "decline"],
+    ["empty amendment", command, { proposedExecpolicyAmendment: [] }, "acceptWithExecpolicyAmendment", "没有有效", false],
+    ["blank amendment", command, { proposedExecpolicyAmendment: ["pnpm", " "] }, "acceptWithExecpolicyAmendment", "没有有效", false],
+    ["non-string amendment", command, { proposedExecpolicyAmendment: [42] }, "acceptWithExecpolicyAmendment", "没有有效", false],
+    ["file amendment", "item/fileChange/requestApproval", { proposedExecpolicyAmendment: ["pnpm"] }, "acceptWithExecpolicyAmendment", "无效的审批选择", false],
+    ["permission cancel", "item/permissions/requestApproval", { permissions }, "cancel", "无效的权限确认选择", false],
+  ])("keeps %s pending without sending a response and permits retry", async (_, method, params, decision, error, retry) => {
+    child.stdout.write(`${JSON.stringify({ id: 7, method, params: { threadId: "thread-1", ...params } })}\n`);
+    await vi.waitFor(() => expect(manager.snapshot().notification?.action.requestId).toBe(7));
+    const id = manager.snapshot().notification.id;
+    await expect(manager.processAction(id, { type: "approve", decision })).rejects.toThrow(error);
+    expect(received.filter(message => message.id === 7 && message.result)).toEqual([]);
+    expect(service.snapshot("a").approvals).toHaveLength(1);
+    expect(manager.snapshot().notification.id).toBe(id);
+    await manager.processAction(id, { type: "approve", decision: retry });
+    expect(received.filter(message => message.id === 7 && message.result)).toHaveLength(1);
+    expect(manager.snapshot().pendingCount).toBe(0);
   });
 });
