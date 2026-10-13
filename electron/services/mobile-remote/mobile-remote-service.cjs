@@ -7,7 +7,7 @@ const { createTerminalSizeOwner } = require("./terminal-size-owner.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces } = require("./mobile-network.cjs");
-const { PROTOCOL_VERSION, HEARTBEAT_MS, HEARTBEAT_TIMEOUT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
+const { PROTOCOL_VERSION, HEARTBEAT_MS, HEARTBEAT_TIMEOUT_MS, MAX_INPUT_BYTES, MAX_MESSAGE_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
 const http = require("node:http");
 const os = require("node:os");
 const { Bonjour } = require("bonjour-service");
@@ -170,7 +170,7 @@ function createMobileRemoteService({
     if (!config.enabled) return currentState();
     if (!localServer?.listening) {
       localServer = createHttpServer(handleHttp);
-      webSocketServer = createWebSocketServer({ noServer: true, maxPayload: MAX_INPUT_BYTES });
+      webSocketServer = createWebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
       attachUpgradeHandler(localServer);
       try {
         await listen(localServer, config.port, "127.0.0.1");

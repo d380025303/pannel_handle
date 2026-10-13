@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import http from "node:http";
+import { WebSocket, WebSocketServer } from "ws";
+import protocolModule from "./mobile-protocol.cjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import authModule from "./mobile-auth.cjs";
 import sizeModule from "./terminal-size-owner.cjs";
@@ -11,6 +14,64 @@ const { createMobileSocketHandlers } = socketModule;
 const { createMobileRemoteService, PROTOCOL_VERSION } = serviceModule;
 
 afterEach(() => vi.useRealTimers());
+
+it("accepts escaped input through a real WebSocket while enforcing input and message limits", async () => {
+  const { MAX_INPUT_BYTES, MAX_MESSAGE_BYTES } = protocolModule;
+  const f = fixture();
+  const config = { enabled: true, port: 0 };
+  f.accessStore.getConfig = () => config;
+  let server;
+  const socketErrors = [];
+  const service = createMobileRemoteService({
+    terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
+    agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
+    getStaticRoot: () => ".", desktopBroadcast: vi.fn(), notifyConnection: vi.fn(),
+    networkInterfaces: () => ({}),
+    createHttpServer: handler => (server = http.createServer(handler)),
+    createWebSocketServer: options => {
+      const wss = new WebSocketServer(options);
+      const handleUpgrade = wss.handleUpgrade.bind(wss);
+      wss.handleUpgrade = (request, socket, head, callback) => handleUpgrade(request, socket, head, client => {
+        client.on("error", error => socketErrors.push(error.code));
+        callback(client);
+      });
+      return wss;
+    }
+  });
+  let client;
+  try {
+    await service.start();
+    config.port = server.address().port;
+    client = new WebSocket(`ws://127.0.0.1:${server.address().port}/api/v1/ws`);
+    const messages = [];
+    client.on("message", raw => messages.push(JSON.parse(String(raw))));
+    await new Promise((resolve, reject) => { client.once("open", resolve); client.once("error", reject); });
+    const send = payload => client.send(JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
+    send({ type: "password.login", password: "correct-password", deviceName: "Phone" });
+    await vi.waitFor(() => expect(messages.some(message => message.type === "ready")).toBe(true));
+    for (const data of ["a\n".repeat(6000), "\u0001".repeat(MAX_INPUT_BYTES), "界".repeat(5461) + "a"]) {
+      send({ type: "terminal.input", sessionId: "run-1", data });
+      await vi.waitFor(() => expect(f.terminalManager.write).toHaveBeenLastCalledWith("run-1", data));
+      expect(client.readyState).toBe(WebSocket.OPEN);
+    }
+    for (const data of ["x".repeat(MAX_INPUT_BYTES + 1), "界".repeat(5462)]) {
+      send({ type: "terminal.input", sessionId: "run-1", data, requestId: String(data.length) });
+      await vi.waitFor(() => expect(messages).toContainEqual(expect.objectContaining({
+        type: "error", code: "COMMAND_FAILED", message: "终端输入过大或发送过快。", requestId: String(data.length)
+      })));
+      expect(client.readyState).toBe(WebSocket.OPEN);
+    }
+    expect(f.terminalManager.write).toHaveBeenCalledTimes(3);
+    const closed = new Promise(resolve => client.once("close", resolve));
+    send({ type: "terminal.input", sessionId: "run-1", data: "x".repeat(MAX_MESSAGE_BYTES) });
+    expect([1006, 1009]).toContain(await closed);
+    expect(socketErrors).toEqual(["WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"]);
+    expect(f.terminalManager.write).toHaveBeenCalledTimes(3);
+  } finally {
+    client?.terminate();
+    await service.stop();
+  }
+});
 
 function socket() {
   return Object.assign(new EventEmitter(), {
