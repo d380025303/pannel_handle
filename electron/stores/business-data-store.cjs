@@ -29,6 +29,7 @@ const RECORD_TABLES = {
 
 function createBusinessDataStore({ userData, databaseFile = path.join(userData, "agent-token-stats.sqlite3"), fsApi = fs, Database = DatabaseSync }) {
   let db;
+  let transactionActive = false;
   // Module owners use migration 2; keep the original migration source list unchanged.
   const names = new Set([...SOURCES, "module-owners.json"]);
 
@@ -36,7 +37,10 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (!db) throw new Error("Business database is not open.");
   }
   function transaction(callback) {
+    ensureOpen();
+    if (transactionActive) return callback();
     db.exec("BEGIN IMMEDIATE");
+    transactionActive = true;
     try {
       const result = callback();
       db.exec("COMMIT");
@@ -44,6 +48,8 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
+    } finally {
+      transactionActive = false;
     }
   }
   function sourceName(filePath) {
@@ -289,7 +295,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { transaction, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };

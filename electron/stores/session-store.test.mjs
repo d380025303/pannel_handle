@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { createSessionStore, inferWorkingDirectory, normalizeTags } = require("./session-store.cjs");
 const { DEFAULT_WINDOW_MS, createTemplateUsageStore } = require("./template-usage-store.cjs");
 const { createBusinessDataStore } = require("./business-data-store.cjs");
+const { createLaunchTemplateStore } = require("./launch-template-store.cjs");
 
 let tempDirs = [];
 
@@ -46,6 +47,96 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each(["launch-write", "commit"])("rolls back session deletion after %s failure and commits both stores on retry", (failure) => {
+    const sessionsFile = createTempSessionsFile();
+    const templatesFile = path.join(path.dirname(sessionsFile), "launch-templates.json");
+    const usageFile = path.join(path.dirname(sessionsFile), "template-usage.json");
+    const writeError = Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+    let fail = false;
+    let begins = 0;
+    const dataStore = createBusinessDataStore({
+      userData: path.dirname(sessionsFile),
+      Database: class extends DatabaseSync {
+        exec(sql) {
+          if (sql === "BEGIN IMMEDIATE") begins++;
+          if (fail && failure === "commit" && sql === "COMMIT") throw writeError;
+          return super.exec(sql);
+        }
+        prepare(sql) {
+          const statement = super.prepare(sql);
+          if (sql.startsWith("INSERT INTO app_launch_templates(")) {
+            const run = statement.run.bind(statement);
+            statement.run = (...args) => {
+              if (fail && failure === "launch-write") throw writeError;
+              return run(...args);
+            };
+          }
+          return statement;
+        }
+      }
+    }).open();
+    try {
+      const launch = createLaunchTemplateStore({ templatesFile, dataStore });
+      const usage = createTemplateUsageStore({ usageFile, dataStore });
+      const onChanged = vi.fn();
+      const store = createSessionStore({ sessionsFile, dataStore, launchTemplateStore: launch,
+        templateUsageStore: usage, getDefaultShell: () => "powershell.exe", onChanged });
+      store.addToLibrary({ id: "1", title: "One", type: "windows" });
+      store.addToLibrary({ id: "2", title: "Two", type: "windows" });
+      launch.create({ name: "Only one", sessionTemplateIds: ["1"] });
+      launch.create({ name: "Both", sessionTemplateIds: ["1", "2"] });
+      usage.record("1");
+      const before = store.getLibrary();
+      const launchBefore = launch.getAll();
+      const persistedBefore = [sessionsFile, templatesFile, usageFile].map(file => dataStore.read(file));
+      onChanged.mockClear();
+      begins = 0;
+      fail = true;
+
+      expect(() => store.removeFromLibrary("1")).toThrow(writeError);
+      expect(begins).toBe(1);
+      expect(store.getLibrary()).toEqual(before);
+      expect(launch.getAll()).toEqual(launchBefore);
+      expect([sessionsFile, templatesFile, usageFile].map(file => dataStore.read(file))).toEqual(persistedBefore);
+      expect(onChanged).not.toHaveBeenCalled();
+
+      fail = false;
+      let notifiedState;
+      onChanged.mockImplementation(() => { notifiedState = {
+        sessions: store.exportLibrary(), launch: launch.getAll(),
+        persistedSessions: dataStore.read(sessionsFile), persistedLaunch: dataStore.read(templatesFile).launchTemplates
+      }; });
+      store.removeFromLibrary("1");
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      expect(store.getLibrary().map(template => template.id)).toEqual(["2"]);
+      expect(launch.getAll().map(template => template.sessionTemplateIds)).toEqual([[], ["2"]]);
+      expect(notifiedState).toEqual({ sessions: store.exportLibrary(), launch: launch.getAll(),
+        persistedSessions: store.exportLibrary(), persistedLaunch: launch.getAll() });
+      expect(dataStore.read(usageFile)).toEqual({});
+      const persistedAfter = [sessionsFile, templatesFile].map(file => dataStore.read(file));
+      dataStore.close();
+      dataStore.open();
+      expect([sessionsFile, templatesFile].map(file => dataStore.read(file))).toEqual(persistedAfter);
+      expect(createLaunchTemplateStore({ templatesFile, dataStore }).load()).toEqual(launch.getAll());
+    } finally {
+      dataStore.close();
+    }
+  });
+
+  it("rejects deletion before writing when the stores do not share a transaction", () => {
+    const sessionsFile = createTempSessionsFile();
+    const templatesFile = path.join(path.dirname(sessionsFile), "launch-templates.json");
+    const launch = createLaunchTemplateStore({ templatesFile });
+    const store = createStore(sessionsFile, undefined, undefined, launch);
+    store.addToLibrary({ id: "1", title: "One", type: "windows" });
+    launch.create({ name: "One", sessionTemplateIds: ["1"] });
+    const before = [readFileSync(sessionsFile, "utf8"), readFileSync(templatesFile, "utf8")];
+    expect(() => store.removeFromLibrary("1")).toThrow("shared transactional data store");
+    expect(store.getTemplate("1")).toBeDefined();
+    expect(launch.getAll()[0].sessionTemplateIds).toEqual(["1"]);
+    expect([readFileSync(sessionsFile, "utf8"), readFileSync(templatesFile, "utf8")]).toEqual(before);
+  });
+
   it.each([500, 1000])("prunes %i template summaries with one SQLite write and no repeat write", (count) => {
     const sessionsFile = createTempSessionsFile();
     const usageFile = path.join(path.dirname(sessionsFile), "template-usage.json");

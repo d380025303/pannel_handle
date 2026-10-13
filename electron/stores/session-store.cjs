@@ -308,10 +308,22 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
 
   function removeFromLibrary(id) {
     const updated = librarySessions.filter(s => s.id !== id);
-    writeJson(dataStore, sessionsFile, updated);
+    const removal = launchTemplateStore?.prepareSessionTemplateRemoval?.(id);
+    if (removal) {
+      if (!dataStore?.transaction || removal.dataStore !== dataStore) {
+        throw new Error("Deleting a session with launch templates requires a shared transactional data store.");
+      }
+      dataStore.transaction(() => {
+        writeJson(dataStore, sessionsFile, updated);
+        removal.persist();
+      });
+      removal.commit();
+    } else {
+      writeJson(dataStore, sessionsFile, updated);
+      launchTemplateStore?.removeSessionTemplate(id);
+    }
     librarySessions = updated;
     templateUsageStore?.remove(id);
-    launchTemplateStore?.removeSessionTemplate(id);
     try { onChanged(); }
     catch (err) { console.error("Failed to notify library change:", err); }
   }

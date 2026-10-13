@@ -127,21 +127,32 @@ function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.
     return getAll();
   }
 
-  function removeSessionTemplate(sessionTemplateId) {
+  function prepareSessionTemplateRemoval(sessionTemplateId) {
     const id = String(sessionTemplateId || "").trim();
-    if (!id) return getAll();
     let changed = false;
     const next = launchTemplates.map((template) => {
-      const sessionTemplateIds = template.sessionTemplateIds.filter(item => item !== id);
+      const sessionTemplateIds = template.sessionTemplateIds.filter(item => !id || item !== id);
       if (sessionTemplateIds.length === template.sessionTemplateIds.length) return template;
       changed = true;
       return { ...template, sessionTemplateIds, updatedAt: now() };
     });
-    if (changed) save(next);
+    return {
+      dataStore,
+      persist() {
+        if (changed) writeJson(dataStore, templatesFile, { schemaVersion: 1, launchTemplates: next });
+      },
+      commit() { if (changed) launchTemplates = next; }
+    };
+  }
+
+  function removeSessionTemplate(sessionTemplateId) {
+    const removal = prepareSessionTemplateRemoval(sessionTemplateId);
+    removal.persist();
+    removal.commit();
     return getAll();
   }
 
-  return { load, getAll, get, create, update, remove, removeSessionTemplate };
+  return { load, getAll, get, create, update, remove, removeSessionTemplate, prepareSessionTemplateRemoval };
 }
 
 module.exports = {
