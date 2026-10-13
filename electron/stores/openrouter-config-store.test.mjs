@@ -22,6 +22,55 @@ function createStore() {
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe("openrouter-config-store", () => {
+  it.each(["setApiKey", "clearApiKey"])("restores credentials and all verifications when %s fails, then persists a successful retry", operation => {
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(`encrypted:${value}`),
+      decryptString: value => value.toString().replace(/^encrypted:/, "")
+    };
+    let persisted;
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn((_file, value) => { persisted = structuredClone(value); })
+    };
+    const options = { configFile: "openrouter.json", safeStorage, dataStore };
+    const initial = createOpenRouterConfigStore(options);
+    initial.setApiKey("old-key");
+    initial.setCachedModels([{ id: "model", supported_parameters: ["tools", "tool_choice"] }], 123);
+    initial.setModelVerification("model", { status: "passed", checkedAt: 456, stages: [{ stage: "responses", status: "passed" }] });
+    initial.setAgentModelVerification("opencode", "model", { status: "passed" });
+    initial.setAgentModelVerification("codebuddy", "model", { status: "failed", error: "unsupported" });
+    const store = createOpenRouterConfigStore(options);
+    store.load();
+    const before = structuredClone(persisted);
+    const failure = new Error("attempt to write a readonly database");
+    dataStore.write.mockImplementationOnce(() => { throw failure; });
+
+    expect(() => store[operation]("new-key")).toThrow(failure);
+    expect(store.getApiKey()).toBe("old-key");
+    expect(store.getPublicConfig()).toEqual({ hasApiKey: true, fetchedAt: 123 });
+    expect(store.getModelVerifications()).toEqual(before.modelVerifications);
+    for (const agent of ["opencode", "codebuddy"]) {
+      expect(store.getAgentModelVerifications(agent)).toEqual(before.agentModelVerifications[agent]);
+    }
+    expect(persisted).toEqual(before);
+    const reloaded = createOpenRouterConfigStore(options);
+    reloaded.load();
+    expect(reloaded.getApiKey()).toBe("old-key");
+    expect(reloaded.getModelVerifications()).toEqual(store.getModelVerifications());
+
+    expect(store[operation]("new-key").hasApiKey).toBe(operation === "setApiKey");
+    reloaded.load();
+    expect(store.getApiKey()).toBe(operation === "setApiKey" ? "new-key" : "");
+    expect(reloaded.getApiKey()).toBe(store.getApiKey());
+    expect(store.getCachedModels()).toEqual(before.cachedModels);
+    for (const current of [store, reloaded]) {
+      expect(current.getModelVerifications()).toEqual({});
+      expect(current.getAgentModelVerifications("opencode")).toEqual({});
+      expect(current.getAgentModelVerifications("codebuddy")).toEqual({});
+    }
+  });
+
   it("tracks each Agent verification independently when Codex is incompatible", () => {
     const { store, configFile } = createStore();
     store.setCachedModels([{ id: "vendor/model", name: "Model", supported_parameters: [] }]);

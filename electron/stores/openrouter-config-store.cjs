@@ -153,22 +153,31 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     return decrypt(config.encryptedApiKey);
   }
 
-  function setApiKey(apiKey) {
-    const value = String(apiKey || "").trim();
-    if (!value) throw new Error(`${providerName} API Key 不能为空。`);
-    config.encryptedApiKey = encrypt(value);
-    config.modelVerifications = {};
-    config.agentModelVerifications = { opencode: {}, codebuddy: {} };
-    save();
+  function saveApiKey(encryptedApiKey) {
+    const previousConfig = config;
+    config = {
+      ...config,
+      encryptedApiKey,
+      modelVerifications: {},
+      agentModelVerifications: { opencode: {}, codebuddy: {} }
+    };
+    try {
+      save();
+    } catch (error) {
+      config = previousConfig;
+      throw error;
+    }
     return getPublicConfig();
   }
 
+  function setApiKey(apiKey) {
+    const value = String(apiKey || "").trim();
+    if (!value) throw new Error(`${providerName} API Key 不能为空。`);
+    return saveApiKey(encrypt(value));
+  }
+
   function clearApiKey() {
-    config.encryptedApiKey = "";
-    config.modelVerifications = {};
-    config.agentModelVerifications = { opencode: {}, codebuddy: {} };
-    save();
-    return getPublicConfig();
+    return saveApiKey("");
   }
 
   function getCachedModels() {
