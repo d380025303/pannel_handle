@@ -1,4 +1,5 @@
 import http from "node:http";
+import { execFile as nodeExecFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +26,65 @@ function createService(fetchImpl, options = {}) {
 }
 
 describe("Responses Chat Completions bridge", () => {
+  it.each(["localhost", "route"])("keeps timers responsive during a slow WSL %s probe", async phase => {
+    let probeFinished = false;
+    let timerBeforeProbe = false;
+    let timer;
+    const execFile = vi.fn((_file, args, options, callback) => {
+      if (phase === "route" && args[3] === "bash") {
+        callback(new Error("Localhost unavailable"), "");
+        return;
+      }
+      timer = setTimeout(() => { timerBeforeProbe = !probeFinished; }, 10);
+      return nodeExecFile(process.execPath, ["-e", "setTimeout(() => process.stdout.write('127.0.0.2'), 350)"], options, (error, stdout) => {
+        probeFinished = true;
+        callback(error, stdout);
+      });
+    });
+    const service = createService(vi.fn(), { execFile });
+    try {
+      const launch = await service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu" }, { apiKey: "secret", model: "model-a" });
+      expect(timerBeforeProbe).toBe(true);
+      expect(new URL(launch.baseUrl).hostname).toBe(phase === "localhost" ? "127.0.0.1" : "127.0.0.2");
+      expect(execFile).toHaveBeenCalledTimes(phase === "localhost" ? 1 : 2);
+      expect(execFile.mock.calls[0].slice(0, 3)).toEqual([
+        "wsl.exe",
+        ["-d", "Ubuntu", "--", "bash", "-lc", expect.stringMatching(/^timeout 2 bash -c '<\/dev\/tcp\/127\.0\.0\.1\/\d+'$/)],
+        { encoding: "utf-8", windowsHide: true, timeout: 5000 }
+      ]);
+      if (phase === "route") {
+        expect(execFile.mock.calls[1].slice(0, 3)).toEqual([
+          "wsl.exe", ["-d", "Ubuntu", "--", "sh", "-lc", "ip route show default | awk '{print $3; exit}'"],
+          { encoding: "utf-8", windowsHide: true, timeout: 10000 }
+        ]);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("falls back to the route after a localhost timeout", async () => {
+    const execFile = vi.fn((_file, args, _options, callback) => {
+      callback(args[3] === "bash" ? Object.assign(new Error("Timed out"), { killed: true, signal: "SIGTERM" }) : null, "127.0.0.2\n");
+    });
+    const service = createService(vi.fn(), { execFile });
+    const launch = await service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu" }, { apiKey: "secret", model: "model-a" });
+    expect(new URL(launch.baseUrl).hostname).toBe("127.0.0.2");
+    expect(execFile).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["timeout", "exit", "invalid", "empty"])("rejects an unusable WSL route (%s)", async failure => {
+    const execFile = vi.fn((_file, args, _options, callback) => {
+      if (args[3] === "bash") return callback(new Error("Localhost unavailable"), "");
+      const error = failure === "timeout" ? Object.assign(new Error("Timed out"), { killed: true, signal: "SIGTERM" })
+        : failure === "exit" ? Object.assign(new Error("Nonzero exit"), { code: 1 }) : null;
+      callback(error, failure === "invalid" ? "not-an-address" : failure === "empty" ? "" : "127.0.0.2");
+    });
+    const service = createService(vi.fn(), { execFile });
+    await expect(service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu" }, { apiKey: "secret", model: "model-a" }))
+      .rejects.toThrow("无法确定 WSL 到 NaraRouter 桥的 Windows 主机地址。");
+  });
+
   it.each(["stream", "fetch", "error body"])("cancels a pending upstream %s and ends the client on shutdown", async phase => {
     let upstreamSignal;
     let releaseUpstream;

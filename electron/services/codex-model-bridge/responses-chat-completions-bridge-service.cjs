@@ -1,6 +1,6 @@
 const crypto = require("node:crypto");
 const http = require("node:http");
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { execFile: defaultExecFile } = require("node:child_process");
 const { responsesToChat, createResponseAccumulator } = require("./responses-chat-completions-protocol.cjs");
 
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
@@ -73,7 +73,7 @@ function createResponsesChatCompletionsBridgeService({
   allowFinishReasonAsDone = false,
   fetchImpl = globalThis.fetch,
   localFetchImpl = globalThis.fetch,
-  spawnSync = defaultSpawnSync
+  execFile = defaultExecFile
 }) {
   const listeners = new Map();
   const pendingListeners = new Map();
@@ -200,23 +200,29 @@ function createResponsesChatCompletionsBridgeService({
     return pending;
   }
 
-  function resolveWslHost(distro) {
-    const result = spawnSync("wsl.exe", ["-d", distro, "--", "sh", "-lc", "ip route show default | awk '{print $3; exit}'"], { encoding: "utf-8", windowsHide: true, timeout: 10000 });
+  function probeWsl(args, timeout) {
+    return new Promise(resolve => {
+      execFile("wsl.exe", args, { encoding: "utf-8", windowsHide: true, timeout }, (error, stdout) => resolve({ error, stdout }));
+    });
+  }
+
+  async function resolveWslHost(distro) {
+    const result = await probeWsl(["-d", distro, "--", "sh", "-lc", "ip route show default | awk '{print $3; exit}'"], 10000);
     const host = String(result.stdout || "").trim();
-    if (result.error || result.status !== 0 || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) throw new Error(`无法确定 WSL 到 ${providerName} 桥的 Windows 主机地址。`);
+    if (result.error || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) throw new Error(`无法确定 WSL 到 ${providerName} 桥的 Windows 主机地址。`);
     return host;
   }
 
-  function canUseWslLocalhost(distro, origin) {
+  async function canUseWslLocalhost(distro, origin) {
     const port = new URL(origin).port;
-    const result = spawnSync("wsl.exe", ["-d", distro, "--", "bash", "-lc", `timeout 2 bash -c '</dev/tcp/127.0.0.1/${port}'`], { encoding: "utf-8", windowsHide: true, timeout: 5000 });
-    return !result.error && result.status === 0;
+    const result = await probeWsl(["-d", distro, "--", "bash", "-lc", `timeout 2 bash -c '</dev/tcp/127.0.0.1/${port}'`], 5000);
+    return !result.error;
   }
 
   async function listenerFor(session) {
     const internal = await listen("127.0.0.1");
-    if (session?.type !== "wsl" || canUseWslLocalhost(session.wslDistro, internal.origin)) return internal;
-    return listen(resolveWslHost(session.wslDistro));
+    if (session?.type !== "wsl" || await canUseWslLocalhost(session.wslDistro, internal.origin)) return internal;
+    return listen(await resolveWslHost(session.wslDistro));
   }
 
   function register(key, apiKey, models) {
