@@ -8,6 +8,8 @@ function buildEnvironmentCommand(environment) {
   return `exec /usr/bin/env ${Object.entries(environment).map(([name, value]) => quote(`${name}=${value}`)).join(" ")} /bin/bash -il`;
 }
 
+const MAX_PENDING_INPUT_BYTES = 4 * 1024 * 1024;
+
 function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, rows = 30, clientFactory = () => new Client() }) {
   const emitter = new EventEmitter();
   const client = clientFactory();
@@ -20,6 +22,28 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   let killed = false;
   let shellExited = false;
   const pendingWrites = [];
+  let pendingBytes = 0;
+  let waitingForDrain = false;
+
+  function clearPendingWrites() {
+    pendingWrites.length = 0;
+    pendingBytes = 0;
+    waitingForDrain = false;
+    stream?.off("drain", onDrain);
+  }
+
+  function flushPendingWrites() {
+    while (stream && !closed && !killed && !waitingForDrain && pendingWrites.length) {
+      const data = pendingWrites.shift();
+      pendingBytes -= Buffer.byteLength(data);
+      waitingForDrain = stream.write(data) === false;
+    }
+  }
+
+  function onDrain() {
+    waitingForDrain = false;
+    flushPendingWrites();
+  }
   const stdoutDecoder = new StringDecoder("utf8");
   const stderrDecoder = new StringDecoder("utf8");
 
@@ -45,6 +69,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
     flushDecoder(stdoutDecoder);
     flushDecoder(stderrDecoder);
     closed = true;
+    clearPendingWrites();
     emitter.emit("exit", {
       exitCode: Number.isInteger(code) ? code : exitCode,
       reason: details.reason || "remote-exit",
@@ -71,7 +96,12 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
         return;
       }
 
+      if (closed || killed) {
+        nextStream.end();
+        return;
+      }
       stream = nextStream;
+      stream.on("drain", onDrain);
       stream.on("data", (data) => decodeData(stdoutDecoder, data));
       stream.stderr?.on("data", (data) => decodeData(stderrDecoder, data));
       stream.on("end", () => flushDecoder(stdoutDecoder));
@@ -107,9 +137,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
       if ((latestCols !== window.cols || latestRows !== window.rows) && typeof stream.setWindow === "function") {
         stream.setWindow(latestRows, latestCols, 0, 0);
       }
-      for (const data of pendingWrites.splice(0)) {
-        stream.write(data);
-      }
+      flushPendingWrites();
     };
     if (Object.keys(environment).length) client.exec(buildEnvironmentCommand(environment), { pty: window }, onShell);
     else client.shell(window, onShell);
@@ -120,6 +148,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   });
 
   client.on("ready", () => {
+    if (closed || killed) return;
     connected = true;
     emitStatus("connected");
     openShell();
@@ -172,11 +201,23 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
       };
     },
     write(data) {
-      if (stream) {
-        stream.write(data);
-      } else {
-        pendingWrites.push(data);
+      if (closed || killed) {
+        return { ok: false, code: "SSH_INPUT_CLOSED", error: "SSH 连接已关闭，无法发送输入。" };
       }
+      const bytes = Buffer.byteLength(data);
+      // Include ssh2's Writable buffer: highWaterMark alone is not a hard limit.
+      if (bytes + pendingBytes + (stream?.writableLength || 0) > MAX_PENDING_INPUT_BYTES) {
+        const error = "SSH 待发送输入已达到 4 MiB 上限，本次输入未发送，请等待远端读取后重试。";
+        emitData(`\r\n${error}\r\n`);
+        return { ok: false, code: "SSH_INPUT_LIMIT", error };
+      }
+      if (bytes) {
+        // Own queued buffers so the caller cannot change accepted input later.
+        pendingWrites.push(Buffer.isBuffer(data) ? Buffer.from(data) : data);
+        pendingBytes += bytes;
+        flushPendingWrites();
+      }
+      return { ok: true };
     },
     resize(nextCols, nextRows) {
       latestCols = nextCols;
@@ -187,6 +228,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
     },
     kill() {
       killed = true;
+      clearPendingWrites();
       if (stream) {
         stream.end();
       }
@@ -196,6 +238,7 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
 }
 
 module.exports = {
+  MAX_PENDING_INPUT_BYTES,
   createSsh2Terminal,
   buildEnvironmentCommand
 };

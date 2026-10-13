@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createSsh2Terminal, buildEnvironmentCommand } = require("./ssh2-terminal.cjs");
+const { createSsh2Terminal, buildEnvironmentCommand, MAX_PENDING_INPUT_BYTES } = require("./ssh2-terminal.cjs");
 
 function createFakeStream() {
   const stream = new EventEmitter();
@@ -34,6 +34,104 @@ function createFakeClient(stream = createFakeStream()) {
 }
 
 describe("ssh2 terminal", () => {
+  it("bounds the real ssh2 Channel and flushes accepted input in order after drain", async () => {
+    const { Channel, MAX_WINDOW, PACKET_SIZE } = require("ssh2/lib/Channel.js");
+    const sent = [];
+    const stream = new Channel({ _protocol: {
+      channelData: (_id, data) => sent.push(Buffer.from(data)),
+      channelEOF() {}, channelClose() {}
+    } }, { type: "session",
+      incoming: { id: 0, window: MAX_WINDOW, packetSize: PACKET_SIZE, state: "open" },
+      outgoing: { id: 0, window: 0, packetSize: PACKET_SIZE, state: "open" }
+    });
+    const { client } = createFakeClient(stream);
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    const messages = [];
+    term.onData(data => messages.push(data));
+    client.emit("ready");
+    const accepted = [];
+    const rejected = [];
+    for (let i = 0; i < 32; i++) {
+      const input = Buffer.alloc(1024 * 1024, i);
+      const result = term.write(input);
+      if (result.ok) accepted.push(input);
+      else rejected.push(result);
+      expect(stream.writableLength).toBeLessThanOrEqual(stream.writableHighWaterMark);
+    }
+    expect(stream.writableLength).toBe(2 * 1024 * 1024);
+    expect(stream.writableNeedDrain).toBe(true);
+    expect(accepted).toHaveLength(4);
+    expect(rejected).toHaveLength(28);
+    expect(rejected.every(result => result.code === "SSH_INPUT_LIMIT" && result.error)).toBe(true);
+    expect(messages).toHaveLength(28);
+    // Mirror the installed client's CHANNEL_WINDOW_ADJUST handler.
+    stream.outgoing.window = 8 * 1024 * 1024;
+    stream._waitWindow = false;
+    stream._write(stream._chunk, null, stream._chunkcb);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(Buffer.concat(sent).equals(Buffer.concat(accepted))).toBe(true);
+    expect(stream.writableLength).toBe(0);
+    expect(term.write("after drain")).toEqual({ ok: true });
+    expect(Buffer.concat(sent).subarray(-11).toString()).toBe("after drain");
+    term.kill();
+  });
+
+  it("limits UTF-8 bytes before connection and rejects oversized writes atomically", () => {
+    const { client, stream } = createFakeClient();
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    expect(term.write("中".repeat(Math.floor(MAX_PENDING_INPUT_BYTES / 3)))).toEqual({ ok: true });
+    expect(term.write("中").code).toBe("SSH_INPUT_LIMIT");
+    client.emit("ready");
+    expect(stream.writes).toHaveLength(1);
+    expect(term.write(Buffer.alloc(MAX_PENDING_INPUT_BYTES + 1)).code).toBe("SSH_INPUT_LIMIT");
+    expect(stream.writes).toHaveLength(1);
+  });
+
+  it("pauses queued preconnection input until drain", () => {
+    const { client, stream } = createFakeClient();
+    stream.write.mockImplementation(data => { stream.writes.push(data); return false; });
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    term.write("first");
+    term.write("second");
+    client.emit("ready");
+    term.write("third");
+    expect(stream.writes).toEqual(["first"]);
+    stream.emit("drain");
+    expect(stream.writes).toEqual(["first", "second"]);
+    stream.emit("drain");
+    expect(stream.writes).toEqual(["first", "second", "third"]);
+  });
+
+  it.each(["kill", "client-close", "stream-close", "error"])("clears blocked input on %s", reason => {
+    const { client, stream } = createFakeClient();
+    stream.write.mockReturnValue(false);
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    client.emit("ready");
+    term.write("blocked");
+    term.write("queued");
+    if (reason === "kill") term.kill();
+    else if (reason === "client-close") client.emit("close");
+    else if (reason === "stream-close") stream.emit("close");
+    else stream.emit("error", new Error("connection lost"));
+    stream.emit("drain");
+    expect(stream.write).toHaveBeenCalledTimes(1);
+    expect(stream.listenerCount("drain")).toBe(0);
+    expect(term.write("late").code).toBe("SSH_INPUT_CLOSED");
+  });
+
+  it("discards queued input if killed before the shell callback", () => {
+    const { client, stream } = createFakeClient();
+    let finish;
+    client.shell.mockImplementation((_options, callback) => { finish = callback; });
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    term.write("queued");
+    client.emit("ready");
+    term.kill();
+    finish(undefined, stream);
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.end).toHaveBeenCalled();
+  });
+
   describe.each(["shell", "exec"])("%s PTY resize during connection", (method) => {
     function setup() {
       const { client, stream } = createFakeClient();
