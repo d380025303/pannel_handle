@@ -18,6 +18,54 @@ function createStream() {
 }
 
 describe("ssh-agent-transport", () => {
+  it.each([false, true])("times out a blocked command and reconnects (late callback: %s)", async lateCallback => {
+    vi.useFakeTimers();
+    const first = createCommandRuntime(() => {});
+    const next = createCommandRuntime(stream => { stream.emit("data", "recovered"); stream.emit("close", 0); });
+    let callback;
+    if (lateCallback) first.client.exec.mockImplementation((_command, done) => { callback = done; });
+    const runtime = { connectClient: vi.fn().mockResolvedValueOnce(first.client).mockResolvedValue(next.client) };
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1", {
+      timeoutMs: 20, actionName: "Token read"
+    });
+    try {
+      const failure = expect(commandClient.exec("blocked")).rejects.toThrow("Token read timed out.");
+      await vi.advanceTimersByTimeAsync(20);
+      await failure;
+      expect(first.client.end).toHaveBeenCalledOnce();
+      if (lateCallback) {
+        const stream = createStream();
+        stream.close = vi.fn();
+        callback(null, stream);
+        expect(stream.close).toHaveBeenCalledOnce();
+      } else expect(first.streams[0].close).toHaveBeenCalledOnce();
+      await expect(commandClient.exec("retry")).resolves.toBe("recovered");
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(commandClient.exec("reuse")).resolves.toBe("recovered");
+      expect(runtime.connectClient).toHaveBeenCalledTimes(2);
+      expect(next.client.end).not.toHaveBeenCalled();
+      expect(next.streams[0].close).not.toHaveBeenCalled();
+    } finally {
+      commandClient.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the command timer when exec throws synchronously", async () => {
+    vi.useFakeTimers();
+    const { client, runtime } = createCommandRuntime(() => {});
+    client.exec.mockImplementation(() => { throw new Error("exec failed"); });
+    const commandClient = createSshAgentTransport({ sshSessionRuntime: runtime }).createReusableCommandClient("ssh-1", { timeoutMs: 20 });
+    try {
+      await expect(commandClient.exec("fail")).rejects.toThrow("exec failed");
+      expect(vi.getTimerCount()).toBe(0);
+      expect(client.end).toHaveBeenCalledOnce();
+    } finally {
+      commandClient.close();
+      vi.useRealTimers();
+    }
+  });
+
   function createCommandRuntime(emitOutput) {
     const client = new EventEmitter();
     client.end = vi.fn();

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import liveModule from "./index.cjs";
+import { EventEmitter } from "node:events";
+import transportModule from "../../../ssh/ssh-agent-transport.cjs";
 
 const line = (input, output) => JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, output_tokens: output, total_tokens: input + output } } } }) + "\n";
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function harness() {
+function harness({ realTransport = false } = {}) {
   let content = line(100, 20);
   let offset = 0;
   let failure = false;
@@ -22,13 +24,29 @@ function harness() {
       return JSON.stringify({ main: { path: "/remote/codex.jsonl", identity: "1:1", start, offset, data: bytes.subarray(start).toString("base64") }, subagents: [] });
     })
   };
-  const transport = { createReusableCommandClient: vi.fn(() => client) };
+  const runtime = { connectClient: vi.fn(async () => {
+    const connection = new EventEmitter();
+    connection.end = vi.fn();
+    connection.exec = (command, done) => {
+      const stream = new EventEmitter();
+      stream.close = vi.fn();
+      done(null, stream);
+      void client.exec(command).then(output => {
+        stream.emit("data", output);
+        stream.emit("close", 0);
+      }, error => stream.emit("error", error));
+    };
+    return connection;
+  }) };
+  const transport = realTransport
+    ? transportModule.createSshAgentTransport({ sshSessionRuntime: runtime })
+    : { createReusableCommandClient: vi.fn(() => client) };
   const service = liveModule.createAgentTokenLiveModule({ sshAgentTransport: transport, emitSnapshot,
     setIntervalFn: callback => { callbacks.push(callback); return callback; }, clearIntervalFn: vi.fn() });
   const event = eventName => service.handleEvent({ provider: "codex", eventName,
     session: { id: "panel", type: "ssh", agentLocation: "remote" },
     input: { session_id: "agent", transcript_path: "/remote/codex.jsonl" } });
-  return { service, event, client, transport, emitSnapshot,
+  return { service, event, client, transport, runtime, emitSnapshot,
     append: value => { content += value; }, truncate: value => { content = value; },
     fail: value => { failure = value; }, block: value => { pending = value; },
     tick: async () => { callbacks.at(-1)(); await settle(); }, callbacks,
@@ -36,6 +54,28 @@ function harness() {
 }
 
 describe("remote Codex live tokens", () => {
+  it("resumes polling after a real reusable command client times out", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness({ realTransport: true });
+    try {
+      h.event("UserPromptSubmit"); await settle();
+      h.block(new Promise(() => {}));
+      await h.tick();
+      await h.tick();
+      expect(h.client.exec).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(h.snapshot().state).toBe("unavailable");
+      expect((await h.runtime.connectClient.mock.results[0].value).end).toHaveBeenCalledOnce();
+      h.block(null);
+      h.append(line(130, 30)); await h.tick();
+      expect(h.snapshot()).toMatchObject({ state: "generating", tokens: { totalTokens: 40 } });
+      expect(h.runtime.connectClient).toHaveBeenCalledTimes(2);
+    } finally {
+      h.service.shutdown();
+      vi.useRealTimers();
+    }
+  });
+
   it("streams deltas before Stop, preserves baselines across turns and ignores completion fallback", async () => {
     const h = harness();
     h.event("SessionStart"); await settle();

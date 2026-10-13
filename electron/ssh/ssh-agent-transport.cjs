@@ -2,6 +2,7 @@ const { EventEmitter } = require("node:events");
 const http = require("node:http");
 const net = require("node:net");
 const { StringDecoder } = require("node:string_decoder");
+const { DEFAULT_SSH_TIMEOUT_MS } = require("./ssh-session-runtime.cjs");
 
 function createSshAgentTransport({ sshSessionRuntime }) {
   if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
@@ -206,38 +207,58 @@ function createSshAgentTransport({ sshSessionRuntime }) {
       const connected = await getClient();
       try {
         return await new Promise((resolve, reject) => {
-          connected.exec(command, (error, stream) => {
-            if (error) { reject(error); return; }
-            let stdout = "";
-            let stdoutBytes = 0;
-            let stderr = "";
-            const stdoutDecoder = new StringDecoder("utf8");
-            const stderrDecoder = new StringDecoder("utf8");
-            let settled = false;
-            const finish = (error, value) => {
-              if (settled) return;
-              settled = true;
-              if (error) reject(error); else resolve(value);
-            };
-            const appendStdout = chunk => {
-              if (settled) return;
-              stdout += chunk;
-              if (options.maxOutputBytes) stdoutBytes += Buffer.byteLength(chunk, "utf-8");
-              if (options.maxOutputBytes && stdoutBytes > options.maxOutputBytes) {
-                finish(new Error(options.outputLimitMessage || "Remote command output exceeds the size limit."));
-                stream.close?.();
+          let settled = false;
+          let channel;
+          const finish = (error, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (error) {
+              try { channel?.close?.(); } catch { /* best effort */ }
+              if (client === connected) closeClient();
+              reject(error);
+            } else resolve(value);
+          };
+          const timer = setTimeout(() => {
+            finish(new Error(`${options.actionName || "SSH command"} timed out.`));
+          }, options.timeoutMs || DEFAULT_SSH_TIMEOUT_MS);
+          try {
+            connected.exec(command, (error, stream) => {
+              if (settled) {
+                try { stream?.close?.(); } catch { /* best effort */ }
+                return;
               }
-            };
-            stream.on("data", chunk => appendStdout(Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk)));
-            stream.stderr?.on("data", chunk => { stderr += Buffer.isBuffer(chunk) ? stderrDecoder.write(chunk) : String(chunk); });
-            stream.once("error", finish);
-            stream.once("close", code => {
-              appendStdout(stdoutDecoder.end());
-              stderr += stderrDecoder.end();
-              if (code === 0) finish(undefined, stdout);
-              else finish(new Error(stderr.trim() || `${options.commandName || "Remote command"} exited with code ${code}.`));
+              channel = stream;
+              if (error) { finish(error); return; }
+              let stdout = "";
+              let stdoutBytes = 0;
+              let stderr = "";
+              const stdoutDecoder = new StringDecoder("utf8");
+              const stderrDecoder = new StringDecoder("utf8");
+              const appendStdout = chunk => {
+                if (settled) return;
+                stdout += chunk;
+                if (options.maxOutputBytes) stdoutBytes += Buffer.byteLength(chunk, "utf-8");
+                if (options.maxOutputBytes && stdoutBytes > options.maxOutputBytes) {
+                  finish(new Error(options.outputLimitMessage || "Remote command output exceeds the size limit."));
+                }
+              };
+              stream.on("data", chunk => appendStdout(Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk)));
+              stream.stderr?.on("data", chunk => {
+                if (!settled) stderr += Buffer.isBuffer(chunk) ? stderrDecoder.write(chunk) : String(chunk);
+              });
+              stream.once("error", finish);
+              stream.once("close", code => {
+                if (settled) return;
+                appendStdout(stdoutDecoder.end());
+                stderr += stderrDecoder.end();
+                if (code === 0) finish(undefined, stdout);
+                else finish(new Error(stderr.trim() || `${options.commandName || "Remote command"} exited with code ${code}.`));
+              });
             });
-          });
+          } catch (error) {
+            finish(error);
+          }
         });
       } catch (error) {
         if (client === connected) closeClient();
