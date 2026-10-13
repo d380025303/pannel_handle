@@ -39,12 +39,17 @@ def get_text(content):
     return "\n\n".join(parts).strip()
 
 
-def iter_jsonl(file_name):
+def iter_jsonl(file_name, include_record_index=False):
     try:
         with open(file_name, "r", encoding="utf-8") as source:
+            record_index = 0
             for line in source:
+                if not line.strip():
+                    continue
+                record_index += 1
                 try:
-                    yield json.loads(line)
+                    item = json.loads(line)
+                    yield (record_index, item) if include_record_index else item
                 except (json.JSONDecodeError, TypeError):
                     continue
     except OSError:
@@ -252,7 +257,7 @@ def list_grok(payload):
 def parse_messages(provider, file_name):
     messages = []
     seen = set()
-    for item in iter_jsonl(file_name):
+    for record_index, item in iter_jsonl(file_name, include_record_index=True):
         message_id = None
         kind = None
         text = ""
@@ -277,7 +282,8 @@ def parse_messages(provider, file_name):
             else:
                 continue
             text = get_text(data.get("content"))
-            message_id = data.get("id") or item.get("id")
+            timestamp = item.get("timestamp")
+            message_id = data.get("id") or item.get("id") or f"{kind}:{timestamp if timestamp is not None else ''}:{record_index}:{text}"
         elif provider == "codebuddy" and item.get("type") == "message":
             if item.get("role") == "user":
                 kind = "user"

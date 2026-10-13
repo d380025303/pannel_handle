@@ -9,6 +9,49 @@ const require = createRequire(import.meta.url);
 const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it("keeps local and remote Codex message identities aligned", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "codex-history-"));
+    try {
+      const file = path.join(directory, "history.jsonl");
+      const message = (timestamp, role = "user", phase, ids = {}) => JSON.stringify({
+        type: "response_item", timestamp, id: ids.record,
+        payload: { type: "message", role, phase, id: ids.payload,
+          content: [{ type: "input_text", text: "continue" }] }
+      });
+      const text = [
+        JSON.stringify({ type: "session_meta" }), "", '{"type":',
+        message("2026-01-01T00:00:00Z"), message("2026-01-01T00:00:01Z"),
+        message("2026-01-01T00:00:01Z"), message(undefined), message(undefined),
+        message(0), message(null),
+        ...["commentary", "final", "final_answer"].flatMap(phase => [
+          message("2026-01-01T00:00:02Z", "assistant", phase),
+          message("2026-01-01T00:00:02Z", "assistant", phase)
+        ]),
+        message("2026-01-01T00:00:03Z", "user", undefined, { payload: "payload-id", record: "first" }),
+        message("2026-01-01T00:00:04Z", "user", undefined, { payload: "payload-id", record: "second" }),
+        message("2026-01-01T00:00:05Z", "user", undefined, { record: "record-id" }),
+        message("2026-01-01T00:00:06Z", "user", undefined, { record: "record-id" })
+      ].join("\n");
+      writeFileSync(file, text);
+      const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
+      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c",
+        script + '\nprint(json.dumps(parse_messages("codex", sys.argv[1])))', file
+      ], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      const local = parseAgentConversationText("codex", text, { includeUser: true });
+      const remote = JSON.parse(result.stdout);
+      // Missing timestamps use different clock defaults; compare message identity and content.
+      const identities = messages => messages.map(({ timestamp, ...message }) => message);
+      expect(identities(remote)).toEqual(identities(local));
+      expect(remote).toHaveLength(15);
+      expect(remote.slice(0, 2).map(message => message.id)).toEqual([
+        "user:2026-01-01T00:00:00Z:3:continue", "user:2026-01-01T00:00:01Z:4:continue"
+      ]);
+      expect(remote.filter(message => message.id === "payload-id")).toHaveLength(1);
+      expect(remote.filter(message => message.id === "record-id")).toHaveLength(1);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it.each([
     ["2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z"],
     ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],

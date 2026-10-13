@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const { stopAgentChild } = require("./process-control.cjs");
 const readline = require("node:readline");
 const { randomUUID } = require("node:crypto");
 const { sanitizeDiagnostic } = require("./http-transport.cjs");
@@ -7,7 +8,7 @@ const REWIND_SCOPES = new Set(["Code", "Conversation", "CodeAndConversation"]);
 const ID_PATTERN = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 const isRewindMessageId = value => typeof value === "string" && ID_PATTERN.test(value);
 
-function runRewindControl({ sessionId, messageId, scope, cwd, env, spawnProcess = spawn, timeoutMs = 60000 }) {
+function runRewindControl({ sessionId, messageId, scope, cwd, env, spawnProcess = spawn, spawnKiller = spawn, platform = process.platform, timeoutMs = 60000 }) {
   if (!isRewindMessageId(sessionId) || !isRewindMessageId(messageId) || !REWIND_SCOPES.has(scope))
     return Promise.reject(new Error("无效的 CodeBuddy 回退目标。"));
   return new Promise((resolve, reject) => {
@@ -32,10 +33,7 @@ function runRewindControl({ sessionId, messageId, scope, cwd, env, spawnProcess 
         const stopTimer = setTimeout(() => fail(new Error("等待 CodeBuddy 回退进程退出超时。")), 5000);
         child.once("exit", () => { clearTimeout(stopTimer); done(); });
         child.stdin.end();
-        if (Number.isInteger(child.pid) && process.platform === "win32") {
-          const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-          killer.once("error", () => child.kill());
-        } else child.kill();
+        stopAgentChild(child, "codebuddy", { platform, spawnKiller });
       });
       stopped.then(() => error ? reject(error) : resolve(value), stopError => reject(error || stopError));
     }
