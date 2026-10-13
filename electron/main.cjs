@@ -477,8 +477,9 @@ if (!gotSingleInstanceLock) {
         .filter(session => session.agentProvider === "opencode" && session.type === "wsl" && session.wslDistro)
         .map(session => session.wslDistro)
     });
-    try { settingsModule.syncOpenCodeModels(); }
-    catch (error) { console.error("Failed to synchronize OpenCode models:", error); }
+    settingsModule.syncOpenCodeModels().catch(error => {
+      console.error("Failed to synchronize OpenCode models:", error);
+    });
     registerTerminalBackgroundProtocol(protocol, app.getPath("userData"));
     screenshotModule = createScreenshotModule({
       ipcMain,

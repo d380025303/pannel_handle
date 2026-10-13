@@ -542,7 +542,7 @@ function createAgentSessionLauncher({
   async function prepareLocal(session) {
     validateAgentSession(session);
     if (session.agentProvider === "opencode" && openCodeModelSync) {
-      if (session.type === "wsl") openCodeModelSync.syncWsl(session.wslDistro);
+      if (session.type === "wsl") await openCodeModelSync.syncWsl(session.wslDistro);
       else if (session.type === "windows") openCodeModelSync.syncWindows();
     }
     const geminiVersion = await assertLocalCommand(session);

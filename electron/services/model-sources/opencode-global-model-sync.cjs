@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { execFile } = require("node:child_process");
 const { parse, modify, applyEdits } = require("jsonc-parser");
 
 const SOURCES = {
@@ -50,7 +50,7 @@ function pathsForHome(home, xdgConfigHome, xdgDataHome) {
 }
 
 function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(), xdgConfigHome = process.env.XDG_CONFIG_HOME,
-  xdgDataHome = process.env.XDG_DATA_HOME, wslCommand = spawnSync }) {
+  xdgDataHome = process.env.XDG_DATA_HOME, wslCommand = execFile }) {
   const manifestFile = path.join(userDataDir, "opencode-managed-models.json");
   const localPaths = pathsForHome(home, xdgConfigHome, xdgDataHome);
 
@@ -119,12 +119,16 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
 
   function syncWindows() { return syncAt(localPaths, "windows"); }
 
-  function syncWsl(distro) {
+  async function syncWsl(distro) {
     if (!/^[\w .-]+$/.test(String(distro || ""))) throw new Error("无效的 WSL 发行版名称。");
-    const result = wslCommand("wsl.exe", ["-d", distro, "--", "sh", "-lc", "printf '%s\\n%s' \"${XDG_CONFIG_HOME:-$HOME/.config}\" \"${XDG_DATA_HOME:-$HOME/.local/share}\""],
-      { encoding: "utf8", windowsHide: true, timeout: 10000 });
-    if (result.error || result.status !== 0) throw new Error(`无法读取 WSL ${distro} 的 OpenCode 配置目录。`);
-    const [configBase, dataBase] = String(result.stdout || "").split(/\r?\n/).map(value => value.trim());
+    const stdout = await new Promise((resolve, reject) => {
+      wslCommand("wsl.exe", ["-d", distro, "--", "sh", "-lc", "printf '%s\\n%s' \"${XDG_CONFIG_HOME:-$HOME/.config}\" \"${XDG_DATA_HOME:-$HOME/.local/share}\""],
+        { encoding: "utf8", windowsHide: true, timeout: 10000 }, (error, output) => {
+          if (error) reject(new Error(`无法读取 WSL ${distro} 的 OpenCode 配置目录。`));
+          else resolve(output);
+        });
+    });
+    const [configBase, dataBase] = String(stdout || "").split(/\r?\n/).map(value => value.trim());
     if (!configBase?.startsWith("/") || !dataBase?.startsWith("/")) throw new Error(`WSL ${distro} 的 OpenCode 配置目录无效。`);
     const unc = linuxPath => `\\\\wsl.localhost\\${distro}${linuxPath.replaceAll("/", "\\")}`;
     const configDirectory = unc(`${configBase}/opencode`);

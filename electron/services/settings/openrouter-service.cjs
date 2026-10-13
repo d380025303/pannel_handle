@@ -324,7 +324,7 @@ function createOpenRouterService({
       const result = await runAgentModelProbe({ agent, providerId, modelId, baseUrl, apiKey, apiKeyEnv });
       results.push({ modelId, ...store.setAgentModelVerification(agent, modelId, result) });
     }
-    if (agent === "opencode" && results.length) onOpenCodeModelsChanged();
+    if (agent === "opencode" && results.length) await onOpenCodeModelsChanged();
     return results;
   }
 
@@ -362,19 +362,19 @@ function createOpenRouterService({
     if (metadataBaseUrl) models = enrichNaraRouterModels(models, plansPayload, pricingPayload);
     models = transformModels(models);
     store.setCachedModels(models, now());
-    onOpenCodeModelsChanged();
+    await onOpenCodeModelsChanged();
     return listModels();
   }
 
-  function saveApiKey(apiKey) {
+  async function saveApiKey(apiKey) {
     const config = store.setApiKey(apiKey);
-    onOpenCodeModelsChanged();
+    await onOpenCodeModelsChanged();
     return config;
   }
 
-  function clearApiKey() {
+  async function clearApiKey() {
     const config = store.clearApiKey();
-    onOpenCodeModelsChanged();
+    await onOpenCodeModelsChanged();
     return config;
   }
 

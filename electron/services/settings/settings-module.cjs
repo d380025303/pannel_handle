@@ -34,9 +34,9 @@ function createSettingsModule({
   const openCodeModelSync = createOpenCodeGlobalModelSync({ userDataDir, stores: {
     openrouter: openRouterConfigStore, nararouter: naraRouterConfigStore, minimax: miniMaxConfigStore
   } });
-  const onOpenCodeModelsChanged = () => {
+  const onOpenCodeModelsChanged = async () => {
     openCodeModelSync.syncWindows();
-    for (const distro of new Set(listOpenCodeWslDistros())) openCodeModelSync.syncWsl(distro);
+    for (const distro of new Set(listOpenCodeWslDistros())) await openCodeModelSync.syncWsl(distro);
   };
   const openRouterService = createRouterService({
     store: openRouterConfigStore,

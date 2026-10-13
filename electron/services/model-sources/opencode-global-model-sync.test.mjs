@@ -2,13 +2,16 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const fs = require("node:fs");
+const { execFile, spawn } = require("node:child_process");
+const { performance } = require("node:perf_hooks");
 const { parse } = require("jsonc-parser");
 const { createOpenCodeGlobalModelSync } = require("./opencode-global-model-sync.cjs");
 const directories = [];
-afterEach(() => { while (directories.length) rmSync(directories.pop(), { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); while (directories.length) rmSync(directories.pop(), { recursive: true, force: true }); });
 
 function fixture(source = "openrouter") {
   const root = mkdtempSync(path.join(tmpdir(), "pannel-opencode-sync-"));
@@ -26,13 +29,75 @@ function fixture(source = "openrouter") {
   const state = { models: [{ id: "vendor/coder", name: "Coder" }], verified: { "vendor/coder": { status: "passed" } }, key: "secret" };
   const store = { getCachedModels: () => state.models, getAgentModelVerifications: () => state.verified, getApiKey: () => state.key };
   const empty = { getCachedModels: () => [], getAgentModelVerifications: () => ({}), getApiKey: () => "" };
-  const createSync = () => createOpenCodeGlobalModelSync({ home, userDataDir,
-    stores: { openrouter: empty, nararouter: empty, minimax: empty, [source]: store } });
+  const createSync = (options = {}) => createOpenCodeGlobalModelSync({ home, userDataDir,
+    stores: { openrouter: empty, nararouter: empty, minimax: empty, [source]: store }, ...options });
   const sync = createSync();
   return { root, state, sync, createSync, config, auth };
 }
 
 describe("OpenCode global model sync", () => {
+
+  it("keeps timers responsive during a real 1500ms child process", async () => {
+    const f = fixture();
+    const command = vi.fn((_file, _args, options, callback) => execFile(process.execPath,
+      ["-e", "setTimeout(() => process.stdout.write('invalid'), 1500)"], options, callback));
+    const started = performance.now();
+    const pending = f.createSync({ wslCommand: command }).syncWsl("Ubuntu");
+    const outcome = expect(pending).rejects.toThrow("配置目录无效");
+    const timerElapsed = await new Promise(resolve => setTimeout(() => resolve(performance.now() - started), 10));
+    expect(timerElapsed).toBeLessThan(500);
+    const peer = spawn(process.execPath, ["-e", "process.on('message', value => process.send(value))"],
+      { stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true });
+    try {
+      const reply = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("IPC response timed out")), 1000);
+        peer.once("message", value => { clearTimeout(timeout); resolve(value); });
+        peer.send("ping");
+      });
+      expect(reply).toBe("ping");
+      expect(performance.now() - started).toBeLessThan(1500);
+    } finally { peer.kill(); }
+    await outcome;
+    expect(performance.now() - started).toBeGreaterThanOrEqual(1500);
+    expect(command).toHaveBeenCalledWith("wsl.exe", ["-d", "Ubuntu", "--", "sh", "-lc",
+      "printf '%s\\n%s' \"${XDG_CONFIG_HOME:-$HOME/.config}\" \"${XDG_DATA_HOME:-$HOME/.local/share}\""],
+      { encoding: "utf8", windowsHide: true, timeout: 10000 }, expect.any(Function));
+  });
+
+  it("parses CRLF directory output and selects an existing JSONC configuration", async () => {
+    const f = fixture();
+    const config = path.join("\\\\wsl.localhost\\Ubuntu\\custom config\\opencode", "opencode.jsonc");
+    const originalRead = fs.readFileSync;
+    const marker = new Error("reached parsed config");
+    vi.spyOn(fs, "existsSync").mockImplementation(file => file === config);
+    const reads = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...args) => {
+      if (file === config) throw marker;
+      return originalRead(file, ...args);
+    });
+    await expect(f.createSync({ wslCommand: (_file, _args, _options, callback) =>
+      callback(null, " /custom config\r\n /custom data \n") }).syncWsl("Ubuntu")).rejects.toBe(marker);
+    expect(reads).toHaveBeenCalledWith(config, "utf8");
+  });
+
+  it.each(["relative\n/data", "/config", ""])("rejects invalid directories (%s)", async stdout => {
+    const f = fixture();
+    await expect(f.createSync({ wslCommand: (_file, _args, _options, callback) => callback(null, stdout) })
+      .syncWsl("Ubuntu")).rejects.toThrow("配置目录无效");
+  });
+
+  it.each([Object.assign(new Error("timeout"), { killed: true }), Object.assign(new Error("exit"), { code: 1 }),
+    Object.assign(new Error("missing"), { code: "ENOENT" })])("preserves command failure handling (%s)", async error => {
+    const f = fixture();
+    await expect(f.createSync({ wslCommand: (_file, _args, _options, callback) => callback(error, "/config\n/data") })
+      .syncWsl("Ubuntu")).rejects.toThrow("无法读取 WSL Ubuntu 的 OpenCode 配置目录");
+  });
+
+  it("rejects an invalid distro without starting a command", async () => {
+    const command = vi.fn();
+    await expect(fixture().createSync({ wslCommand: command }).syncWsl("Ubuntu;pwd")).rejects.toThrow("无效的 WSL");
+    expect(command).not.toHaveBeenCalled();
+  });
+
   it.each(["nararouter", "minimax"])("restores %s models after all verifications fail, preserving user models and credentials", source => {
     const f = fixture(source);
     writeFileSync(f.config, "{}\n");

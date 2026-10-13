@@ -42,6 +42,25 @@ function fixture(overrides = {}) {
 }
 
 describe("openrouter-service", () => {
+
+  it.each(["saveApiKey", "clearApiKey", "refreshModels", "verifyAgentModels"])("awaits sync failures from %s", async method => {
+    let rejectSync;
+    const sync = vi.fn(() => new Promise((_resolve, reject) => { rejectSync = reject; }));
+    const { service, model } = fixture({
+      fetchImpl: vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "test" }] }), { status: 200 })),
+      store: { getAgentModelVerifications: vi.fn(() => ({ "openai/gpt-test": { status: "passed", checkedAt: Date.now() } })) },
+      serviceOptions: { onOpenCodeModelsChanged: sync }
+    });
+    let settled = false;
+    const pending = service[method](method === "verifyAgentModels" ? { agent: "opencode", modelIds: [model.id] } : "key");
+    const outcome = expect(pending).rejects.toThrow("sync failed");
+    pending.then(() => { settled = true; }, () => { settled = true; });
+    await vi.waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+    expect(settled).toBe(false);
+    rejectSync(new Error("sync failed"));
+    await outcome;
+  });
+
   it("requires the target Agent's own verification before releasing its launch key", () => {
     const verification = { opencode: {}, codebuddy: {} };
     const { service, store, model } = fixture({ store: { getAgentModelVerifications: vi.fn(agent => verification[agent]) } });
