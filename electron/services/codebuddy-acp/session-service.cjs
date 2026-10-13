@@ -1703,6 +1703,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
         ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000, onSubmitted);
       if (sessions.get(id) !== entry) return;
+      cancelApprovals(entry);
       cancelOpenCodeForms(entry);
       for (const file of files) entry.allowedFiles.delete(file);
       entry.openCodeRetry = null; entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
@@ -1720,6 +1721,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       void recordTokenUsage(entry);
     } catch (error) {
       if (sessions.get(id) !== entry) throw error;
+      cancelApprovals(entry);
       cancelOpenCodeForms(entry);
       entry.openCodeRetry = null; entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       entry.error = appendTurnError(entry, entry.turnId, error.message) ? null : error.message;
@@ -1798,7 +1800,15 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.questions.delete(requestId);
     }
   }
-  function interrupt(id) { const entry = entryFor(id); entry.openCodeRetry = null; entry.openCodeRetryCancelled = true; cancelOpenCodeForms(entry); publish(id);
+  function cancelApprovals(entry) {
+    const approvals = [...entry.approvals];
+    entry.approvals.clear();
+    for (const [requestId, approval] of approvals) {
+      if (approval.interruption) continue;
+      try { send(entry, { id: requestId, result: { outcome: { outcome: "cancelled" } } }); } catch {}
+    }
+  }
+  function interrupt(id) { const entry = entryFor(id); entry.openCodeRetry = null; entry.openCodeRetryCancelled = true; cancelApprovals(entry); cancelOpenCodeForms(entry); publish(id);
     send(entry, { method: "session/cancel", params: { sessionId: entry.threadId } }); }
   function resolveApproval(id, requestId, approved) {
     const entry = entryFor(id); const approval = entry.approvals.get(requestId);

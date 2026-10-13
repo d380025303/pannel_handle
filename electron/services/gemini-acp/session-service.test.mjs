@@ -8,6 +8,67 @@ const { createGeminiAcpSessionService, buildInvocation } = require("./session-se
 const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 
 describe("Gemini ACP sessions", () => {
+  it.each(["interrupt", "end_turn", "cancelled", "failure", "approve"])("settles pending permissions on %s", async outcome => {
+    const requests = [];
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = vi.fn();
+    const emit = message => child.stdout.write(`${JSON.stringify(message)}\n`);
+    let promptId;
+    child.stdin.on("data", chunk => {
+      const message = JSON.parse(String(chunk));
+      requests.push(message);
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread",
+        models: { currentModelId: "auto", availableModels: [{ modelId: "auto", name: "Auto" }] } } });
+      if (message.method === "session/set_model" || message.method === "session/load") emit({ id: message.id, result: {} });
+      if (message.method === "session/prompt") {
+        promptId = message.id;
+        emit({ id: 900, method: "session/request_permission", params: { sessionId: "thread",
+          toolCall: { toolCallId: "tool", title: "Edit file" }, options: [
+            { optionId: "allow", kind: "allow_once", name: "Allow" },
+            { optionId: "reject", kind: "reject_once", name: "Reject" }] } });
+      }
+    });
+    const broadcast = vi.fn();
+    const service = createGeminiAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast, spawnProcess: () => child,
+      historyService: { listHistoryForSession: async () => ({ items: [
+        { provider: "gemini", acpSessionId: "saved-thread", title: "Saved", updatedAt: 1000 }
+      ], nextCursor: null, errors: [] }) } });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      const turn = service.submit("one", "Hello");
+      const settled = outcome === "failure" ? expect(turn).rejects.toThrow("prompt failed") : turn;
+      await vi.waitFor(() => expect(service.snapshot("one").approvals).toHaveLength(1));
+      if (outcome === "interrupt") {
+        broadcast.mockClear();
+        service.interrupt("one");
+        expect(service.snapshot("one").approvals).toEqual([]);
+        expect(broadcast).toHaveBeenCalled();
+        expect(requests.some(message => message.method === "session/cancel")).toBe(true);
+        const count = requests.length;
+        expect(() => service.resolveApproval("one", 900, true)).toThrow("确认请求已失效");
+        expect(requests).toHaveLength(count);
+      } else if (outcome === "approve") service.resolveApproval("one", 900, true);
+      emit(outcome === "failure" ? { id: promptId, error: { message: "prompt failed" } }
+        : { id: promptId, result: { stopReason: outcome === "interrupt" ? "cancelled" : outcome === "approve" ? "end_turn" : outcome } });
+      await settled;
+      expect(service.snapshot("one")).toMatchObject({ busy: false, approvals: [] });
+      expect(requests.filter(message => message.id === 900 && message.result)).toEqual([
+        expect.objectContaining({ result: { outcome: outcome === "approve"
+          ? { outcome: "selected", optionId: "allow" } : { outcome: "cancelled" } } })
+      ]);
+      const count = requests.length;
+      expect(() => service.resolveApproval("one", 900, true)).toThrow("确认请求已失效");
+      expect(requests).toHaveLength(count);
+      await service.setModel("one", "auto");
+      await service.listHistory("one");
+      await service.resume("one", "saved-thread");
+      expect(requests.some(message => message.method === "session/load")).toBe(true);
+    } finally { service.shutdown(); }
+  });
+
   it("uses the Gemini ACP command on Windows and WSL", () => {
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1))
       .toContain("gemini --acp");
