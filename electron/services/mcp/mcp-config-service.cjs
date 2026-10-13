@@ -407,7 +407,7 @@ function scanTomlStringState(line, state) {
 }
 
 function replaceCodexServer(text, originalName, name, config) {
-  const lines = text.match(/.*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) || [];
+  const lines = text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) || [];
   const matches = [];
   const boundaries = new Set();
   let stringState = "";

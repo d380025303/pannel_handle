@@ -60,6 +60,24 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it.each(["\n", "\r\n"])("preserves long Unicode comments when editing Codex servers with %j line endings", (eol) => {
+    const comment = `#${"a".repeat(40000)}\u2028# comment\u2029# comment${eol}`;
+    const text = `${comment}[mcp_servers.demo]${eol}command="node"${eol}`;
+    expect(parseToml(text).mcp_servers.demo.command).toBe("node");
+
+    expect(replaceCodexServer(text, "demo")).toBe(comment);
+    const saved = replaceCodexServer(text, "demo", "demo", { command: "new" });
+    expect(saved.startsWith(`${comment.trimEnd()}\n\n`)).toBe(true);
+    expect(parseToml(saved).mcp_servers.demo.command).toBe("new");
+    const copied = replaceCodexServer(text, undefined, "copy", { command: "node" });
+    expect(copied.startsWith(text.trimEnd())).toBe(true);
+    expect(parseToml(copied).mcp_servers).toEqual({ demo: { command: "node" }, copy: { command: "node" } });
+  });
+
+  it("recognizes standalone CR boundaries when removing a Codex server", () => {
+    expect(replaceCodexServer('[mcp_servers.demo]\rcommand="node"\r', "demo")).toBe("");
+  });
+
   it.each(["oversized", "growing", "normal", "limit", "empty", "missing"])("bounds actual config reads for %s files", (state) => {
     const { homeDir } = setup();
     const filePath = path.join(homeDir, ".codex", "config.toml");
