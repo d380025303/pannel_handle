@@ -217,7 +217,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (timer) { clearTimeout(timer); publishTimers.delete(id); }
     const entry = sessions.get(id);
     if (!entry) return;
-    entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
+    entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear(); entry.streamSummary.clear();
     entry.subAgentObserver?.takeTextDeltas();
     entry.revision += 1;
     broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
@@ -231,13 +231,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const items = [...entry.streamItems].map(itemId => entry.items.find(item => item.id === itemId)).filter(Boolean);
       const turnDiffs = [...entry.streamDiffs].map(turnId => entry.turnDiffs.get(turnId)).filter(Boolean);
       const textDeltas = [...entry.streamText].map(([itemId, delta]) => ({ itemId, delta }));
-      entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
+      const summaryDeltas = [...entry.streamSummary.values()].filter(value => !entry.streamItems.has(value.itemId));
+      entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear(); entry.streamSummary.clear();
       const subAgentTextDeltas = entry.subAgentObserver?.takeTextDeltas() || [];
-      if (!items.length && !turnDiffs.length && !textDeltas.length && !subAgentTextDeltas.length) return;
+      if (!items.length && !turnDiffs.length && !textDeltas.length && !summaryDeltas.length && !subAgentTextDeltas.length) return;
       const baseRevision = entry.revision;
       entry.revision += 1;
       broadcast("codex-app-server:delta", { id, streamId: entry.streamId, threadId: entry.threadId, baseRevision,
-        revision: entry.revision, items, turnDiffs, textDeltas, subAgentTextDeltas });
+        revision: entry.revision, items, turnDiffs, textDeltas, summaryDeltas, subAgentTextDeltas });
     }, PUBLISH_COALESCE_MS));
   }
   function recordDiagnostic(entry, kind, payload, turnId = null) {
@@ -615,6 +616,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         if (message.method === "item/reasoning/summaryPartAdded") {
           if (summary[index] == null) summary[index] = "";
         } else if (typeof params.delta === "string") {
+          const key = JSON.stringify([params.itemId, index]);
+          const pending = entry.streamSummary.get(key);
+          entry.streamSummary.set(key, { itemId: params.itemId, summaryIndex: index, delta: (pending?.delta || "") + params.delta });
           summary[index] = `${typeof summary[index] === "string" ? summary[index] : ""}${params.delta}`;
         }
         item.summary = summary;
@@ -690,7 +694,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       else if ((message.method === "item/agentMessage/delta" || message.method === "item/plan/delta")
         && params.itemId && typeof params.delta === "string" && entry.items.some(item => item.id === params.itemId))
         entry.streamText.set(params.itemId, (entry.streamText.get(params.itemId) || "") + params.delta);
-      else if (params.itemId) entry.streamItems.add(params.itemId);
+      else if (params.itemId && message.method !== "item/reasoning/summaryTextDelta") entry.streamItems.add(params.itemId);
       schedulePublish(id);
     }
     else publish(id);
@@ -725,7 +729,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0,
-      streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map() };
+      streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map(), streamSummary: new Map() };
     entry.injectedTools = createInjectedTools({ config: runtime.injectedTools, sessionId: id,
       current: params => sessions.get(id) === entry && entry.busy && entry.threadId === params.threadId && entry.turnId === params.turnId,
       respond: (requestId, result) => send(entry, { id: requestId, result }) });

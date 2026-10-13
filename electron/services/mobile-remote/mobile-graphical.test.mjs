@@ -71,10 +71,10 @@ describe("mobile graphical session route", () => {
     expect(f.socket.graphicalRevision).toBe(3);
     f.send.mockClear();
     handlers.handleDelta(f.socket, { id: "graph-1", streamId: "stream-1", threadId: "thread-1",
-      baseRevision: 3, revision: 4, items: [], turnDiffs: [], textDeltas: [{ itemId: "m0", delta: " next" }] });
+      baseRevision: 3, revision: 4, items: [], turnDiffs: [], textDeltas: [{ itemId: "m0", delta: " next" }], summaryDeltas: [{ itemId: "r", summaryIndex: 1, delta: "reason" }] });
     expect(f.send).toHaveBeenCalledTimes(1);
     expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.delta",
-      baseRevision: 3, revision: 4, textDeltas: [{ itemId: "m0", delta: " next" }] }));
+      baseRevision: 3, revision: 4, textDeltas: [{ itemId: "m0", delta: " next" }], summaryDeltas: [{ itemId: "r", summaryIndex: 1, delta: "reason" }] }));
     expect(f.socket.graphicalRevision).toBe(4);
   });
 

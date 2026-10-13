@@ -466,6 +466,54 @@ describe("Codex App Server session", () => {
     } finally { service.close("run-1"); }
   });
 
+  it("transmits reasoning text linearly across 1000 publish periods", async () => {
+    const child = fakeProcess([]);
+    const payloads = [];
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: (channel, payload) => {
+        if (channel === "codex-app-server:delta") payloads.push(JSON.parse(JSON.stringify(payload)));
+      }, spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", ...params } })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      vi.useFakeTimers();
+      emit("item/started", { item: { id: "r", type: "reasoning", summary: [""] } });
+      const chunk = "x".repeat(1024);
+      for (let i = 0; i < 1000; i += 1) {
+        emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 0, delta: chunk });
+        await vi.advanceTimersByTimeAsync(80);
+      }
+      expect(payloads).toHaveLength(1000);
+      expect(payloads.every(p => p.items.length === 0 && p.summaryDeltas[0].delta === chunk)).toBe(true);
+      expect(payloads.map(p => p.summaryDeltas[0].delta).join(""))
+        .toBe(service.snapshot("run-1").items[0].summary[0]);
+      const bytes = payloads.reduce((sum, p) => sum + Buffer.byteLength(JSON.stringify(p)), 0);
+      console.log("reasoning summary serialized bytes:", bytes);
+      expect(bytes).toBeLessThan(1024000 * 1.5);
+      const firstHalf = payloads.slice(0, 500).reduce((sum, p) => sum + Buffer.byteLength(JSON.stringify(p)), 0);
+      expect(bytes / firstHalf).toBeLessThan(2.01);
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 0, delta: " pending" });
+      emit("item/reasoning/summaryPartAdded", { itemId: "r", summaryIndex: 1 });
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 1, delta: "second" });
+      await vi.advanceTimersByTimeAsync(80);
+      expect(payloads.at(-1).summaryDeltas).toEqual([]);
+      expect(payloads.at(-1).items[0].summary).toEqual([chunk.repeat(1000) + " pending", "second"]);
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", delta: " default" });
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 0, delta: " first" });
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 1, delta: " merged" });
+      await vi.advanceTimersByTimeAsync(80);
+      expect(payloads.at(-1).summaryDeltas).toEqual([
+        { itemId: "r", summaryIndex: 1, delta: " default merged" },
+        { itemId: "r", summaryIndex: 0, delta: " first" }]);
+      const count = payloads.length;
+      emit("item/reasoning/summaryTextDelta", { itemId: "r", summaryIndex: 0, delta: "discarded" });
+      emit("item/completed", { item: { id: "r", type: "reasoning", summary: ["authoritative"] } });
+      await vi.advanceTimersByTimeAsync(80);
+      expect(payloads).toHaveLength(count);
+      expect(service.snapshot("run-1").items[0].summary).toEqual(["authoritative"]);
+    } finally { service.close("run-1"); vi.useRealTimers(); }
+  });
+
   it("streams reasoning summaries by section and keeps the completed item authoritative", async () => {
     const child = fakeProcess([]);
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },

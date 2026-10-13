@@ -1,3 +1,4 @@
+import { applySummaryTextDeltas } from "../../utils/summaryTextDeltas";
 import { applyTeamTextDeltas } from "../../utils/teamTextDeltas";
 import type { CodexAppServerDelta, CodexAppServerSnapshot } from "../../vite-env";
 
@@ -47,7 +48,7 @@ export function subscribeGraphicalSession(sessionId: string, { onSnapshot, onErr
       reload();
       return;
     }
-    const items = [...current.items];
+    const items = applySummaryTextDeltas(current.items, delta.summaryDeltas);
     for (const text of delta.textDeltas) {
       if (text.memberName !== undefined) continue;
       const index = items.findIndex(value => value.id === text.itemId);

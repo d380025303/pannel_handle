@@ -1,3 +1,4 @@
+import { applySummaryTextDeltas } from "../../src/utils/summaryTextDeltas";
 import { applyTeamTextDeltas } from "../../src/utils/teamTextDeltas";
 import { applySubAgentTextDeltas } from "../../src/utils/subAgentTextDeltas";
 import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../src/utils/codexImageInput";
@@ -163,7 +164,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           || current.revision !== message.baseRevision) {
           send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id, delta: true });
         } else {
-          const items = [...current.items];
+          const items = applySummaryTextDeltas(current.items, message.summaryDeltas);
           for (const text of message.textDeltas) {
             if (text.memberName !== undefined) continue;
             const index = items.findIndex(value => value.id === text.itemId);

@@ -289,6 +289,28 @@ it("updates the current message from a delta and resubscribes after a gap", () =
   expect(send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(2);
 });
 
+it("appends reasoning sections, resyncs gaps and accepts full completion", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, streamId: "stream-1", revision: 1,
+      items: [{ id: "r", type: "reasoning", summary: ["alpha", "beta"] }] } });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.delta", sessionId: "graph-1", streamId: "stream-1",
+    threadId: "thread-1", baseRevision: 1, revision: 2, items: [], textDeltas: [],
+    summaryDeltas: [{ itemId: "r", summaryIndex: 0, delta: " one" }, { itemId: "r", summaryIndex: 1, delta: " two" }] });
+  expect(screen.getByText(/alpha one/)).toBeTruthy();
+  expect(screen.getByText(/beta two/)).toBeTruthy();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.delta", sessionId: "graph-1", streamId: "stream-1",
+    threadId: "thread-1", baseRevision: 3, revision: 4, items: [], textDeltas: [],
+    summaryDeltas: [{ itemId: "r", summaryIndex: 0, delta: " lost" }] });
+  expect(send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(2);
+  expect(screen.queryByText(/lost/)).toBeNull();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, streamId: "stream-1", revision: 4,
+      items: [{ id: "r", type: "reasoning", status: "completed", summary: ["authoritative"] }] } });
+  expect(screen.getByText(/authoritative/)).toBeTruthy();
+  expect(screen.queryByText(/alpha one/)).toBeNull();
+});
+
 it("applies team deltas with equal message IDs across full updates", () => {
   const { emit } = fixture();
   const initial: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", streamId: "stream-1", revision: 1,
