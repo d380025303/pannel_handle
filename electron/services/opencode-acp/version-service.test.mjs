@@ -4,15 +4,25 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { createOpenCodeVersionService, installation } = require("./version-service.cjs");
 
-const windowsProbe = (version, owned = true) => [
+function framedProbe(lines) {
+  const keys = ["commandPath", "resolvedPath", "npmRoot", "npmOwned"];
+  return ["__PANNEL_OPENCODE_PROBE_BEGIN__", "__PANNEL_OPENCODE_VERSION_BEGIN__", lines[0], "__PANNEL_OPENCODE_VERSION_END__",
+    ...keys.map((key, index) => `${key}=${lines[index + 1]}`), "__PANNEL_OPENCODE_PROBE_END__"].join("\n");
+}
+function probeLines(output) {
+  const { parseCliProbe } = require("../cli-version-probe.cjs");
+  return parseCliProbe(output, { marker: "OPENCODE", keys: ["commandPath", "resolvedPath", "npmRoot", "npmOwned"] });
+}
+
+const windowsProbe = (version, owned = true) => framedProbe([
   `opencode v${version}`, "C:\\node\\opencode.ps1", "C:\\node\\opencode.ps1",
   "C:\\node\\node_modules", owned ? "1" : "0"
-].join("\n");
-const linuxProbe = (version, owned = true) => [
+]);
+const linuxProbe = (version, owned = true) => framedProbe([
   `opencode v${version}`, "/usr/local/bin/opencode",
   owned ? "/usr/local/lib/node_modules/@opencode/cli/bin/opencode" : "/opt/opencode/bin/opencode",
   "/usr/local/lib/node_modules", owned ? "1" : "0"
-].join("\n");
+]);
 
 function harness(session, output) {
   const executeCommand = vi.fn(async () => output());
@@ -24,11 +34,68 @@ function harness(session, output) {
 }
 
 describe("OpenCode V2 version updates", () => {
+  it.each(["windows", "wsl", "ssh"])("ignores startup and trailing output in %s probes", async type => {
+    const session = { id: "one", type, wslDistro: "Ubuntu", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "opencode" };
+    const clean = type === "windows" ? windowsProbe("2.0.19") : linuxProbe("2.0.19");
+    for (const output of [clean, "Welcome to workspace 9.8.7\n" + clean, clean + "\nGoodbye 9.8.7",
+      "Welcome to workspace\n" + clean.split("\n").map(line => `\x1b[32m${line}\x1b[0m`).join("\r\n") + "\nGoodbye",
+      clean.replace("opencode v2.0.19", "\x1b]0;CLI title\x07opencode v2.0.19")]) {
+      const { service, executeCommand } = harness(session, () => output);
+      expect(await service.check("one")).toMatchObject({ status: "current", currentVersion: "2.0.19", method: "npm",
+        commandPath: type === "windows" ? "C:\\node\\opencode.ps1" : "/usr/local/bin/opencode" });
+      const script = executeCommand.mock.calls[0][1];
+      for (const token of ["__PANNEL_OPENCODE_PROBE_BEGIN__", "__PANNEL_OPENCODE_VERSION_BEGIN__", "__PANNEL_OPENCODE_VERSION_END__", "__PANNEL_OPENCODE_PROBE_END__", "commandPath=", "resolvedPath=", "npmRoot=", "npmOwned="])
+        expect(script).toContain(token);
+    }
+  });
+
+  it.each([
+    output => output.replace("__PANNEL_OPENCODE_PROBE_BEGIN__", ""),
+    output => output.replace("__PANNEL_OPENCODE_PROBE_END__", ""),
+    output => output.replace("__PANNEL_OPENCODE_VERSION_BEGIN__", ""),
+    output => output.replace("__PANNEL_OPENCODE_VERSION_END__", ""),
+    output => output.replace(/^resolvedPath=.*\n/m, ""),
+    output => output.replace(/^npmRoot=.*\n/m, ""),
+    output => output.replace(/^npmOwned=.*\n/m, ""),
+    output => output.replace(/^commandPath=.*$/m, "commandPath="),
+    output => output.replace("npmOwned=1", "npmOwned=1\nnpmOwned=0"),
+    () => "Welcome to workspace\nopencode v2.0.19\n/usr/local/bin/opencode",
+  ])("rejects missing markers and incomplete or ambiguous fields", async damage => {
+    const session = { id: "one", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "opencode" };
+    const { service } = harness(session, () => damage(linuxProbe("2.0.19")));
+    expect(await service.check("one")).toMatchObject({ status: "error", error: expect.stringContaining("返回内容不完整") });
+  });
+
+  it("preserves empty npm metadata and unknown installation ownership with noisy output", async () => {
+    const session = { id: "one", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "opencode" };
+    const { service } = harness(session, () => "Welcome\n" + linuxProbe("2.0.19", false).replace("npmRoot=/usr/local/lib/node_modules", "npmRoot=") + "\nGoodbye");
+    expect(await service.check("one")).toMatchObject({ status: "current", currentVersion: "2.0.19", commandPath: "/usr/local/bin/opencode", method: "unknown" });
+  });
+
+  it("does not use a welcome version when the version block is invalid", async () => {
+    const session = { id: "one", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "opencode" };
+    const { service } = harness(session, () => "Welcome 9.8.7\n" + linuxProbe("2.0.19").replace("opencode v2.0.19", "unrecognized"));
+    expect(await service.check("one")).toMatchObject({ status: "error", error: expect.stringContaining("V2 CLI") });
+  });
+
+  it("updates a WSL npm installation despite welcome and logout output", async () => {
+    const session = { id: "one", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "opencode" };
+    let version = "2.0.18";
+    const noisyProbe = () => "Welcome to workspace\n" + linuxProbe(version) + "\nGoodbye";
+    const { service, executeCommand } = harness(session, noisyProbe);
+    executeCommand.mockImplementation(async (_target, script) => {
+      if (script === "npm install -g @opencode/cli@latest") { version = "2.0.19"; return "updated"; }
+      return noisyProbe();
+    });
+    expect(await service.check("one")).toMatchObject({ status: "available", currentVersion: "2.0.18", method: "npm" });
+    expect(await service.update("one")).toMatchObject({ status: "current", currentVersion: "2.0.19", method: "npm", restartRequired: true });
+  });
+
   it("recognizes only the active V2 npm installation", () => {
-    expect(installation(windowsProbe("2.0.18").split("\n"), "windows")).toBe("npm");
-    expect(installation(linuxProbe("2.0.18").split("\n"), "linux")).toBe("npm");
-    expect(installation(linuxProbe("2.0.18", false).split("\n"), "linux")).toBe("unknown");
-    expect(installation(windowsProbe("2.0.18", false).split("\n"), "windows")).toBe("unknown");
+    expect(installation(probeLines(windowsProbe("2.0.18")), "windows")).toBe("npm");
+    expect(installation(probeLines(linuxProbe("2.0.18")), "linux")).toBe("npm");
+    expect(installation(probeLines(linuxProbe("2.0.18", false)), "linux")).toBe("unknown");
+    expect(installation(probeLines(windowsProbe("2.0.18", false)), "windows")).toBe("unknown");
   });
 
   it("checks and updates Windows npm after confirmation, then verifies the active command", async () => {

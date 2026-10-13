@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { parseCliProbe } = require("../cli-version-probe.cjs");
 const { createUpdateProgress } = require("../cli-version-progress.cjs");
 
 const CHECK_TIMEOUT_MS = 15000;
@@ -40,26 +41,17 @@ function parseVersion(value) {
     parts: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: Boolean(match[4]) } : null;
 }
 function parseProbe(output) {
-  const lines = String(output).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").split(/\r?\n/).map(line => line.trim());
-  const begin = lines.indexOf("__PANNEL_CODEX_PROBE_BEGIN__");
-  const end = lines.indexOf("__PANNEL_CODEX_PROBE_END__", begin + 1);
-  const versionBegin = lines.indexOf("__PANNEL_CODEX_VERSION_BEGIN__", begin + 1);
-  const versionEnd = lines.indexOf("__PANNEL_CODEX_VERSION_END__", versionBegin + 1);
-  const incomplete = () => { throw new Error("Codex 版本检测返回内容不完整。"); };
-  if (begin < 0 || end < 0 || versionBegin !== begin + 1 || versionEnd <= versionBegin || versionEnd >= end) incomplete();
-  const fields = new Map();
-  for (const line of lines.slice(versionEnd + 1, end)) {
-    const separator = line.indexOf("=");
-    if (separator < 0 || fields.has(line.slice(0, separator))) incomplete();
-    fields.set(line.slice(0, separator), line.slice(separator + 1));
-  }
-  const keys = ["commandPath", "resolvedPath", "npmRoot", "installDir", "codexHome", "npmOwned", "standaloneOwned"];
-  if (keys.some(key => !fields.has(key)) || !fields.get("commandPath") || !fields.get("resolvedPath") || !fields.get("installDir")) incomplete();
-  const versionLines = lines.slice(versionBegin + 1, versionEnd);
+  const [versionOutput, ...fields] = parseCliProbe(output, {
+    marker: "CODEX",
+    keys: ["commandPath", "resolvedPath", "npmRoot", "installDir", "codexHome", "npmOwned", "standaloneOwned"],
+    nonempty: ["commandPath", "resolvedPath", "installDir"],
+    incompleteMessage: "Codex 版本检测返回内容不完整。",
+  });
+  const versionLines = versionOutput.split("\n");
   const version = versionLines.find(line => /^codex-cli\s+v?\d+\.\d+\.\d+/.test(line))
     || versionLines.find(line => /^v?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(line));
   if (!version) throw new Error("无法识别 Codex CLI 版本。");
-  return [version, ...keys.map(key => fields.get(key))];
+  return [version, ...fields];
 }
 
 function isNewer(current, latest) {

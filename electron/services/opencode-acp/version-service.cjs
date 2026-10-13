@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { parseCliProbe } = require("../cli-version-probe.cjs");
 const { parseVersion } = require("../codex-app-server/version-service.cjs");
 const { createCliVersionService } = require("../cli-version-service.cjs");
 
@@ -14,14 +15,17 @@ resolved_path=$(readlink -f "$command_path" 2>/dev/null || printf '%s' "$command
 version=$(opencode --version) || exit 3
 npm_root=$(npm root -g 2>/dev/null || true)
 if [ -n "$npm_root" ] && [ -d "$npm_root/@opencode/cli" ]; then npm_owned=1; else npm_owned=0; fi
-printf '%s\\n' "$version" "$command_path" "$resolved_path" "$npm_root" "$npm_owned"`;
+printf '%s\\n' '__PANNEL_OPENCODE_PROBE_BEGIN__' '__PANNEL_OPENCODE_VERSION_BEGIN__' "$version" '__PANNEL_OPENCODE_VERSION_END__'
+printf 'commandPath=%s\\nresolvedPath=%s\\nnpmRoot=%s\\nnpmOwned=%s\\n' "$command_path" "$resolved_path" "$npm_root" "$npm_owned"
+printf '%s\\n' '__PANNEL_OPENCODE_PROBE_END__'`;
 const powerShellProbe = `$ErrorActionPreference = 'Stop'
 $command = Get-Command opencode -ErrorAction Stop | Select-Object -First 1
-$version = & $command.Source --version
+$version = (& $command.Source --version) -join [Environment]::NewLine
+if ($LASTEXITCODE -ne 0) { throw 'OpenCode CLI 版本命令执行失败。' }
 $npmRoot = try { (& npm.cmd root -g 2>$null | Select-Object -First 1) } catch { '' }
 $npmPackage = if ($npmRoot) { Join-Path $npmRoot '@opencode\\cli' } else { '' }
 $npmOwned = if ($npmPackage -and (Test-Path $npmPackage) -and (Select-String -LiteralPath $command.Source -Pattern '@opencode/cli' -Quiet -ErrorAction SilentlyContinue)) { '1' } else { '0' }
-@($version, $command.Source, $command.Source, $npmRoot, $npmOwned) -join [Environment]::NewLine`;
+@('__PANNEL_OPENCODE_PROBE_BEGIN__', '__PANNEL_OPENCODE_VERSION_BEGIN__', $version, '__PANNEL_OPENCODE_VERSION_END__', "commandPath=$($command.Source)", "resolvedPath=$($command.Source)", "npmRoot=$npmRoot", "npmOwned=$npmOwned", '__PANNEL_OPENCODE_PROBE_END__') -join [Environment]::NewLine`;
 
 function quoteBash(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function installation(probe, platform) {
@@ -75,8 +79,10 @@ function createOpenCodeVersionService({ terminalManager, sshAgentTransport, spaw
   }
   async function probe(value) {
     const output = await run(value, value.platform === "windows" ? powerShellProbe : bashProbe, CHECK_TIMEOUT_MS);
-    const lines = String(output).trim().split(/\r?\n/).map(line => line.trim());
-    if (lines.length < 5) throw new Error("OpenCode 版本检测返回内容不完整。");
+    const lines = parseCliProbe(output, {
+      marker: "OPENCODE", keys: ["commandPath", "resolvedPath", "npmRoot", "npmOwned"],
+      incompleteMessage: "OpenCode 版本检测返回内容不完整。",
+    });
     const current = parseVersion(lines[0]);
     if (!current || current.parts[0] < 2) throw new Error("当前命中的 OpenCode 不是受支持的 V2 CLI。");
     return { currentVersion: current.text, commandPath: lines[1], method: installation(lines, value.platform) };
