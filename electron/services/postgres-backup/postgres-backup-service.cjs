@@ -177,11 +177,27 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
             WHERE device_id=$1 ${cursor ? "AND (source_key, conversation_ref, message_hash) > ($2,$3,$4)" : ""}
             ORDER BY source_key, conversation_ref, message_hash LIMIT 500`, [state.deviceId, ...(cursor || [])])).rows;
           if (!rows.length) break;
+          const retained = [];
+          const removed = [];
           for (const row of rows) {
             const message = savedMessage(row.data);
-            const key = [state.deviceId, row.source_key, row.conversation_ref, row.message_hash];
-            if (message) await client.query("UPDATE ph_messages SET data=$5 WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3 AND message_hash=$4", [...key, message]);
-            else await client.query("DELETE FROM ph_messages WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3 AND message_hash=$4", key);
+            const key = { source_key: row.source_key, conversation_ref: row.conversation_ref, message_hash: row.message_hash };
+            if (message) retained.push({ ...key, data: message });
+            else removed.push(key);
+          }
+          if (retained.length) {
+            await client.query(`UPDATE ph_messages AS messages SET data=batch.data
+              FROM jsonb_to_recordset($2::jsonb) AS batch(source_key TEXT, conversation_ref TEXT, message_hash TEXT, data JSONB)
+              WHERE messages.device_id=$1 AND messages.source_key=batch.source_key
+                AND messages.conversation_ref=batch.conversation_ref AND messages.message_hash=batch.message_hash`,
+            [state.deviceId, JSON.stringify(retained)]);
+          }
+          if (removed.length) {
+            await client.query(`DELETE FROM ph_messages AS messages
+              USING jsonb_to_recordset($2::jsonb) AS batch(source_key TEXT, conversation_ref TEXT, message_hash TEXT)
+              WHERE messages.device_id=$1 AND messages.source_key=batch.source_key
+                AND messages.conversation_ref=batch.conversation_ref AND messages.message_hash=batch.message_hash`,
+            [state.deviceId, JSON.stringify(removed)]);
           }
           cursor = [rows.at(-1).source_key, rows.at(-1).conversation_ref, rows.at(-1).message_hash];
         }

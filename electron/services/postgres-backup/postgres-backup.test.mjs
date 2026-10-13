@@ -112,7 +112,7 @@ describe("PostgreSQL backup service", () => {
           { source_key: "source", conversation_ref: "ref", message_hash: "a", data: { id: "answer", kind: "reply", text: "answer", item: { type: "agentMessage", output: "secret" } } },
           { source_key: "source", conversation_ref: "ref", message_hash: "b", data: { id: "tool", kind: "tool", text: "secret" } }
         ] };
-      if (sql.includes("UPDATE ph_messages SET data") || sql.includes("DELETE FROM ph_messages WHERE device_id")) policyWrites.push({ sql, parameters });
+      if (sql.includes("SET data=batch.data") || sql.includes("DELETE FROM ph_messages AS messages")) policyWrites.push({ sql, parameters });
       if (sql.includes("INSERT INTO ph_conversation_rules")) policyVersion = parameters[1];
       if (sql.includes("pg_get_constraintdef")) return { rows: [{ definition: oldPrimaryKey
         ? "PRIMARY KEY (device_id, source_key, conversation_ref, message_id)"
@@ -153,7 +153,7 @@ describe("PostgreSQL backup service", () => {
       expect(existingHash).toMatch(/^[a-f0-9]{64}$/);
       expect(policyWrites).toHaveLength(2);
       expect(policyWrites.every(write => write.parameters[0] === second.deviceId)).toBe(true);
-      expect(policyWrites[0].parameters[4].item).toBeUndefined();
+      expect(JSON.parse(policyWrites[0].parameters[1])[0].data.item).toBeUndefined();
       expect(inserted).toHaveLength(1);
       expect(JSON.parse(inserted[0][3])[0].message_id).toBe(longId);
       expect(JSON.parse(inserted[0][3])[0].message_hash).toBe(existingHash);
