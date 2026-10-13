@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { getText, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
+const { getText, createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
 const { timestampMs, normalizeCwd } = require("./history-values.cjs");
 
 function getCodeBuddyProjectFiles(fsApi, root) {
@@ -38,11 +38,11 @@ async function getCodeBuddyProjectFilesAsync(fsApi, root) {
   return files;
 }
 
-async function readCodeBuddyJsonLines(text, visit) {
+async function readCodeBuddyJsonLines(text, visit, raw = false) {
   // Avoid splitting the entire transcript synchronously; bound each parsing batch.
   let offset = 0;
   let lines = 0;
-  let batchStart = 0;
+  let batchBytes = 0;
   while (offset < text.length) {
     const newline = text.indexOf("\n", offset);
     const end = newline < 0 ? text.length : newline;
@@ -50,15 +50,16 @@ async function readCodeBuddyJsonLines(text, visit) {
     offset = end + 1;
     if (line.trim()) {
       try {
-        visit(JSON.parse(line));
+        visit(raw ? line : JSON.parse(line));
       } catch {
         // Ignore a partially written or obsolete line while the provider owns the file.
       }
     }
-    if (++lines >= 128 || offset - batchStart >= 256 * 1024) {
+    batchBytes += Buffer.byteLength(line, "utf-8") + 1;
+    if (++lines >= 128 || batchBytes >= 256 * 1024) {
       await new Promise(resolve => setImmediate(resolve));
       lines = 0;
-      batchStart = offset;
+      batchBytes = 0;
     }
   }
 }
@@ -111,11 +112,32 @@ async function listLocalCodeBuddy({ homeDir, cwd, scope, fsApi, metadataCache })
   return items;
 }
 
-function getLocalCodeBuddyMessages({ homeDir, id, fsApi }) {
-  const files = getCodeBuddyProjectFiles(fsApi, path.join(homeDir, ".codebuddy", "projects"));
+async function getLocalCodeBuddyMessages({ homeDir, id, fsApi, messageCache }) {
+  const files = await getCodeBuddyProjectFilesAsync(fsApi, path.join(homeDir, ".codebuddy", "projects"));
   const filePath = files.find(candidate => path.basename(candidate, ".jsonl") === id);
   if (!filePath) throw new Error("CodeBuddy conversation is unavailable.");
-  return parseAgentConversationText("codebuddy", fsApi.readFileSync(filePath, "utf-8"), { includeUser: true });
+  const signatureOf = stat => JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
+  try {
+    const signature = signatureOf(await fsApi.promises.stat(filePath));
+    const cached = messageCache?.get(filePath);
+    if (cached?.signature === signature) return cached.messages;
+    const parser = createAgentConversationTranscriptParser("codebuddy", { includeUser: true });
+    const messages = [];
+    await readCodeBuddyJsonLines(await fsApi.promises.readFile(filePath, "utf-8"),
+      line => messages.push(...parser.pushLine(line)), true);
+    messages.sort((left, right) => right.timestamp - left.timestamp);
+    // A transcript may be appended or replaced while parsing yields to the event loop.
+    const afterSignature = signatureOf(await fsApi.promises.stat(filePath));
+    messageCache?.delete(filePath);
+    if (signature === afterSignature && messageCache) {
+      messageCache.set(filePath, { signature, messages });
+      if (messageCache.size > 2) messageCache.delete(messageCache.keys().next().value);
+    }
+    return messages;
+  } catch (error) {
+    messageCache?.delete(filePath);
+    throw error;
+  }
 }
 
 module.exports = {

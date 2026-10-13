@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import transcriptModule from "./agent-conversation-transcript.cjs";
 import historyModule from "./agent-conversation-history-service.cjs";
 
 function fixture(text, count = 1) {
@@ -50,6 +51,64 @@ describe("asynchronous CodeBuddy history", () => {
     try {
       expect((await f.service.listHistory(request)).errors).toEqual([{ provider: "codebuddy", message: "CodeBuddy history is unavailable." }]);
     } finally { log.mockRestore(); }
+  });
+
+  it("pages 50,000 messages cooperatively and reuses unchanged first-page parses", async () => {
+    const lines = Array.from({ length: 50_000 }, (_, index) => JSON.stringify({
+      type: "message", role: index % 2 ? "assistant" : "user", id: `m-${index}`,
+      timestamp: (index * 7919) % 50_000,
+      content: [{ type: "text", text: "x".repeat(980) }]
+    }));
+    const text = [...lines, lines[10], "{partial", " ", JSON.stringify({
+      type: "summary", id: "summary", summary: "Compacted", timestamp: 50001
+    })].join("\r\n");
+    const expected = transcriptModule.parseAgentConversationText("codebuddy", text, { includeUser: true })
+      .sort((left, right) => right.timestamp - left.timestamp);
+    const f = fixture(text);
+    const request = { panelSessionId: "run", conversationRef: "codebuddy:buddy-0", limit: 50 };
+    let completed = false;
+    let timerBeforeCompletion = false;
+    const started = performance.now();
+    const timer = new Promise(resolve => setTimeout(() => {
+      timerBeforeCompletion = !completed;
+      resolve(performance.now() - started);
+    }, 0));
+    const first = await f.service.getHistoryMessages(request);
+    completed = true;
+    const timerMs = await timer;
+    expect(timerBeforeCompletion).toBe(true);
+    expect(first.messages).toEqual(expected.slice(0, 50));
+    expect(first.nextCursor).toBe("50");
+    expect((await f.service.getHistoryMessages({ ...request, cursor: first.nextCursor })).messages)
+      .toEqual(expected.slice(50, 100));
+    expect(await f.service.getHistoryMessages(request)).toEqual(first);
+    expect(await f.service.getHistoryMessages(request)).toEqual(first);
+    expect(f.promises.readFile).toHaveBeenCalledTimes(1);
+    f.promises.stat.mockResolvedValue({ size: Buffer.byteLength(text), mtimeMs: 2 });
+    f.promises.readFile.mockResolvedValue(lines[0]);
+    expect((await f.service.getHistoryMessages(request)).messages).toEqual([expected.find(item => item.id === "m-0")]);
+    expect(f.promises.readFile).toHaveBeenCalledTimes(2);
+    console.info(JSON.stringify({ MiB: Buffer.byteLength(text) / 1024 ** 2, timerMs }));
+  }, 15000);
+
+  it("does not cache changing transcripts and evicts cached messages after read failures", async () => {
+    const text = JSON.stringify({ type: "message", role: "user", id: "one", timestamp: 1,
+      content: [{ type: "text", text: "Question" }] });
+    const f = fixture(text);
+    const request = { panelSessionId: "run", conversationRef: "codebuddy:buddy-0" };
+    f.promises.stat.mockResolvedValueOnce({ size: text.length, mtimeMs: 0 });
+    await f.service.getHistoryMessages(request);
+    await f.service.getHistoryMessages(request);
+    expect(f.promises.readFile).toHaveBeenCalledTimes(2);
+    f.promises.stat.mockRejectedValueOnce(new Error("stat failure"));
+    await expect(f.service.getHistoryMessages(request)).rejects.toThrow("stat failure");
+    await f.service.getHistoryMessages(request);
+    expect(f.promises.readFile).toHaveBeenCalledTimes(3);
+    f.promises.stat.mockResolvedValue({ size: text.length, mtimeMs: 2 });
+    f.promises.readFile.mockRejectedValueOnce(new Error("read failure"));
+    await expect(f.service.getHistoryMessages(request)).rejects.toThrow("read failure");
+    await f.service.getHistoryMessages(request);
+    expect(f.promises.readFile).toHaveBeenCalledTimes(5);
   });
 
   it("keeps event-loop heartbeats running during a 200 MiB cold-cache cwd scan", async () => {
