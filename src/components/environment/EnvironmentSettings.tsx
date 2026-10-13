@@ -2,7 +2,7 @@ import { Copy, FilePlus2, Save, Trash2 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { EnvironmentEntry, EnvironmentProfile } from "../../vite-env";
-import { EnvironmentEditor } from "./EnvironmentEditor";
+import { EnvironmentEditor, parseEnvironmentText } from "./EnvironmentEditor";
 
 type EnvironmentDraft = {
   id: string;
@@ -38,7 +38,8 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(baseline), [baseline, draft]);
+  const [paste, setPaste] = useState("");
+  const dirty = useMemo(() => Boolean(paste.trim()) || JSON.stringify(draft) !== JSON.stringify(baseline), [baseline, draft, paste]);
   const selectedProfile = profiles.find(profile => profile.id === draft.id);
   const references = [...new Set(selectedProfile?.references || [])];
 
@@ -58,6 +59,7 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
     const copy = cloneDraft(next);
     setDraft(copy);
     setBaseline(cloneDraft(copy));
+    setPaste("");
     setMessage(null);
     setConfirmDelete(false);
   };
@@ -76,13 +78,23 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
     setBusy(true);
     setMessage(null);
     try {
-      const nextProfiles = await window.environmentApi.save({ id: draft.id || undefined, name: draft.name, entries: draft.entries });
+      let entries = draft.entries;
+      if (paste.trim()) {
+        try {
+          entries = [...entries, ...parseEnvironmentText(paste)];
+        } catch {
+          setMessage({ kind: "error", text: t("settings.environmentPasteError") });
+          return false;
+        }
+      }
+      const nextProfiles = await window.environmentApi.save({ id: draft.id || undefined, name: draft.name, entries });
       const saved = nextProfiles.find(profile => profile.id === draft.id)
         || nextProfiles.find(profile => profile.name === draft.name.trim());
       const nextDraft = profileDraft(saved);
       setProfiles(nextProfiles);
       setDraft(nextDraft);
       setBaseline(cloneDraft(nextDraft));
+      setPaste("");
       setMessage({ kind: "success", text: t("settings.environmentSaved") });
       return true;
     } catch (error) {
@@ -95,6 +107,7 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
 
   const discardDraft = () => {
     setDraft(cloneDraft(baseline));
+    setPaste("");
     setMessage(null);
     setConfirmDelete(false);
   };
@@ -152,7 +165,7 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
             <input className="modal-input" aria-label={t("settings.environmentProfileName")} value={draft.name} placeholder={t("settings.environmentProfileNamePlaceholder")} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} />
           </label>
 
-          <EnvironmentEditor value={draft.entries} onChange={entries => setDraft(current => ({ ...current, entries }))} />
+          <EnvironmentEditor value={draft.entries} onChange={entries => setDraft(current => ({ ...current, entries }))} pasteDraft={{ value: paste, onChange: setPaste }} />
 
           {references.length > 0 && (
             <div className="environment-references">

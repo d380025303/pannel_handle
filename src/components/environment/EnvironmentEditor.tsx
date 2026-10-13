@@ -11,9 +11,15 @@ export function parseEnvironmentText(text: string): EnvironmentEntry[] {
   });
 }
 
-export function EnvironmentEditor({ value, onChange }: { value: EnvironmentEntry[]; onChange: (value: EnvironmentEntry[]) => void }) {
+export function EnvironmentEditor({ value, onChange, pasteDraft }: {
+  value: EnvironmentEntry[];
+  onChange: (value: EnvironmentEntry[]) => void;
+  pasteDraft?: { value: string; onChange: (value: string) => void };
+}) {
   const { t } = useI18n();
-  const [paste, setPaste] = useState("");
+  const [localPaste, setLocalPaste] = useState("");
+  const paste = pasteDraft?.value ?? localPaste;
+  const setPaste = pasteDraft?.onChange ?? setLocalPaste;
   const [error, setError] = useState("");
 
   const appendPaste = () => {

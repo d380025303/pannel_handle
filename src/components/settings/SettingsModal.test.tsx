@@ -328,6 +328,54 @@ describe("SettingsModal navigation", () => {
     expect((screen.getByLabelText("配置组名称") as HTMLInputElement).value).toBe("生产");
   });
 
+  it("protects bulk input on close, preserves it while editing and clears it on discard", async () => {
+    const onCancel = vi.fn();
+    window.environmentApi = { list: vi.fn(async () => []), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal({ onCancel });
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    fireEvent.click(screen.getByText("批量粘贴 KEY=VALUE"));
+    const input = screen.getByLabelText("批量环境变量") as HTMLTextAreaElement;
+    const text = "TEST_FLAG=true\nSECOND=value=with=equals";
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("继续编辑"));
+    expect(input.value).toBe(text);
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("放弃更改"));
+    expect(input.value).toBe("");
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(onCancel).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("keeps invalid bulk input open and saves corrected input before closing", async () => {
+    const onCancel = vi.fn();
+    const save = vi.fn(async input => [{ ...input, id: "dev", references: [] }]);
+    window.environmentApi = { list: vi.fn(async () => [{ id: "dev", name: "开发", entries: [{ name: "EXISTING", value: "1" }], references: [] }]), save, delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal({ onCancel });
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    await screen.findByRole("option", { name: "开发" });
+    fireEvent.change(screen.getByRole("combobox", { name: "配置组" }), { target: { value: "dev" } });
+    fireEvent.click(screen.getByText("批量粘贴 KEY=VALUE"));
+    const input = screen.getByLabelText("批量环境变量") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "TEST_FLAG=true\nINVALID" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("保存并继续"));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(save).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(input.value).toBe("TEST_FLAG=true\nINVALID");
+    fireEvent.change(input, { target: { value: "TEST_FLAG=true" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("保存并继续"));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1));
+    expect(save).toHaveBeenCalledWith({ id: "dev", name: "开发", entries: [{ name: "EXISTING", value: "1" }, { name: "TEST_FLAG", value: "true" }] });
+    expect(input.value).toBe("");
+    expect((screen.getByLabelText("变量名 2") as HTMLInputElement).value).toBe("TEST_FLAG");
+  });
+
   it("saves an environment draft before closing", async () => {
     const onCancel = vi.fn();
     const save = vi.fn(async input => [{ ...input, id: "dev", references: [] }]);
@@ -348,11 +396,14 @@ describe("SettingsModal navigation", () => {
     renderSettingsModal({ onCancel });
     fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
     fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发" } });
+    fireEvent.click(screen.getByText("批量粘贴 KEY=VALUE"));
+    fireEvent.change(screen.getByLabelText("批量环境变量"), { target: { value: "TEST_FLAG=true" } });
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     fireEvent.click(await screen.findByText("保存并继续"));
     expect(await screen.findByText("保存失败")).toBeTruthy();
     expect(screen.queryByRole("alertdialog", { name: "保存环境变量更改？" })).toBeNull();
     expect(onCancel).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("批量环境变量") as HTMLTextAreaElement).value).toBe("TEST_FLAG=true");
   });
 
   it("opens the project tool catalog and closes details without closing settings", async () => {
