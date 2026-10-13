@@ -39,6 +39,19 @@ def get_text(content):
     return "\n\n".join(parts).strip()
 
 
+def get_grok_chunk_text(content):
+    # Match getGrokChunkText: trim only after assembling the complete message.
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(item["text"] for item in content
+                       if isinstance(item, dict) and item.get("type") in {"input_text", "output_text", "text"}
+                       and isinstance(item.get("text"), str))
+    if isinstance(content, dict) and isinstance(content.get("text"), str):
+        return content["text"]
+    return ""
+
+
 def iter_jsonl(file_name, include_record_index=False):
     try:
         with open(file_name, "r", encoding="utf-8") as source:
@@ -213,7 +226,7 @@ def grok_messages(directory):
         if update_type not in {"user_message_chunk", "agent_message_chunk"}:
             continue
         content = update.get("content")
-        text = content if isinstance(content, str) else get_text(content) if isinstance(content, list) else str((content or {}).get("text") or "")
+        text = get_grok_chunk_text(content)
         if not text:
             continue
         meta = params.get("_meta") or {}
