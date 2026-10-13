@@ -6,11 +6,56 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const require = createRequire(import.meta.url);
-const { parseStartupLine, waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
+const { parseStartupLine, waitForEndpoint, createSseParser, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
 
 const servers = [];
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))));
+});
+
+describe("CodeBuddy SSE parser", () => {
+  it("preserves UTF-8, split CRLF, multiline data and consecutive events at every byte boundary", () => {
+    const input = Buffer.from(': keepalive\r\nevent: message\r\ndata: {"text":"中文🙂",\r\ndata:   "id":1}\r\n\r\n\ndata: {"id":2}\n\ndata: {"id":3}');
+    for (let split = 0; split <= input.length; split++) {
+      const messages = [];
+      const parser = createSseParser(value => messages.push(value));
+      parser.push(input.subarray(0, split));
+      parser.push(Buffer.alloc(0));
+      parser.push(input.subarray(split));
+      expect(messages).toEqual([{ text: "中文🙂", id: 1 }, { id: 2 }]);
+      parser.end();
+      expect(messages).toEqual([{ text: "中文🙂", id: 1 }, { id: 2 }, { id: 3 }]);
+    }
+  });
+
+  it("flushes an incomplete UTF-8 sequence at EOF and propagates malformed JSON", () => {
+    const messages = [];
+    const parser = createSseParser(value => messages.push(value));
+    parser.push(Buffer.from('data: {"text":"'));
+    parser.push(Buffer.from([0xe4, 0xb8]));
+    expect(() => parser.end()).toThrow(SyntaxError);
+    expect(messages).toEqual([]);
+    const invalid = createSseParser(() => {});
+    expect(() => invalid.push(Buffer.from("data: invalid\n\n"))).toThrow(SyntaxError);
+  });
+
+  it("receives an 8 MiB tool output in 4 KiB chunks without premature dispatch or content loss", () => {
+    const message = { jsonrpc: "2.0", method: "session/update", params: {
+      sessionId: "large-output", update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1",
+        content: [{ type: "content", content: { type: "text", text: "x".repeat(8 * 1024 * 1024) } }] }
+    } };
+    const messages = [];
+    const parser = createSseParser(value => messages.push(value));
+    const input = Buffer.from(`data: ${JSON.stringify(message)}`);
+    for (let offset = 0; offset < input.length; offset += 4096) parser.push(input.subarray(offset, offset + 4096));
+    expect(messages).toEqual([]);
+    parser.push(Buffer.from("\r"));
+    parser.push(Buffer.from("\n"));
+    expect(messages).toEqual([]);
+    parser.push(Buffer.from("\n"));
+    parser.end();
+    expect(messages).toEqual([message]);
+  });
 });
 
 describe("CodeBuddy HTTP ACP transport", () => {

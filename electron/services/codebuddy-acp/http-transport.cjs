@@ -90,7 +90,7 @@ function waitForEndpoint(child, { timeoutMs = START_TIMEOUT_MS, onStderr } = {})
 
 function createSseParser(onMessage) {
   const decoder = new StringDecoder("utf8");
-  let buffer = "";
+  let fragments = [];
   let data = [];
   const line = value => {
     if (!value) {
@@ -101,19 +101,30 @@ function createSseParser(onMessage) {
       }
     } else if (value.startsWith("data:")) data.push(value.slice(5).trimStart());
   };
+  // Scan each decoded chunk once; join an unfinished line only when it ends.
+  const consume = value => {
+    let start = 0;
+    let index;
+    while ((index = value.indexOf("\n", start)) >= 0) {
+      fragments.push(value.slice(start, index));
+      const current = fragments.join("").replace(/\r$/, "");
+      fragments = [];
+      start = index + 1;
+      line(current);
+    }
+    if (start < value.length) fragments.push(value.slice(start));
+  };
   return {
     push(chunk) {
-      buffer += decoder.write(chunk);
-      let index;
-      while ((index = buffer.indexOf("\n")) >= 0) {
-        const current = buffer.slice(0, index).replace(/\r$/, "");
-        buffer = buffer.slice(index + 1);
-        line(current);
-      }
+      consume(decoder.write(chunk));
     },
     end() {
-      buffer += decoder.end();
-      if (buffer) line(buffer.replace(/\r$/, ""));
+      consume(decoder.end());
+      if (fragments.length) {
+        const current = fragments.join("").replace(/\r$/, "");
+        fragments = [];
+        line(current);
+      }
       line("");
     }
   };
