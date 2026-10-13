@@ -233,7 +233,9 @@ export function installBrowserPreview() {
   };
 
   const sessionsChanged = createChannel<TerminalSession[]>();
-  const terminalData = createChannel<{ id: string; data: string }>();
+  const terminalSequences = new Map<string, number>();
+  const terminalOutput = new Map<string, string>();
+  const terminalData = createChannel<{ id: string; seq: number; data: string }>();
   const graphicalMenuChanged = createChannel<import("../utils/graphicalMenu").GraphicalMenuConfig>();
   const sizeOwnerChanged = createChannel<{ sessionId: string; owner: string; cols: number; rows: number }>();
   const mobileChanged = createChannel<MobileAccessState>();
@@ -324,8 +326,19 @@ export function installBrowserPreview() {
     },
     closeSession: async (id) => { sessions = sessions.filter((session) => session.id !== id); emitSessions(); return copy(sessions); },
     reconnectSession: async (id) => { updateSession(id, { sshConnectionState: "connected" }); return copy(sessions.find((session) => session.id === id)!); },
+    getHistorySnapshot: async (id) => {
+      const seq = terminalSequences.get(id) || 0;
+      const output = terminalOutput.get(id) || "";
+      return { data: (await terminalApi.getHistory(id)) + output, seq };
+    },
     getHistory: async (id) => `\u001b[1;36mPannel Handle 浏览器预览\u001b[0m\r\n会话: ${sessions.find((session) => session.id === id)?.title || id}\r\n此终端不会执行真实命令。\r\nPS C:\\workspace\\pannel-handle> `,
-    write: (id, data) => terminalData.emit({ id, data: data === "\r" ? "\r\nPS C:\\workspace\\pannel-handle> " : data }),
+    write: (id, data) => {
+      const seq = (terminalSequences.get(id) || 0) + 1;
+      const output = data === "\r" ? "\r\nPS C:\\workspace\\pannel-handle> " : data;
+      terminalSequences.set(id, seq);
+      terminalOutput.set(id, (terminalOutput.get(id) || "") + output);
+      terminalData.emit({ id, seq, data: output });
+    },
     resize: () => undefined,
     claimSize: (sessionId, cols, rows) => sizeOwnerChanged.emit({ sessionId, owner: "desktop", cols, rows }),
     onData: terminalData.subscribe,

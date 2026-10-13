@@ -1436,10 +1436,11 @@ export type TerminalApi = {
   closeSession: (id: string) => Promise<TerminalSession[]>;
   reconnectSession: (id: string) => Promise<TerminalSession>;
   getHistory: (id: string) => Promise<string>;
+  getHistorySnapshot: (id: string) => Promise<{ data: string; seq: number }>;
   write: (id: string, data: string) => void;
   resize: (id: string, cols: number, rows: number) => void;
   claimSize: (id: string, cols: number, rows: number) => void;
-  onData: (callback: (payload: { id: string; data: string }) => void) => () => void;
+  onData: (callback: (payload: { id: string; seq: number; data: string }) => void) => () => void;
   onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void;
   onSizeOwner: (callback: (payload: { sessionId: string; owner: string; cols: number; rows: number }) => void) => () => void;
   onAgentStatus: (callback: (payload: AgentStatusPayload) => void) => () => void;

@@ -7,6 +7,9 @@ import { createImeInputGuard } from "../utils/terminalInput";
 import type { AgentProvider, TerminalSession } from "../vite-env";
 
 type TerminalEntry = {
+  loadingHistory: boolean;
+  outputSeq: number;
+  pendingOutput: { data: string; seq?: number }[];
   terminal: Terminal;
   fitAddon: FitAddon;
   inputGuard: ReturnType<typeof createImeInputGuard>;
@@ -27,7 +30,7 @@ function getTerminalStatusMessage(err: unknown) {
   return getErrorMessage(err).replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 240);
 }
 
-function createTerminalEntry(terminalTheme: ITheme) {
+function createTerminalEntry(terminalTheme: ITheme): TerminalEntry {
   const terminal = new Terminal({
     allowTransparency: true,
     cursorBlink: true,
@@ -53,7 +56,7 @@ function createTerminalEntry(terminalTheme: ITheme) {
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   const inputGuard = createImeInputGuard();
-  return { terminal, fitAddon, inputGuard };
+  return { terminal, fitAddon, inputGuard, loadingHistory: true, outputSeq: 0, pendingOutput: [] };
 }
 
 function getWheelScrollLines(event: WheelEvent<HTMLDivElement>, rows: number) {
@@ -238,17 +241,24 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme, sessi
   }, [t]);
 
   useEffect(() => {
-    const removeDataListener = window.terminalApi.onData(({ id, data }) => {
+    const removeDataListener = window.terminalApi.onData(({ id, data, seq }) => {
       const entry = terminalsRef.current.get(id);
       if (entry) {
-        entry.terminal.write(data);
+        if (entry.loadingHistory) {
+          entry.pendingOutput.push({ data, seq });
+        } else if (seq > entry.outputSeq) {
+          entry.outputSeq = seq;
+          entry.terminal.write(data);
+        }
       }
     });
 
     const removeExitListener = window.terminalApi.onExit(({ id, exitCode }) => {
       const entry = terminalsRef.current.get(id);
       if (entry) {
-        entry.terminal.writeln(`\r\n${t("terminal.exited", { exitCode })}`);
+        const data = `\r\n${t("terminal.exited", { exitCode })}\r\n`;
+        if (entry.loadingHistory) entry.pendingOutput.push({ data });
+        else entry.terminal.write(data);
       }
     });
 
@@ -336,10 +346,23 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme, sessi
       });
       terminalsRef.current.set(activeId, entry);
 
-      window.terminalApi.getHistory(activeId).then((history) => {
-        if (history) {
-          entry?.terminal.write(history);
+      const createdEntry = entry;
+      const finishHistory = (history: { data: string; seq: number }) => {
+        if (terminalsRef.current.get(sessionId) !== createdEntry) return;
+        if (history.data) createdEntry.terminal.write(history.data);
+        createdEntry.outputSeq = history.seq;
+        for (const output of createdEntry.pendingOutput) {
+          if (output.seq === undefined || output.seq > createdEntry.outputSeq) {
+            createdEntry.terminal.write(output.data);
+            if (output.seq !== undefined) createdEntry.outputSeq = output.seq;
+          }
         }
+        createdEntry.pendingOutput = [];
+        createdEntry.loadingHistory = false;
+      };
+      window.terminalApi.getHistorySnapshot(activeId).then(finishHistory, (err) => {
+        console.error("Failed to load terminal history:", err);
+        finishHistory({ data: "", seq: 0 });
       });
     }
 

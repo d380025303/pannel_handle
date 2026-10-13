@@ -303,6 +303,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   reconnectSession: (id) => ipcRenderer.invoke("sessions:reconnect", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
+  getHistorySnapshot: (id) => ipcRenderer.invoke("terminal:history-snapshot", id),
   write: (id, data) => ipcRenderer.send("terminal:write", { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send("terminal:resize", { id, cols, rows }),
   claimSize: (id, cols, rows) => ipcRenderer.send("terminal:claim-size", { id, cols, rows }),

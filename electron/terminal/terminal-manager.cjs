@@ -504,11 +504,12 @@ function createTerminalManager({
   }
 
   function appendTerminalData(session, data) {
+    session.outputSeq = (session.outputSeq || 0) + 1;
     session.buffer.push(data);
     if (session.buffer.length > 1000) {
       session.buffer.splice(0, session.buffer.length - 1000);
     }
-    broadcast("terminal:data", { id: session.id, data });
+    broadcast("terminal:data", { id: session.id, seq: session.outputSeq, data });
   }
 
   function clearSshReconnectTimer(session) {
@@ -727,15 +728,9 @@ function createTerminalManager({
         knownHostStore,
         onHostVerification: (result) => {
           if (result.trustedFirstUse) {
-            broadcast("terminal:data", {
-              id: session.id,
-              data: `\r\nSSH host key trusted: ${result.fingerprint}\r\n`
-            });
+            appendTerminalData(session, `\r\nSSH host key trusted: ${result.fingerprint}\r\n`);
           } else if (result.accepted === false) {
-            broadcast("terminal:data", {
-              id: session.id,
-              data: `\r\nSSH host key mismatch. Expected ${result.expectedFingerprint}, got ${result.fingerprint}.\r\n`
-            });
+            appendTerminalData(session, `\r\nSSH host key mismatch. Expected ${result.expectedFingerprint}, got ${result.fingerprint}.\r\n`);
           }
         }
       }),
@@ -1182,6 +1177,11 @@ function createTerminalManager({
     return serializeSession(session);
   }
 
+  function getHistorySnapshot(id) {
+    const session = sessions.get(id);
+    return { data: session ? session.buffer.join("") : "", seq: session?.outputSeq || 0 };
+  }
+
   function getHistory(id) {
     const session = sessions.get(id);
     return session ? session.buffer.join("") : "";
@@ -1284,6 +1284,7 @@ function createTerminalManager({
     setAppServerConnectionState,
     listSessions,
     getHistory,
+    getHistorySnapshot,
     write,
     resize,
     getSession,

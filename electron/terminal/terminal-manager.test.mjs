@@ -577,14 +577,18 @@ describe("terminal-manager", () => {
     term.emitData("ready");
 
     expect(manager.getHistory(session.id)).toBe("ready");
+    const snapshot = manager.getHistorySnapshot(session.id);
+    expect(snapshot).toEqual({ data: "ready", seq: 1 });
     expect(term.writes).toEqual(["pnpm dev\r"]);
-    expect(broadcast).toHaveBeenCalledWith("terminal:data", { id: session.id, data: "ready" });
+    expect(broadcast).toHaveBeenCalledWith("terminal:data", { id: session.id, seq: 1, data: "ready" });
 
     for (let index = 0; index < 1005; index += 1) {
       term.emitData(String(index % 10));
     }
 
     expect(manager.getSession(session.id).buffer).toHaveLength(1000);
+    expect(manager.getHistorySnapshot(session.id).seq).toBe(1006);
+    expect(snapshot).toEqual({ data: "ready", seq: 1 });
   });
 
   it("renames, updates, writes, resizes, and closes active sessions", () => {

@@ -358,6 +358,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
       : terminalManager.reconnectSession(sessionId);
   });
 
+  ipcMain.handle("terminal:history-snapshot", (_event, id) => terminalManager.getHistorySnapshot(id));
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
   if (sessionShellService) {
     ipcMain.handle("session-shell:open", (_event, id, ownerToken) => sessionShellService.open(String(id || ""), String(ownerToken || "")));
