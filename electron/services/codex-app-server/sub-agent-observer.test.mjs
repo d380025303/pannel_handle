@@ -344,6 +344,42 @@ describe("Codex read-only sub-agent observer", () => {
     itemEvent(observer, "root", spawn("b"));
     expect(observer.snapshot().expanded).toBe(false);
   });
+  it("retains streamed reasoning summaries across stale polls and accepts final history", async () => {
+    let status = "inProgress", summary = ["已写入"];
+    const { observer } = fixture(async (method, params) => method === "thread/read"
+      ? { thread: { id: params.threadId, turns: [{ id: "turn", status, items: [
+        { id: "reason", type: "reasoning", summary }
+      ] }] } } : {});
+    observer.reset("root", [spawn("a")]); await settle();
+    const current = () => observer.snapshot().members[0].items.find(item => item.id === "reason").summary;
+    const delta = (summaryIndex, value) => observer.observe("item/reasoning/summaryTextDelta",
+      { threadId: "a", itemId: "reason", summaryIndex, delta: value });
+    delta(0, "，实时增量");
+    await observer.refresh();
+    expect(current()).toEqual(["已写入，实时增量"]);
+    observer.observe("item/reasoning/summaryPartAdded", { threadId: "a", itemId: "reason", summaryIndex: 1 });
+    delta(1, "第二段");
+    await observer.refresh();
+    await observer.refresh();
+    expect(current()).toEqual(["已写入，实时增量", "第二段"]);
+    delta(0, "，后续"); delta(1, "继续");
+    expect(current()).toEqual(["已写入，实时增量，后续", "第二段继续"]);
+    summary = ["已写入，实时增量，后续", "第二段继续"];
+    await observer.refresh();
+    expect(current()).toEqual(summary);
+    summary = ["替换内容", "第二段继续，历史新增", "历史第三段"];
+    await observer.refresh();
+    expect(current()).toEqual(summary);
+    summary = [];
+    await observer.refresh();
+    expect(current()).toEqual(["替换内容", "第二段继续，历史新增", "历史第三段"]);
+    status = "completed"; summary = ["最终摘要"];
+    await observer.refresh();
+    expect(current()).toEqual(["最终摘要"]);
+    summary = [];
+    await observer.refresh();
+    expect(current()).toEqual([]);
+  });
   it("retains streamed command output across incomplete history polls and accepts final output", async () => {
     let status = "inProgress", aggregatedOutput = "prefix";
     const { observer } = fixture(async (method, params) => method === "thread/read"

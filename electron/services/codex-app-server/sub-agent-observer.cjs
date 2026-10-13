@@ -89,6 +89,14 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     const previous = member.items[index];
     const value = { ...previous, ...item };
     if (incompleteHistory && previous?.text?.startsWith(item.text || "") && previous.text.length > (item.text || "").length) value.text = previous.text;
+    if (incompleteHistory && Array.isArray(previous?.summary) && Array.isArray(item.summary)) {
+      // A running rollout may lag behind streamed segments or omit them entirely.
+      const summary = [...item.summary];
+      previous.summary.forEach((text, index) => {
+        if (index >= summary.length || text.startsWith(summary[index] || "")) summary[index] = text;
+      });
+      value.summary = summary;
+    }
     if (item.type === "commandExecution" && !item.aggregatedOutput && item.output == null && previous?.output) value.output = previous.output;
     if (item.type === "commandExecution" && item.aggregatedOutput) {
       const previousLength = commandOutputLengths.get(previous) || previous?.output?.length || 0;
