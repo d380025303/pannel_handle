@@ -25,8 +25,54 @@ function setup(overrides: Partial<WorkItem> = {}) {
   render(<WorkItemWorkspace visible onOpenSession={onOpenSession} />);
   return { api, onOpenSession, changed: () => changed() };
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe("manual task list", () => {
+  it("debounces consecutive search input and resets pagination with the final query", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    api.list.mockResolvedValue({ records: [{ ...item, summary: item.output }], total: 40, templates: [], owners: [] });
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "下一页" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })));
+    vi.useFakeTimers();
+    api.list.mockClear();
+    api.list.mockResolvedValue({ records: [], total: 0, templates: [], owners: [] });
+    const input = screen.getByRole("searchbox", { name: "搜索任务" }) as HTMLInputElement;
+    for (const keyword of ["不存在", "不存在的", "不存在的关键词"]) {
+      fireEvent.change(input, { target: { value: keyword } });
+      expect(input.value).toBe(keyword);
+      await act(async () => { vi.advanceTimersByTime(100); });
+      expect(api.list).not.toHaveBeenCalled();
+    }
+    await act(async () => { vi.advanceTimersByTime(199); });
+    expect(api.list).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(api.list).toHaveBeenCalledTimes(1);
+    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "不存在的关键词", page: 0 }));
+    expect(screen.getByText("没有符合筛选条件的任务")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "" } });
+    await act(async () => { vi.advanceTimersByTime(300); });
+    expect(api.list).toHaveBeenCalledTimes(2);
+    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: "", page: 0 }));
+  });
+  it("cancels pending search when hidden or unmounted", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    vi.useFakeTimers();
+    api.list.mockClear();
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索任务" }), { target: { value: "未提交" } });
+    cleanup();
+    await act(async () => { vi.advanceTimersByTime(300); });
+    expect(api.list).not.toHaveBeenCalled();
+    const view = render(<WorkItemWorkspace visible onOpenSession={() => {}} />);
+    await act(async () => {});
+    api.list.mockClear();
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索任务" }), { target: { value: "隐藏前输入" } });
+    view.rerender(<WorkItemWorkspace visible={false} onOpenSession={() => {}} />);
+    await act(async () => { vi.advanceTimersByTime(300); });
+    expect(api.list).not.toHaveBeenCalled();
+  });
   it("defaults to Markdown preview, keeps edits across modes and resets configuration on reopen", async () => {
     const f = setup({ output: "## 修复建议\n\n**检查统计基线**\n\n- 保留累计值\n\n```js\nclear();\n```" });
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));

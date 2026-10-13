@@ -26,6 +26,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
   const [templateId, setTemplateId] = useState(""); const [ownerId, setOwnerId] = useState("");
   const [statuses, setStatuses] = useState<WorkItemStatus[]>(defaultStatuses); const [keyword, setKeyword] = useState("");
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [page, setPage] = useState(0); const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
@@ -51,14 +52,19 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     return () => { off(); offOwners(); };
   }, [visible]);
   useEffect(() => {
+    if (!visible || keyword === searchKeyword) return;
+    const timer = window.setTimeout(() => { setSearchKeyword(keyword); setPage(0); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [visible, keyword, searchKeyword]);
+  useEffect(() => {
     if (!visible) return;
     let live = true;
     setLoading(true); setError("");
-    void window.workItemApi.list({ ...(templateId ? { templateId } : {}), ...(ownerId ? { ownerId } : {}), statuses, ...(followUp ? { needsFollowUp: followUp === "true" } : {}), keyword, page })
+    void window.workItemApi.list({ ...(templateId ? { templateId } : {}), ...(ownerId ? { ownerId } : {}), statuses, ...(followUp ? { needsFollowUp: followUp === "true" } : {}), keyword: searchKeyword, page })
       .then(value => { if (live) { setData(value); if (page > 0 && page * 20 >= value.total) setPage(Math.max(0, Math.ceil(value.total / 20) - 1)); } })
       .catch(err => { if (live) setError(String(err)); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [visible, templateId, ownerId, statuses, followUp, keyword, page, reload]);
+  }, [visible, templateId, ownerId, statuses, followUp, searchKeyword, page, reload]);
   useLayoutEffect(() => {
     if (!ref.current || !dialog) return;
     const background = ref.current;
@@ -106,7 +112,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   }
   const followUpAction = (needed: boolean) => needed ? "标记为不需要后续处理" : "标记为需要后续处理";
   const filtered = Boolean(followUp || templateId || ownerId || keyword || statuses.length !== 7 || statuses.includes("void"));
-  function resetFilters() { setFollowUp(""); setTemplateId(""); setOwnerId(""); setKeyword(""); setStatuses(defaultStatuses()); setPage(0); }
+  function resetFilters() { setFollowUp(""); setTemplateId(""); setOwnerId(""); setKeyword(""); setSearchKeyword(""); setStatuses(defaultStatuses()); setPage(0); }
   if (!visible) return null;
   return <>
     <section ref={ref} className="module-owners-workspace work-items-workspace" aria-label="任务列表">
@@ -117,7 +123,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
         </div>
         <div className="work-items-select-filters">
           <div className="work-items-search">
-            <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); setPage(0); }} />
+            <input type="search" aria-label="搜索任务" placeholder="搜索回复、任务、负责人、模板" value={keyword} maxLength={1000} onChange={event => { setKeyword(event.target.value); }} />
           </div>
           <label>模板<select value={templateId} onChange={event => { setTemplateId(event.target.value); setOwnerId(""); setPage(0); }}><option value="">全部模板</option>{data.templates.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
           <label>负责人<select value={ownerId} onChange={event => { setOwnerId(event.target.value); setPage(0); }}><option value="">全部负责人</option>{data.owners.filter(value => !templateId || value.templateId === templateId).map(value => <option key={`${value.templateId}:${value.id}`} value={value.id}>{value.name}</option>)}</select></label>
@@ -132,7 +138,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       <div className="module-owners-card work-items-scroll" aria-busy={loading}>
         {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th>来源</th><th>回复摘要</th><th>状态</th><th>后续处理</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
           <td><strong title={value.taskName}>{value.taskName}</strong><div className={`work-items-source-meta${value.unavailable ? " module-owners-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{value.owner.name} · {value.template.title}{value.unavailable && <> · <span>{value.unavailable}</span></>}</div></td>
-          <td><WorkItemSummary id={value.id} version={value.version} name={value.taskName} summary={value.summary} disabled={Boolean(dialog)} resetKey={JSON.stringify([page, templateId, ownerId, followUp, keyword, statuses, reload])} /></td>
+          <td><WorkItemSummary id={value.id} version={value.version} name={value.taskName} summary={value.summary} disabled={Boolean(dialog)} resetKey={JSON.stringify([page, templateId, ownerId, followUp, searchKeyword, statuses, reload])} /></td>
           <td><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.error && <div className="module-owners-error work-items-row-error" title={value.error}>{value.error}</div>}</td>
           <td>{value.needsFollowUp ? "需要" : "不需要"}</td>
           <td className="work-items-time"><div title={`创建：${time(value.createdAt)}`}>创建：{time(value.createdAt)}</div><div title={`最近执行：${time(value.lastStartedAt)}`}>最近：{time(value.lastStartedAt)}</div></td>
