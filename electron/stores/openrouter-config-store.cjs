@@ -196,8 +196,17 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent verification target.");
     if (!config.cachedModels.some(model => model.id === modelId)) throw new Error(`${providerName} 模型不存在：${modelId}`);
     const result = { status: verification.status, checkedAt: Date.now(), ...(verification.error ? { error: String(verification.error).slice(0, 1000) } : {}) };
-    config.agentModelVerifications[agent][modelId] = result;
-    save();
+    const verifications = config.agentModelVerifications[agent];
+    const hadPrevious = Object.hasOwn(verifications, modelId);
+    const previous = verifications[modelId];
+    verifications[modelId] = result;
+    try {
+      save();
+    } catch (error) {
+      if (hadPrevious) verifications[modelId] = previous;
+      else delete verifications[modelId];
+      throw error;
+    }
     return { ...result };
   }
 
@@ -206,8 +215,16 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     if (!config.cachedModels.some(model => model.id === id)) throw new Error(`${providerName} 模型不存在或目录尚未刷新：${id}`);
     const normalized = normalizeVerification(verification);
     if (!normalized) throw new Error(`${providerName} 模型验证状态无效：${id}`);
+    const hadPrevious = Object.hasOwn(config.modelVerifications, id);
+    const previous = config.modelVerifications[id];
     config.modelVerifications[id] = normalized;
-    save();
+    try {
+      save();
+    } catch (error) {
+      if (hadPrevious) config.modelVerifications[id] = previous;
+      else delete config.modelVerifications[id];
+      throw error;
+    }
     return { ...normalized };
   }
 

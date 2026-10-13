@@ -22,6 +22,49 @@ function createStore() {
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe("openrouter-config-store", () => {
+  it.each(["codebuddy", "opencode", "codex"].flatMap(target => [true, false].map(existing => ({ target, existing }))))(
+    "rolls back $target verification on SQLITE_FULL (existing: $existing) and allows retry",
+    ({ target, existing }) => {
+      let persisted;
+      const dataStore = {
+        read: () => structuredClone(persisted),
+        write: vi.fn((_file, value) => { persisted = structuredClone(value); })
+      };
+      const options = { configFile: "openrouter.json", dataStore };
+      const store = createOpenRouterConfigStore(options);
+      const set = value => target === "codex"
+        ? store.setModelVerification("model", value)
+        : store.setAgentModelVerification(target, "model", value);
+      const get = current => target === "codex"
+        ? current.getModelVerifications()
+        : current.getAgentModelVerifications(target);
+      store.setCachedModels([{ id: "model", supported_parameters: ["tools", "tool_choice"] }], 123);
+      if (existing) set({ status: "passed", checkedAt: 456, stages: [{ stage: "responses", status: "passed" }] });
+      const before = structuredClone(persisted);
+      const previous = get(store);
+      const failure = Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+      dataStore.write.mockImplementationOnce(() => { throw failure; });
+
+      let thrown;
+      try { set({ status: "failed", checkedAt: 789, error: "unsupported" }); }
+      catch (error) { thrown = error; }
+      expect(thrown).toBe(failure);
+      expect(get(store)).toEqual(previous);
+      expect(Object.hasOwn(get(store), "model")).toBe(existing);
+      expect(persisted).toEqual(before);
+      const reloaded = createOpenRouterConfigStore(options);
+      reloaded.load();
+      expect(get(reloaded)).toEqual(previous);
+      expect(get(store).model?.status === "passed").toBe(existing);
+
+      const saved = set({ status: "failed", checkedAt: 789, error: "unsupported" });
+      reloaded.load();
+      expect(get(store).model).toEqual(saved);
+      expect(get(reloaded).model).toEqual(saved);
+      expect(saved.status).toBe("failed");
+    }
+  );
+
   it.each(["setApiKey", "clearApiKey"])("restores credentials and all verifications when %s fails, then persists a successful retry", operation => {
     const safeStorage = {
       isEncryptionAvailable: () => true,
