@@ -21,6 +21,59 @@ afterEach(() => {
 });
 
 describe("local conversation archive", () => {
+  it("saves only terminal deltas across pages and threads, and retries failed writes", async () => {
+    const store = createConversationArchiveStore({ userData: fixture(), now: () => 1000 });
+    const save = vi.spyOn(store, "save");
+    const messages = [
+      { id: "shared", provider: "codex", kind: "reply", text: "first", timestamp: 1001 },
+      { id: "second", provider: "codex", kind: "user", text: "second", timestamp: 1002 }
+    ];
+    const history = {
+      async listHistoryForSession() { return { items: [{ ref: "codex:a" }, { ref: "codex:b" }], nextCursor: null }; },
+      async getHistoryMessagesForSession(_, { conversationRef, cursor }) {
+        if (conversationRef === "codex:b") return { messages: [{ ...messages[0], text: "other thread" }], nextCursor: null };
+        return { messages: [{ ...messages[Number(cursor || 0)] }], nextCursor: cursor ? null : "1" };
+      }
+    };
+    const archive = createConversationArchiveService({ store, getHistoryService: () => history, now: () => 1000 });
+    closers.push(() => archive.shutdown());
+    archive.start({ ...session, runtimeMode: "terminal" });
+    archive.bindThread("panel", "codex", "a");
+    await archive.flush();
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0][2].map(message => message.id)).toEqual(["shared", "second"]);
+    save.mockClear();
+    messages[0].item = { type: "agentMessage", raw: "not persisted" };
+    await archive.flush();
+    expect(save).not.toHaveBeenCalled();
+    messages[1] = { ...messages[1], id: "new", timestamp: 1003 };
+    await archive.flush();
+    expect(save.mock.calls[0][2].map(message => message.id)).toEqual(["new"]);
+    save.mockClear();
+    // Mutate the source object to ensure cached values are independent snapshots.
+    messages[0].text = "updated";
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      save.mockImplementationOnce(() => { throw new Error("disk full"); });
+      await archive.flush();
+      expect(archive.list({ scope: "all" }).errors[0].message).toContain("disk full");
+      await archive.flush();
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(save.mock.calls.map(call => call[2].map(message => message.text))).toEqual([["updated"], ["updated"]]);
+      expect(archive.list({ scope: "all" }).errors).toEqual([]);
+    } finally { errorLog.mockRestore(); }
+    save.mockClear();
+    await archive.flush();
+    expect(save).not.toHaveBeenCalled();
+    archive.bindThread("panel", "codex", "b");
+    await archive.flush();
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0][1]).toBe("codex:b");
+    const ref = archive.list({ scope: "all" }).items[0].ref;
+    expect(archive.read({ conversationRef: ref }).messages.map(message => message.text)).toEqual([
+      "other thread", "second", "second", "updated"
+    ]);
+  });
   it("persists actual compaction summaries and keeps their position across updates and restart", () => {
     const userData = fixture();
     const archive = createConversationArchiveService({ userData, getHistoryService: () => null, now: () => 1000 });

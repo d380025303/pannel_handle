@@ -17,6 +17,13 @@ function graphicalMessage(item, provider, timestamp) {
     text, timestamp, turnId: item.turnId, phase: item.phase });
 }
 
+// Compare only the normalized fields that the archive actually persists.
+function sameSavedMessage(left, right) {
+  return right && left.id === right.id && left.provider === right.provider &&
+    left.kind === right.kind && left.text === right.text && left.timestamp === right.timestamp &&
+    left.threadId === right.threadId && left.turnId === right.turnId;
+}
+
 function createConversationArchiveService({ userData, getHistoryService, store, now = Date.now }) {
   let initializationError;
   if (!store) {
@@ -106,17 +113,27 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
           for (const item of page.items) {
             if (!(state.terminalThreads.has(item.ref) || item.acpSessionId && state.terminalThreads.has(`${item.provider}:${item.acpSessionId}`))) continue;
             let messageCursor = null;
+            let thread = state.threads.get(item.ref);
+            if (!thread) { thread = { saved: new Map() }; state.threads.set(item.ref, thread); }
             const messages = [];
             do {
               const detail = await history.getHistoryMessagesForSession(state.session, { conversationRef: item.ref, cursor: messageCursor, limit: 200 });
               if (stopped) return;
-              messages.push(...detail.messages.filter(message => message.timestamp >= state.startedAt));
+              for (const value of detail.messages) {
+                if (!(value.timestamp >= state.startedAt)) continue;
+                const message = savedMessage(value);
+                if (message && !sameSavedMessage(message, thread.saved.get(message.id))) messages.push(message);
+              }
               messageCursor = detail.nextCursor;
             } while (messageCursor);
             // Persist oldest first; source timestamps only decide the launch boundary.
             messages.sort((a, b) => a.timestamp - b.timestamp);
             guard(state.session.id, () => {
-              store.save(state.id, item.ref, messages);
+              if (messages.length) {
+                store.save(state.id, item.ref, messages);
+                // A failed transaction must leave the cache unchanged for the next poll.
+                for (const message of messages) thread.saved.set(message.id, message);
+              }
               store.captureStatus(state.id, "supported");
               failures.delete(state.session.id);
             });
