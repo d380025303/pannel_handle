@@ -1,4 +1,4 @@
-import { useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 export type VirtualFileTreeHandle = { focus: (index: number) => void };
 
@@ -18,9 +18,12 @@ export function VirtualFileTree({ paths, resetKey, handleRef, busy, onScroll, em
   const heights = useRef(new Map<string, number>());
   const pendingFocus = useRef<number | null>(null);
   const [view, setView] = useState({ top: 0, height: 400 });
-  const [, invalidate] = useState(0);
-  const offsets = [0];
-  for (const path of paths) offsets.push(offsets[offsets.length - 1] + (heights.current.get(path) ?? 31));
+  const [heightVersion, invalidate] = useState(0);
+  const offsets = useMemo(() => {
+    const result = [0];
+    for (const path of paths) result.push(result[result.length - 1] + (heights.current.get(path) ?? 31));
+    return result;
+  }, [paths, heightVersion]);
   const total = offsets[paths.length];
   const top = Math.min(view.top, Math.max(0, total - view.height));
   const findIndex = (position: number) => {
@@ -49,10 +52,16 @@ export function VirtualFileTree({ paths, resetKey, handleRef, busy, onScroll, em
 
   useLayoutEffect(() => {
     heights.current.clear();
+    invalidate((value) => value + 1);
     pendingFocus.current = null;
     if (viewport.current) viewport.current.scrollTop = 0;
     setView((current) => ({ ...current, top: 0 }));
   }, [resetKey]);
+
+  useLayoutEffect(() => {
+    const active = new Set(paths);
+    for (const path of heights.current.keys()) if (!active.has(path)) heights.current.delete(path);
+  }, [paths]);
 
   useLayoutEffect(() => {
     const element = viewport.current;
@@ -61,14 +70,12 @@ export function VirtualFileTree({ paths, resetKey, handleRef, busy, onScroll, em
       element.scrollTop = top;
       setView((current) => ({ ...current, top }));
     }
-    const active = new Set(paths);
-    for (const path of heights.current.keys()) if (!active.has(path)) heights.current.delete(path);
     const measure = () => {
       let changed = false;
       for (const row of element.querySelectorAll<HTMLElement>("[data-virtual-index]")) {
         const index = Number(row.dataset.virtualIndex);
         const height = row.getBoundingClientRect().height;
-        if (height > 0 && heights.current.get(paths[index]) !== height) {
+        if (height > 0 && (heights.current.get(paths[index]) ?? 31) !== height) {
           heights.current.set(paths[index], height);
           changed = true;
         }
