@@ -20,7 +20,18 @@ function createPromptTemplateService({ store, listTemplates }) {
     if (!source || source.version !== parsed.version) throw new Error("提示词模板已变更，请刷新后重试。");
     return source;
   }
-  function list() { return store.promptTemplates().map(value => ({ ...value, referenceCount: references(value.id).length })); }
+  function list() {
+    const values = store.promptTemplates();
+    const counts = new Map();
+    if (values.length) {
+      for (const templateId of store.templateIds()) {
+        for (const task of store.getSchedulerState(templateId).tasks) {
+          if (task.promptTemplateId) counts.set(task.promptTemplateId, (counts.get(task.promptTemplateId) || 0) + 1);
+        }
+      }
+    }
+    return values.map(value => ({ ...value, referenceCount: counts.get(value.id) || 0 }));
+  }
   function save(input) {
     const parsed = z.object({ id: z.string().min(1).optional(), version: z.number().int().positive().optional(), name: z.string().trim().min(1).max(200), prompt: z.string().trim().min(1).max(100000) }).strict().parse(input);
     const values = store.promptTemplates();

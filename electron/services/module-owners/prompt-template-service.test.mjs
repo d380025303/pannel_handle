@@ -23,6 +23,29 @@ function fixture() {
 function task(f, id, source, prompt = source.prompt) {
   return f.scheduler.save(id, { ownerId: f.store.get(id).records[0].id, name: "巡检", prompt, promptTemplateId: source.id, mode: "default", enabled: true, tools: [], schedule: { kind: "interval", minutes: 30, count: 10 } })[0];
 }
+it("counts references once per project without reading history or reference details", () => {
+  const sources = Array.from({ length: 20 }, (_, index) => ({ id: `prompt-${index}`, name: `模板${index}`, prompt: "原文", version: 1 }));
+  const one = { records: [{ id: "owner" }], history: [], tasks: [
+    { id: "a", promptTemplateId: "prompt-0", enabled: false },
+    { id: "b", promptTemplateId: "prompt-0", prompt: "定制" },
+    { id: "c" }, { id: "d", promptTemplateId: "deleted" }
+  ] };
+  const two = { records: [], history: [], tasks: [{ id: "e", ownerId: "missing", promptTemplateId: "prompt-0" }, { id: "f", promptTemplateId: "prompt-1" }] };
+  const empty = { records: [], history: [] };
+  const store = createModuleOwnerStore({ userData: ".", dataStore: { read: () => ({ schemaVersion: 1, promptTemplates: sources, templates: { one, two, empty } }) } });
+  for (const value of [one, two, empty]) Object.defineProperty(value, "history", { get: () => { throw new Error("history accessed"); } });
+  const fullRead = vi.spyOn(store, "get");
+  const read = vi.spyOn(store, "getSchedulerState");
+  const listTemplates = vi.fn(() => { throw new Error("reference details accessed"); });
+  const api = createPromptTemplateService({ store, listTemplates });
+  for (let query = 0; query < 2; query++) {
+    read.mockClear();
+    expect(api.listPromptTemplates()).toEqual(sources.map((value, index) => ({ ...value, referenceCount: index === 0 ? 3 : index === 1 ? 1 : 0 })));
+    expect(read.mock.calls).toEqual([["one"], ["two"], ["empty"]]);
+  }
+  expect(fullRead).not.toHaveBeenCalled();
+  expect(listTemplates).not.toHaveBeenCalled();
+});
 it("persists globally, selects publication across projects and preserves scheduling", () => {
   const f = fixture(); const source = f.api.savePromptTemplate({ name: "共享", prompt: "原文" })[0];
   const first = task(f, "one", source); const second = task(f, "two", source, "独立修改");
