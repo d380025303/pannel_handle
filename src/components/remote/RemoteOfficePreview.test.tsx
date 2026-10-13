@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RemoteOfficePreview } from "./RemoteOfficePreview";
+import { createSpreadsheetSheet, RemoteOfficePreview } from "./RemoteOfficePreview";
 
 const mocks = vi.hoisted(() => ({
   renderDocx: vi.fn(async (_buffer: ArrayBuffer, host: HTMLElement, _styles: HTMLElement, options: unknown) => {
@@ -54,6 +54,48 @@ vi.mock("exceljs", () => {
 });
 
 describe("RemoteOfficePreview", () => {
+  function worksheet(merges: string[], actualRowCount = 101, actualColumnCount = 101) {
+    return {
+      name: "Synthetic",
+      actualRowCount,
+      actualColumnCount,
+      model: { merges },
+      getColumn: () => ({ width: 12 }),
+      getCell: (row: number, column: number) => ({ text: `${row}:${column}` })
+    };
+  }
+
+  it("clips merged cells at both preview boundaries and preserves master content", () => {
+    const sheet = createSpreadsheetSheet(worksheet(["A1:B2", "CU99:CW102"]));
+    expect(sheet.rows).toHaveLength(100);
+    expect(sheet.rows[0][0]).toMatchObject({ text: "1:1", rowSpan: 2, colSpan: 2, hidden: false });
+    expect(sheet.rows[1][1]).toMatchObject({ text: "", hidden: true });
+    expect(sheet.rows[98][98]).toMatchObject({ text: "99:99", rowSpan: 2, colSpan: 2, hidden: false });
+    expect(sheet.rows[99][99]).toMatchObject({ text: "", hidden: true });
+    expect(sheet.rows[2][2]).toMatchObject({ text: "3:3", hidden: false, rowSpan: undefined });
+    expect(sheet.truncated).toBe(true);
+  });
+
+  it("does not search all merge ranges for each of the 10,000 preview cells", () => {
+    const merges = Array.from({ length: 20_000 }, (_, index) => `A${10_002 + index}:B${10_002 + index}`);
+    const find = vi.spyOn(Array.prototype, "find");
+    let sheet;
+    try {
+      sheet = createSpreadsheetSheet(worksheet(merges, 30_001, 100));
+      expect(find).not.toHaveBeenCalled();
+    } finally {
+      find.mockRestore();
+    }
+    expect(sheet.rows.flat()).toHaveLength(10_000);
+    expect(sheet.rows[99][99]).toMatchObject({ text: "100:100", hidden: false });
+  });
+
+  it("ignores column-only out-of-bounds merges and preserves first-match overlap behavior", () => {
+    const sheet = createSpreadsheetSheet(worksheet(["CW1:CX101", "A1:B2", "B2:C3"]));
+    expect(sheet.rows[1][1]).toMatchObject({ hidden: true });
+    expect(sheet.rows[0][99]).toMatchObject({ text: "1:100", hidden: false });
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();

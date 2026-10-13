@@ -83,21 +83,32 @@ function getMergeRanges(worksheet: any) {
   });
 }
 
-function createSpreadsheetSheet(worksheet: any): SpreadsheetSheet {
+export function createSpreadsheetSheet(worksheet: any): SpreadsheetSheet {
   const actualRows = Math.max(worksheet.actualRowCount || 1, 1);
   const actualColumns = Math.max(worksheet.actualColumnCount || 1, 1);
   const maxColumns = Math.min(actualColumns, 100);
   const maxRows = Math.min(actualRows, Math.max(1, Math.floor(10_000 / maxColumns)));
-  const merges = getMergeRanges(worksheet);
+  const mergeIndex = new Map<number, ReturnType<typeof getMergeRanges>[number]>();
+  for (const merge of getMergeRanges(worksheet)) {
+    const startRow = Math.max(1, merge.start.row);
+    const endRow = Math.min(maxRows, merge.end.row);
+    const startColumn = Math.max(1, merge.start.column);
+    const endColumn = Math.min(maxColumns, merge.end.column);
+    if (startRow > endRow || startColumn > endColumn) continue;
+    for (let row = startRow; row <= endRow; row += 1) {
+      for (let column = startColumn; column <= endColumn; column += 1) {
+        const key = (row - 1) * maxColumns + column - 1;
+        // Preserve the first matching range if malformed input contains overlaps.
+        if (!mergeIndex.has(key)) mergeIndex.set(key, merge);
+      }
+    }
+  }
   const rows: SpreadsheetCell[][] = [];
 
   for (let row = 1; row <= maxRows; row += 1) {
     const cells: SpreadsheetCell[] = [];
     for (let column = 1; column <= maxColumns; column += 1) {
-      const merge = merges.find((candidate: any) => (
-        row >= candidate.start.row && row <= candidate.end.row
-        && column >= candidate.start.column && column <= candidate.end.column
-      ));
+      const merge = mergeIndex.get((row - 1) * maxColumns + column - 1);
       const isMergeMaster = !merge || (merge.start.row === row && merge.start.column === column);
       const cell = worksheet.getCell(row, column);
       cells.push({
