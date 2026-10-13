@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
@@ -78,6 +78,11 @@ function createMocks(overrides = {}) {
     return { status: 0, stdout: "found" };
   });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
+  const mockExecFile = vi.fn((file, args, options, callback) => {
+    const result = (overrides.spawnSync || spawnSync)(file, args, options);
+    callback(result.error || (result.status ? Object.assign(new Error("command failed"), { code: result.status }) : null),
+      result.stdout || "", result.stderr || "");
+  });
   const sessionStore = {
     getTemplate: vi.fn(() => undefined),
     updateLibrary: vi.fn(),
@@ -113,10 +118,11 @@ function createMocks(overrides = {}) {
     sshHookTunnelService,
     onTemplateLaunched,
     spawnSync,
+    execFile: mockExecFile,
     getDefaultShell,
     ...overrides
   });
-  return { launcher, terminalManager, sessionStore, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, getDefaultShell, sessions };
+  return { launcher, terminalManager, sessionStore, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, execFile: mockExecFile, getDefaultShell, sessions };
 }
 
 describe("agent-session-launcher", () => {
@@ -370,9 +376,9 @@ describe("agent-session-launcher", () => {
     const mocks = createMocks({ codexAppServerSessionService });
     const session = await mocks.launcher.createSession({ type: "wsl", wslDistro: "ubuntu", cwd: "/repo", agentProvider: "codex" });
     expect(session.runtimeMode).toBe("app-server");
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1);
-    expect(mocks.spawnSync).toHaveBeenCalledWith("wsl.exe",
-      expect.arrayContaining(["-d", "ubuntu", "bash", "-lic"]), expect.objectContaining({ timeout: 30000 }));
+    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(mocks.execFile).toHaveBeenCalledWith("wsl.exe",
+      expect.arrayContaining(["-d", "ubuntu", "bash", "-lic"]), expect.objectContaining({ timeout: 30000 }), expect.any(Function));
     expect(codexAppServerSessionService.start).toHaveBeenCalledWith(session, expect.any(Object));
   });
   it("reports a missing WSL Codex command separately from a Windows shim", async () => {
@@ -386,6 +392,56 @@ describe("agent-session-launcher", () => {
       spawnSync: vi.fn(() => ({ error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) })) });
     await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "ubuntu", cwd: "/repo", agentProvider: "codex" }))
       .rejects.toThrow("命令检测超时");
+  });
+  it("keeps timers and another session responsive during a 1500ms WSL graphical check", async () => {
+    let checkFinished = false;
+    const service = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService: service,
+      execFile: (_file, _args, options, callback) => execFile(process.execPath,
+        ["-e", "setTimeout(() => {}, 1500)"], options, (...result) => {
+          checkFinished = true;
+          callback(...result);
+        }) });
+    const started = performance.now();
+    const timer = new Promise(resolve => setTimeout(() => resolve({ elapsed: performance.now() - started, checkFinished }), 10));
+    const pending = mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", agentProvider: "codex" });
+    const windowsSession = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
+    const observation = await timer;
+    const otherSessionFinishedBeforeCheck = !checkFinished;
+    const wslSession = await pending;
+    expect(observation.checkFinished).toBe(false);
+    expect(observation.elapsed).toBeLessThan(750);
+    expect(otherSessionFinishedBeforeCheck).toBe(true);
+    expect(windowsSession.runtimeMode).toBe("app-server");
+    expect(wslSession.runtimeMode).toBe("app-server");
+    expect(service.start).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    [126, "Linux Codex CLI"],
+    [127, "Bash 登录环境中找到 codex"],
+    [1, "退出代码 1"]
+  ])("preserves WSL errors for real async child exit %s", async (code, message) => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      execFile: (_file, _args, options, callback) => execFile(process.execPath,
+        ["-e", `process.stderr.write('check failed'); process.exit(${code})`], options, callback) });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow(message);
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+  it("normalizes a real execFile timeout to the existing WSL timeout error", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      execFile: (_file, _args, options, callback) => execFile(process.execPath,
+        ["-e", "setTimeout(() => {}, 1500)"], { ...options, timeout: 100 }, callback) });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow("命令检测超时");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+  it("preserves WSL process launch errors", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      execFile: (_file, _args, options, callback) => execFile(`${process.execPath}.missing`, [], options, callback) });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow("无法检测 WSL Ubuntu 中的 Codex 命令");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
   it("duplicates a persisted running session from its saved template", async () => {
     const mocks = createMocks();

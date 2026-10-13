@@ -1,4 +1,4 @@
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { spawnSync: defaultSpawnSync, execFile: defaultExecFile } = require("node:child_process");
 const os = require("node:os");
 const { buildCodexBackendCommand } = require("../services/codex-model-bridge/index.cjs");
 const { buildAgentModelEnvironment } = require("../services/model-sources/agent-model-runtime.cjs");
@@ -315,6 +315,7 @@ function createAgentSessionLauncher({
   codexAppServerSessionService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
+  execFile = defaultExecFile,
   getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
   getLocalBridgeShell = () => "powershell.exe",
   getHomeDirectory = () => os.homedir()
@@ -367,13 +368,28 @@ function createAgentSessionLauncher({
     }
   }
 
-  function assertLocalCommand(session) {
+  function checkLocalCommand(file, args, options) {
+    return new Promise(resolve => {
+      execFile(file, args, options, (error, stdout, stderr) => {
+        // execFile reports nonzero exits as errors; preserve spawnSync's exit-code checks.
+        const status = error ? (typeof error.code === "number" ? error.code : null) : 0;
+        const processError = error && status === null
+          ? error.killed && error.signal === "SIGTERM"
+            ? Object.assign(new Error(error.message), { code: "ETIMEDOUT" })
+            : error
+          : undefined;
+        resolve({ status, error: processError, stdout, stderr });
+      });
+    });
+  }
+
+  async function assertLocalCommand(session) {
     const command = getAgentCommand(session.agentProvider);
     if (session.agentProvider === "claude" && useAppServer(session)) {
       const adapter = "claude-agent-acp";
       const options = { encoding: "utf-8", windowsHide: true, timeout: 30000 };
       const result = session.type === "wsl"
-        ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
+        ? await checkLocalCommand("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
           "for name in claude-agent-acp claude; do resolved=$(command -v \"$name\") || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac; done"], options)
         : spawnSync("where.exe", [adapter], options);
       const claudeResult = session.type === "wsl" ? { status: 0 } : spawnSync("where.exe", [command], options);
@@ -383,7 +399,7 @@ function createAgentSessionLauncher({
     }
     if (session.type === "wsl" && useAppServer(session)) {
       const agentCommand = session.agentProvider === "codebuddy" ? "codebuddy" : session.agentProvider === "opencode" ? "opencode" : session.agentProvider === "qoder" ? "qoder" : session.agentProvider === "gemini" ? "gemini" : session.agentProvider === "grok" ? "grok" : "codex";
-      const result = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
+      const result = await checkLocalCommand("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
         `resolved=$(command -v ${agentCommand}) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac`],
       { encoding: "utf-8", windowsHide: true, timeout: 30000 });
       if (result.error?.code === "ETIMEDOUT") throw new Error(`WSL ${session.wslDistro} 中的 Codex 命令检测超时。`);
@@ -529,7 +545,7 @@ function createAgentSessionLauncher({
       if (session.type === "wsl") openCodeModelSync.syncWsl(session.wslDistro);
       else if (session.type === "windows") openCodeModelSync.syncWindows();
     }
-    const geminiVersion = assertLocalCommand(session);
+    const geminiVersion = await assertLocalCommand(session);
     if (!(session.agentProvider === "claude" && useAppServer(session))) await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
@@ -599,7 +615,7 @@ function createAgentSessionLauncher({
     let binding;
     try {
       validateAgentSession(session);
-      assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
+      await assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
       if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
       binding = await remoteAgentBridgeService.createBinding(session.id);
       const preCommand = String(session.initialCommand || "").trim();
@@ -644,7 +660,7 @@ function createAgentSessionLauncher({
     try {
       validateAgentSession(session);
       if (session.agentProvider === "opencode") openCodeModelSync?.syncWindows();
-      assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
+      await assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
       if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
       binding = await remoteAgentBridgeService.createBinding(session.id);
       const preCommand = String(session.initialCommand || "").trim();
@@ -902,7 +918,7 @@ function createAgentSessionLauncher({
         }
         const target = createReplacementTemplate(session, provider);
         validateAgentSession(target);
-        assertLocalCommand({ ...target, type: "windows", shell: getLocalBridgeShell() });
+        await assertLocalCommand({ ...target, type: "windows", shell: getLocalBridgeShell() });
 
         terminalManager.closeSession(sessionId);
         const replacement = terminalManager.launchSession(target, {
