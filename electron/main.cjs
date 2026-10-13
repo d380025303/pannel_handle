@@ -448,7 +448,9 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
-    codexWorkspaceTrustService = createCodexWorkspaceTrustService({ broadcast: windowManager.broadcast });
+    codexWorkspaceTrustService = createCodexWorkspaceTrustService({ broadcast: windowManager.broadcast,
+      hostTrustRoot: path.join(app.getPath("userData"), "codex-bridge-trust"),
+      workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces") });
     codexModelBridgeModule = createCodexModelBridgeModule({});
     settingsModule = createSettingsModule({
       ipcMain,

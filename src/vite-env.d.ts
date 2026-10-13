@@ -1027,6 +1027,7 @@ export type CodexWorkspaceTrustRequest = {
   title: string;
   workspacePath: string;
   persistent?: boolean;
+  hostTrustLabel?: string;
   phase: "project" | "hooks";
   ready: boolean;
   terminalOpen: boolean;
@@ -1911,7 +1912,7 @@ export type ModuleOwnerTaskRun = { id: string; templateId: string; ownerId: stri
   error: string; input: unknown; output: string };
 export type ModuleOwnerPromptTemplate = { id: string; name: string; prompt: string; version: number; createdAt: number; updatedAt: number; referenceCount: number };
 export type ModuleOwnerPromptPublish = { source: Omit<ModuleOwnerPromptTemplate, "referenceCount">; tasks: { templateId: string; templateTitle: string; ownerName: string; taskId: string; taskName: string; prompt: string; fingerprint: string; modified: boolean; appliedVersion?: number; needsUpdate: boolean }[] };
-export type ModuleOwnerTaskInput = { promptTemplateId?: string; id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean;
+export type ModuleOwnerTaskInput = { promptTemplateId?: string; id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean; autoCreateWorkItem?: boolean;
   tools: ("list_module_owners" | "update_module_owner")[];
   schedule: { kind: "cron"; cron: string } | { kind: "interval"; minutes: number; count: number } };
 export type ModuleOwnerTask = ModuleOwnerTaskInput & { id: string; promptTemplateVersion?: number; promptTemplateSnapshot?: string; executedCount: number; nextRunAt: number | null; lastRun?: { status: string; sessionId?: string; error: string; startedAt: number } };

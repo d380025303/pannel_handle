@@ -30,7 +30,7 @@ describe("task metadata persistence", () => {
         }
       }
       const otherMetadata = db.prepare("SELECT value_json FROM app_module_owner_templates WHERE template_id='two'").get().value_json;
-      const tasks = [{ id: "task", executedCount: 3, nextRunAt: 123456, enabled: false, status: "stopped" }];
+      const tasks = [{ id: "task", executedCount: 3, nextRunAt: 123456, enabled: false, autoCreateWorkItem: false, status: "stopped" }];
       const before = db.prepare("SELECT total_changes() AS count").get().count;
       const started = performance.now();
       const updated = store.tasks("one", tasks);

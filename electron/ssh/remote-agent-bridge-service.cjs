@@ -731,6 +731,9 @@ function createRemoteAgentBridgeService({
     const realRoot = await resolveRealRoot(sessionId, root, platform);
     await closeBinding(sessionId);
     const hostLabel = `${session.sshConfig?.username ? `${session.sshConfig.username}@` : ""}${session.sshConfig?.host || "SSH"}`;
+    const hostTrustKey = session.sshConfig?.host ? crypto.createHash("sha256").update(JSON.stringify([
+      String(session.sshConfig.host).trim().toLowerCase(), Number(session.sshConfig.port || 22), session.sshConfig.username || ""
+    ])).digest("hex") : undefined;
     const runtimeInstructions = createRuntimeInstructions({ remoteRoot: root, hostLabel, platform });
     const configuredLocalAgentCwd = String(session.localAgentCwd || "").trim();
     let workspacePath;
@@ -801,6 +804,8 @@ function createRemoteAgentBridgeService({
       workspacePath,
       managedWorkspace,
       persistentWorkspace,
+      hostTrustKey: persistentWorkspace ? hostTrustKey : undefined,
+      hostTrustLabel: persistentWorkspace ? `${hostLabel}:${Number(session.sshConfig?.port || 22)}` : undefined,
       developerInstructions,
       runtimeInstructions,
       url: `http://127.0.0.1:${port}/mcp`,

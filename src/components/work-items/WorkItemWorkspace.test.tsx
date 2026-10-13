@@ -29,6 +29,42 @@ const filterStorageKey = "pannel-handle.work-item-filters.v1";
 beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 describe("manual task list", () => {
+  it("supports page selection, half selection, refresh retention and filter clearing", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    api.list.mockResolvedValue({ records: [{ ...item, summary: item.output }, { ...item, id: "other", taskName: "其他任务", summary: item.output }], total: 40, templates: [], owners: [] });
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await screen.findByRole("checkbox", { name: "选择任务：其他任务" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择任务：模块巡检" }));
+    expect((screen.getByRole("checkbox", { name: "全选当前页" }) as HTMLInputElement).indeterminate).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选当前页" }));
+    expect(screen.getByText("已选 2 条")).toBeTruthy();
+    api.list.mockResolvedValue({ records: [{ ...item, id: "third", taskName: "下一页任务", summary: item.output }], total: 40, templates: [], owners: [] });
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByRole("checkbox", { name: "选择任务：下一页任务" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择任务：下一页任务" }));
+    expect(screen.getByText("已选 3 条")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新" })).toBeTruthy());
+    expect(screen.getByText("已选 3 条")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "搜索" } });
+    expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull();
+  });
+  it("shows a batch confirmation and result without opening a single-item dialog", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: "执行" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选当前页" }));
+    fireEvent.click(screen.getByRole("button", { name: "批量作废" }));
+    const dialog = await screen.findByRole("dialog", { name: "批量作废" });
+    await waitFor(() => expect((within(dialog).getByRole("button", { name: "确认批量操作" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "批量作废原因" }), { target: { value: "重复任务" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认批量操作" }));
+    await waitFor(() => expect(within(dialog).getByText(/成功 1 条/)).toBeTruthy());
+    expect(api.void).toHaveBeenCalledWith({ id: "item", version: 1, reason: "重复任务" });
+    expect(within(dialog).queryByRole("button", { name: "确认批量操作" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull();
+  });
   it("persists every filter and restores the first query on page zero", async () => {
     const { api } = setup();
     await screen.findByRole("button", { name: "执行" });

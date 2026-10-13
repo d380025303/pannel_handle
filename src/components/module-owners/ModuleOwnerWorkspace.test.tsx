@@ -196,7 +196,7 @@ it("configures per-owner schedules and selected tools in the task dialog", async
   expect((screen.getByLabelText("记录到历史记录") as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByLabelText("记录到历史记录"));
   fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
-  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenCalledWith("one", { ownerId: "owner", name: "巡检", prompt: "检查模块", mode: "default", enabled: true, recordHistory: true,
+  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenCalledWith("one", { ownerId: "owner", name: "巡检", prompt: "检查模块", mode: "default", enabled: true, recordHistory: true, autoCreateWorkItem: true,
     tools: ["update_module_owner"], schedule: { kind: "interval", minutes: 30, count: 10 } }));
   expect(screen.queryByRole("group", { name: "新增定时任务" })).toBeNull();
 });
@@ -258,7 +258,7 @@ it("preserves a failed task draft during list refresh and returns to the updated
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑定时任务" })).toBeNull());
   expect(screen.getByRole("dialog", { name: "桌面 · 定时任务" })).toBeTruthy();
   expect(screen.getByText("新巡检")).toBeTruthy();
-  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", { id: "task", ownerId: "owner", name: "新巡检", prompt: "检查模块", mode: "plan", enabled: true, recordHistory: false, tools: ["update_module_owner"], schedule: task.schedule });
+  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", { id: "task", ownerId: "owner", name: "新巡检", prompt: "检查模块", mode: "plan", enabled: true, recordHistory: false, autoCreateWorkItem: true, tools: ["update_module_owner"], schedule: task.schedule });
 });
 
 it("blocks duplicate task saves and dismissals while pending", async () => {
@@ -484,6 +484,25 @@ it("references a prompt template, permits independent edits and preserves text o
   fireEvent.change(screen.getByLabelText("提示词模板"), { target: { value: "shared" } });
   fireEvent.change(screen.getByLabelText("提示词模板"), { target: { value: "" } });
   expect((screen.getByLabelText("提示词") as HTMLTextAreaElement).value).toBe("模板提示词");
+});
+
+it("defaults automatic creation on for new and legacy tasks and preserves disabled creation when toggling enabled", async () => {
+  const task: ModuleOwnerTask = { id: "task", ownerId: "owner", name: "巡检", prompt: "检查", mode: "default", enabled: false, tools: [], schedule: { kind: "cron", cron: "0 * * * *" }, executedCount: 0, nextRunAt: null };
+  vi.mocked(ownerApi.listTasks).mockResolvedValue([task]);
+  vi.mocked(ownerApi.saveTask).mockImplementation(async (_id, input) => [{ ...task, ...input, id: task.id }]);
+  render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新增定时任务" }));
+  expect((screen.getByLabelText("自动生成任务") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消编辑" }));
+  fireEvent.click(screen.getByRole("button", { name: "编辑任务" }));
+  expect((screen.getByLabelText("自动生成任务") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("自动生成任务"));
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑定时任务" })).toBeNull());
+  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", expect.objectContaining({ autoCreateWorkItem: false }));
+  fireEvent.click(screen.getByRole("button", { name: "启用" }));
+  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", expect.objectContaining({ autoCreateWorkItem: false, enabled: true })));
 });
 
 it("manually runs a disabled scheduled task and displays launch errors", async () => {

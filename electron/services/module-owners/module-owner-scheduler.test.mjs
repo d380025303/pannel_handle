@@ -15,6 +15,19 @@ function fixture(taskUnprocessed = () => false, supported = () => true) {
   const input = { ownerId: "owner", name: "task", prompt: "inspect", mode: "default", enabled: true, tools: [], schedule: { kind: "interval", minutes: 1, count: 2 } };
   return { service, launch, input, setTime: value => { at = value; }, setRun: (value, sent = false) => { run = value; submitted = sent; }, getState: () => state };
 }
+it("dispatches without checking unprocessed results when automatic creation is disabled", async () => {
+  const check = vi.fn(() => { throw new Error("storage unavailable"); });
+  const f = fixture(check);
+  const task = f.service.save("one", { ...f.input, autoCreateWorkItem: false })[0];
+  f.setTime(task.nextRunAt); await f.service.tick(); await Promise.resolve(); await Promise.resolve();
+  expect(check).not.toHaveBeenCalled();
+  expect(f.launch).toHaveBeenCalledWith("one", expect.objectContaining({ autoCreateWorkItem: false }));
+  expect(f.service.list("one")[0].executedCount).toBe(1);
+  f.setTime(1120000); await f.service.tick();
+  expect(f.launch).toHaveBeenCalledTimes(1);
+  expect(f.service.list("one")[0].lastRun.error).toContain("上一轮未结束");
+});
+
 it("skips unprocessed results without counting and retries only at the next due time", async () => {
   const check = vi.fn(() => true);
   const f = fixture(check); const task = f.service.save("one", f.input)[0];
@@ -107,7 +120,7 @@ it("skips even a short sleep crossing a due time using suspend and resume signal
 it("copies latest configuration to distinct targets without carrying runtime state or replacing tasks", () => {
   const f = fixture();
   f.getState().records.push({ id: "second" }, { id: "third" });
-  const source = f.service.save("one", { ...f.input, recordHistory: true, tools: ["update_module_owner"], mode: "plan" })[0];
+  const source = f.service.save("one", { ...f.input, recordHistory: true, autoCreateWorkItem: false, tools: ["update_module_owner"], mode: "plan" })[0];
   f.service.save("one", { ...f.input, ownerId: "second" });
   Object.assign(f.getState().tasks[0], { prompt: "最新提示词", executedCount: 1, countedRunAt: 123, lastRun: { status: "completed", sessionId: "session", startedAt: 123 } });
   const before = structuredClone(f.getState().tasks);
@@ -116,7 +129,7 @@ it("copies latest configuration to distinct targets without carrying runtime sta
   expect(new Set(result.map(task => task.id)).size).toBe(4);
   for (const [index, ownerId] of ["second", "third"].entries()) {
     expect(f.getState().tasks[index + 2]).toEqual({ id: expect.any(String), ownerId, name: source.name, prompt: "最新提示词", mode: "plan", enabled: false,
-      recordHistory: true, tools: ["update_module_owner"], schedule: source.schedule, executedCount: 0, nextRunAt: null });
+      recordHistory: true, autoCreateWorkItem: false, tools: ["update_module_owner"], schedule: source.schedule, executedCount: 0, nextRunAt: null });
   }
 });
 

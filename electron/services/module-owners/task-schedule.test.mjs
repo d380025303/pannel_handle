@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 const { nextRun, parseCron, taskSchema } = createRequire(import.meta.url)("./task-schedule.cjs");
 describe("module owner schedule", () => {
+  it("defaults legacy automatic creation on and validates explicit values", () => {
+    const input = { ownerId: "one", name: "task", prompt: "x", mode: "default", enabled: true, tools: [], schedule: { kind: "interval", minutes: 1, count: 1 } };
+    expect(taskSchema.parse(input).autoCreateWorkItem).toBe(true);
+    expect(taskSchema.parse({ ...input, autoCreateWorkItem: false }).autoCreateWorkItem).toBe(false);
+    expect(() => taskSchema.parse({ ...input, autoCreateWorkItem: "false" })).toThrow();
+  });
   it("computes local cron lists, ranges, steps, Sunday aliases and day OR semantics", () => {
     const at = new Date(2026, 9, 12, 8, 7).getTime();
     expect(new Date(nextRun({ kind: "cron", cron: "10,20-40/10 8 * * *" }, at)).getMinutes()).toBe(10);

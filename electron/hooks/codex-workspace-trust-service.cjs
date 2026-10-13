@@ -3,8 +3,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createHash, randomUUID } = require("node:crypto");
-const nodePty = require("node-pty");
+const nodePty = require("./codex-workspace-trust-pty.cjs");
 const { parse: parseToml } = require("smol-toml");
+const { withTrustLock, copyNativeHookTrust, removeCopiedHookTrust, createHostTrustStore } = require("./codex-bridge-trust.cjs");
 
 const MAX_PREVIEW = 24000;
 const MAX_TERMINAL_OUTPUT = 64000;
@@ -34,7 +35,7 @@ function findProjectSection(source, key) {
   return { lines, start, end };
 }
 
-async function setProjectTrust(workspacePath) {
+async function setProjectTrustUnlocked(workspacePath) {
   const target = configPath();
   const key = projectKey(workspacePath);
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
@@ -68,7 +69,7 @@ async function setProjectTrust(workspacePath) {
   return { target, key, added: existing === undefined, previous: existing };
 }
 
-async function removeAddedTrust(grant) {
+async function removeAddedTrustUnlocked(grant) {
   if (!grant || (!grant.added && grant.previous !== "untrusted")) return;
   const source = await fs.promises.readFile(grant.target, "utf8").catch(() => "");
   const { lines, start, end } = findProjectSection(source, grant.key);
@@ -94,6 +95,9 @@ async function removeAddedTrust(grant) {
     await fs.promises.rm(temp, { force: true }).catch(() => {});
   }
 }
+
+function setProjectTrust(workspacePath) { return withTrustLock(() => setProjectTrustUnlocked(workspacePath)); }
+function removeAddedTrust(grant) { return withTrustLock(() => removeAddedTrustUnlocked(grant)); }
 
 async function isProjectTrusted(workspacePath) {
   const source = await fs.promises.readFile(configPath(), "utf8").catch(error => {
@@ -150,12 +154,14 @@ function probeHooks(workspacePath) {
   });
 }
 
-function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty, trustProject = setProjectTrust, listHooks = probeHooks, projectTrusted = isProjectTrusted }) {
+function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty, trustProject = setProjectTrustUnlocked,
+  listHooks = probeHooks, projectTrusted = isProjectTrusted, hostTrustRoot, workspacesRoot }) {
   const pending = new Map();
   const grants = new Map();
+  const hostStore = createHostTrustStore(hostTrustRoot);
   const publish = request => broadcast("codex-workspace-trust:changed", publicRequest(request));
   const publicRequest = request => ({ id: request.id, sessionId: request.sessionId, title: request.title,
-    workspacePath: request.workspacePath, persistent: Boolean(request.persistent), phase: request.phase, ready: request.ready, terminalOpen: Boolean(request.terminal), configPreview: request.configPreview,
+    workspacePath: request.workspacePath, persistent: Boolean(request.persistent), hostTrustLabel: request.hostTrustLabel, phase: request.phase, ready: request.ready, terminalOpen: Boolean(request.terminal), configPreview: request.configPreview,
     scriptPreview: request.scriptPreview, output: request.output, error: request.error });
 
   // A persistent request may resolve without review after probing Codex. Do not
@@ -166,12 +172,92 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     if (!request) throw new Error("Codex 工作区信任请求已失效。");
     return request;
   }
-  function request({ sessionId, title, workspacePath, persistent = false }) {
-    if (pending.has(sessionId)) throw new Error("该会话已有待处理的信任请求。");
+  function detachTerminal(entry) {
+    const terminal = entry.terminal;
+    entry.terminal = null;
+    for (const listener of entry.terminalListeners || []) listener.dispose();
+    entry.terminalListeners = [];
+    return terminal;
+  }
+  function complete(entry) {
+    if (pending.get(entry.id) !== entry) return;
+    pending.delete(entry.id);
+    const terminal = detachTerminal(entry);
+    broadcast("codex-workspace-trust:resolved", { id: entry.id });
+    // Cleanup failure must not leave the launch promise pending.
+    try { terminal?.kill(); }
+    catch (error) { console.warn("Codex Hook 审核终端关闭失败：", error); }
+  }
+  const active = entry => pending.get(entry.id) === entry;
+  async function contentMatches(workspacePath, record) {
+    if (!workspacePath || !record) return false;
+    const [config, script] = await Promise.all([
+      fsApi.promises.readFile(path.join(workspacePath, ".codex", "hooks.json"), "utf8"),
+      fsApi.promises.readFile(path.join(workspacePath, ".codex", "pannel-handle-hook.ps1"), "utf8")
+    ]);
+    return scriptDigest(config) === record.configHash && scriptDigest(script) === record.scriptHash;
+  }
+  async function saveHostApproval(entry) {
+    if (!entry.hostTrustKey || !active(entry)) return;
+    if (!await contentMatches(entry.workspacePath, entry)) throw new Error("Hook 内容已变化，请重新审核。");
+    await hostStore.save(entry.hostTrustKey, { workspacePath: entry.workspacePath,
+      configHash: entry.configHash, scriptHash: entry.scriptHash, codexConfigPath: configPath() }, () => active(entry));
+  }
+  async function reuseHostApproval(entry) {
+    return withTrustLock(async () => {
+      if (!active(entry) || !entry.persistent || !entry.hostTrustKey || entry.reuseBlocked) return false;
+      const record = await hostStore.read(entry.hostTrustKey);
+      if (!record || record.codexConfigPath !== configPath() || record.configHash !== entry.configHash || record.scriptHash !== entry.scriptHash) return false;
+      // Old records without a reliable host identity are never scanned/adopted.
+      if (workspacesRoot) {
+        const relative = path.relative(path.resolve(workspacesRoot), path.resolve(record.workspacePath || "."));
+        if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+      }
+      if (!await contentMatches(record.workspacePath, record) || !await projectTrusted(record.workspacePath)) return false;
+      const hooks = await listHooks(record.workspacePath);
+      if (!active(entry) || !projectHooksTrusted(hooks, record.workspacePath)) return false;
+      const config = parseToml(await fsApi.promises.readFile(configPath(), "utf8"));
+      if (config.projects?.[projectKey(entry.workspacePath)]?.trust_level === "untrusted") return false;
+      if (!await contentMatches(entry.workspacePath, entry) || !await contentMatches(record.workspacePath, record) || !active(entry)) return false;
+      const grant = await trustProject(entry.workspacePath);
+      let accepted = false;
+      let hookGrant;
+      try {
+        if (!active(entry)) return false;
+        hookGrant = await copyNativeHookTrust(configPath(), record.workspacePath, entry.workspacePath, hooks);
+        if (!hookGrant) return false;
+        const targetHooks = await listHooks(entry.workspacePath);
+        if (!active(entry) || !projectHooksTrusted(targetHooks, entry.workspacePath)
+          || !await projectTrusted(entry.workspacePath) || !await contentMatches(entry.workspacePath, entry)) return false;
+        await fsApi.promises.writeFile(approvalPath(entry.workspacePath), JSON.stringify({ scriptHash: entry.scriptHash, configHash: entry.configHash }), "utf8");
+        if (!active(entry)) return false;
+        accepted = true;
+        grants.delete(entry.sessionId);
+        complete(entry);
+        entry.resolve();
+        return true;
+      } finally {
+        if (!accepted) {
+          try { await removeCopiedHookTrust(hookGrant); }
+          finally { await removeAddedTrustUnlocked(grant); }
+        }
+      }
+    });
+  }
+  function retryHostRequests(entry) {
+    for (const other of pending.values()) {
+      if (other === entry || other.hostTrustKey !== entry.hostTrustKey || !other.ready || other.finishBusy || other.projectBusy || other.terminal) continue;
+      void reuseHostApproval(other).catch(error => {
+        if (active(other)) { other.error = error.message || String(error); publish(other); }
+      });
+    }
+  }
+  function request({ sessionId, title, workspacePath, persistent = false, hostTrustKey, hostTrustLabel }) {
+    if ([...pending.values()].some(entry => entry.sessionId === sessionId)) throw new Error("该会话已有待处理的信任请求。");
     return new Promise((resolve, reject) => {
-      const entry = { id: sessionId, sessionId, title, workspacePath, persistent, phase: "project", error: "", output: "",
+      const entry = { id: randomUUID(), sessionId, title, workspacePath, persistent, hostTrustKey, hostTrustLabel, phase: "project", error: "", output: "",
         configPreview: "", scriptPreview: "", ready: false, resolve, reject, terminal: null };
-      pending.set(sessionId, entry);
+      pending.set(entry.id, entry);
       void (async () => {
         try {
           const codexDir = path.join(workspacePath, ".codex");
@@ -179,35 +265,47 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
             fsApi.promises.readFile(path.join(codexDir, "hooks.json"), "utf8"),
             fsApi.promises.readFile(path.join(codexDir, "pannel-handle-hook.ps1"), "utf8")
           ]);
-          if (pending.get(sessionId) !== entry) return;
+          if (pending.get(entry.id) !== entry) return;
           entry.configPreview = configPreview.slice(0, MAX_PREVIEW);
           entry.scriptPreview = scriptPreview.slice(0, MAX_PREVIEW);
           entry.scriptHash = scriptDigest(scriptPreview);
+          entry.configHash = scriptDigest(configPreview);
           if (persistent && await projectTrusted(workspacePath)) {
             entry.phase = "hooks";
-            let approvedHash;
-            try { approvedHash = JSON.parse(await fsApi.promises.readFile(approvalPath(workspacePath), "utf8")).scriptHash; }
+            let approval;
+            try { approval = JSON.parse(await fsApi.promises.readFile(approvalPath(workspacePath), "utf8")); }
             catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
             try {
               const hooks = await listHooks(workspacePath);
-              if (pending.get(sessionId) !== entry) return;
-              if (approvedHash === entry.scriptHash && projectHooksTrusted(hooks, workspacePath)) {
-                pending.delete(sessionId);
-                broadcast("codex-workspace-trust:resolved", { id: sessionId });
+              if (pending.get(entry.id) !== entry) return;
+              // Native revocation may delete the state entry entirely. A local
+              // completed review distinguishes that from a never-reviewed slot.
+              if (approval?.scriptHash === entry.scriptHash && (!approval.configHash || approval.configHash === entry.configHash)
+                && !projectHooksTrusted(hooks, workspacePath)) entry.reuseBlocked = true;
+              if (approval?.scriptHash === entry.scriptHash && (!approval.configHash || approval.configHash === entry.configHash)
+                && projectHooksTrusted(hooks, workspacePath) && await contentMatches(workspacePath, entry) && await projectTrusted(workspacePath)) {
+                if (!approval.configHash) {
+                  await fsApi.promises.writeFile(approvalPath(workspacePath), JSON.stringify({ scriptHash: entry.scriptHash, configHash: entry.configHash }), "utf8");
+                }
+                await withTrustLock(() => saveHostApproval(entry));
+                if (!active(entry)) return;
+                complete(entry);
                 resolve();
+                retryHostRequests(entry);
                 return;
               }
             } catch (error) { entry.error = error.message || String(error); }
           }
-          if (pending.get(sessionId) === entry) {
+          try { if (await reuseHostApproval(entry)) return; }
+          catch (error) { entry.error = error.message || String(error); }
+          if (pending.get(entry.id) === entry) {
             entry.ready = true;
             entry.reviewRequired = true;
             publish(entry);
           }
         } catch (error) {
-          if (pending.get(sessionId) !== entry) return;
-          pending.delete(sessionId);
-          broadcast("codex-workspace-trust:resolved", { id: sessionId });
+          if (pending.get(entry.id) !== entry) return;
+          complete(entry);
           reject(error);
         }
       })();
@@ -220,7 +318,7 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     if (entry.projectBusy) throw new Error("正在保存项目信任配置。");
     entry.projectBusy = true;
     let grant;
-    try { grant = await trustProject(entry.workspacePath); }
+    try { grant = await withTrustLock(() => trustProject(entry.workspacePath)); }
     finally { entry.projectBusy = false; }
     if (pending.get(entry.id) !== entry) {
       await removeAddedTrust(grant);
@@ -241,29 +339,31 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     }
     const command = `& codex -C '${entry.workspacePath.replace(/'/g, "''")}' -s read-only -a never`;
     const terminal = pty.spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", command], {
-      cwd: entry.workspacePath, cols: 92, rows: 28, env: { ...process.env, TERM: "xterm-256color" }, name: "xterm-256color"
+      cwd: entry.workspacePath, cols: 92, rows: 28, env: { ...process.env, TERM: "xterm-256color" }, name: "xterm-256color", useConptyDll: true
     });
     entry.terminal = terminal;
-    terminal.onData(data => {
+    entry.terminalListeners = [terminal.onData(data => {
+      if (pending.get(entry.id) !== entry || entry.terminal !== terminal) return;
       entry.output = (entry.output + data).slice(-MAX_TERMINAL_OUTPUT);
       broadcast("codex-workspace-trust:output", { id: entry.id, data });
-    });
-    terminal.onExit(() => {
+    }), terminal.onExit(() => {
       if (entry.terminal === terminal) {
-        entry.terminal = null;
+        detachTerminal(entry);
         if (pending.get(entry.id) === entry) publish(entry);
       }
-    });
+    })];
     publish(entry);
     return publicRequest(entry);
   }
   function writeTerminal(id, data) {
-    const entry = get(id);
+    const entry = pending.get(String(id));
+    if (!entry) return;
     if (!entry.terminal || typeof data !== "string" || data.length > 4096) throw new Error("Hook 审核终端不可用。");
     entry.terminal.write(data);
   }
   function resizeTerminal(id, cols, rows) {
-    const entry = get(id);
+    const entry = pending.get(String(id));
+    if (!entry) return;
     entry.terminal?.resize(Math.max(40, Math.min(240, Number(cols) || 92)), Math.max(12, Math.min(80, Number(rows) || 28)));
   }
   async function finishHooks(id) {
@@ -276,6 +376,7 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
       if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
       const script = await fsApi.promises.readFile(path.join(entry.workspacePath, ".codex", "pannel-handle-hook.ps1"), "utf8");
       if (scriptDigest(script) !== entry.scriptHash) throw new Error("Hook 脚本已变化，请取消并重新启动会话后审核。");
+      if (!await contentMatches(entry.workspacePath, entry)) throw new Error("Hook 配置已变化，请取消并重新启动会话后审核。");
       if (entry.persistent && !await projectTrusted(entry.workspacePath)) throw new Error("当前工作区信任已被撤销，请取消并重新启动会话。");
       if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
       if (!projectHooksTrusted(hooks, entry.workspacePath)) {
@@ -284,32 +385,28 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
         return false;
       }
       if (entry.persistent) {
-        await fsApi.promises.writeFile(approvalPath(entry.workspacePath), JSON.stringify({ scriptHash: entry.scriptHash }), "utf8");
+        await fsApi.promises.writeFile(approvalPath(entry.workspacePath), JSON.stringify({ scriptHash: entry.scriptHash, configHash: entry.configHash }), "utf8");
         if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
+        await withTrustLock(() => saveHostApproval(entry));
+        if (!active(entry)) throw new Error("Codex 工作区信任请求已失效。");
         grants.delete(entry.sessionId);
       }
-      const terminal = entry.terminal;
-      entry.terminal = null;
-      terminal?.kill();
-      pending.delete(entry.id);
-      broadcast("codex-workspace-trust:resolved", { id: entry.id });
+      complete(entry);
       entry.resolve();
+      retryHostRequests(entry);
       return true;
     } finally { entry.finishBusy = false; }
   }
 
   function cancel(id) {
     const entry = get(id);
-    const terminal = entry.terminal;
-    entry.terminal = null;
-    terminal?.kill();
-    pending.delete(entry.id);
-    broadcast("codex-workspace-trust:resolved", { id: entry.id });
+    complete(entry);
     entry.reject(new Error("已取消 Codex 工作区信任，图形会话未启动。"));
     return true;
   }
   async function release(sessionId) {
-    if (pending.has(sessionId)) cancel(sessionId);
+    const entry = [...pending.values()].find(request => request.sessionId === sessionId);
+    if (entry) cancel(entry.id);
     const grant = grants.get(sessionId);
     grants.delete(sessionId);
     if (grant) await removeAddedTrust(grant);

@@ -56,7 +56,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     const copies = targets.map(ownerId => ({
       id: randomUUID(), ownerId, name: source.name, prompt: source.prompt, mode: source.mode,
       ...(source.promptTemplateId ? { promptTemplateId: source.promptTemplateId, promptTemplateVersion: source.promptTemplateVersion, promptTemplateSnapshot: source.promptTemplateSnapshot } : {}),
-      enabled: parsed.enabled, recordHistory: source.recordHistory === true,
+      enabled: parsed.enabled, recordHistory: source.recordHistory === true, autoCreateWorkItem: source.autoCreateWorkItem !== false,
       tools: structuredClone(source.tools), schedule: structuredClone(source.schedule), executedCount: 0, nextRunAt
     }));
     return write(id, [...tasks, ...copies]);
@@ -134,7 +134,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
           if (task.nextRunAt > at) continue;
           update({ nextRunAt: nextRun(task.schedule, at) });
           try {
-            if (taskUnprocessed(id, task.id)) {
+            if (task.autoCreateWorkItem !== false && taskUnprocessed(id, task.id)) {
               update({ lastRun: { status: "skipped", error: "此定时任务仍有未处理任务，已跳过本周期。", startedAt: at } }); continue;
             }
           } catch (error) {

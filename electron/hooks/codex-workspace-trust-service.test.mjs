@@ -27,6 +27,80 @@ async function fixture() {
 }
 
 describe("Codex graphical workspace trust", () => {
+  it.each(["finish", "cancel", "release"])("isolates late terminal events after %s and reopening the same session", async action => {
+    const { workspacePath } = await fixture();
+    const terminals = [];
+    const pty = { spawn: vi.fn(() => {
+      const terminal = { write: vi.fn(), resize: vi.fn(), kill: vi.fn(),
+        onData: vi.fn(callback => { terminal.data = callback; return { dispose: vi.fn() }; }),
+        onExit: vi.fn(callback => { terminal.exit = callback; return { dispose: vi.fn() }; }) };
+      terminals.push(terminal);
+      return terminal;
+    }) };
+    const broadcast = vi.fn();
+    const service = createCodexWorkspaceTrustService({ broadcast, pty, trustProject: async () => ({ added: false }),
+      listHooks: async () => [{ source: "project", sourcePath: path.win32.join(workspacePath, ".codex", "hooks.json"), trustStatus: "trusted" }] });
+    const waiting = service.request({ sessionId: "same", workspacePath });
+    const settled = action === "finish" ? expect(waiting).resolves.toBeUndefined() : expect(waiting).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(service.listPending()).toHaveLength(1));
+    const id = service.listPending()[0].id;
+    await service.approveProject(id);
+    service.openHooks(id);
+    expect(pty.spawn.mock.calls[0][2].useConptyDll).toBe(true);
+    if (action === "finish") await service.finishHooks(id);
+    else if (action === "cancel") service.cancel(id);
+    else await service.release("same");
+    await settled;
+    await service.release("same");
+    expect(terminals[0].kill).toHaveBeenCalledOnce();
+    expect(terminals[0].onData.mock.results[0].value.dispose).toHaveBeenCalledOnce();
+    expect(terminals[0].onExit.mock.results[0].value.dispose).toHaveBeenCalledOnce();
+    const reopened = service.request({ sessionId: "same", workspacePath });
+    const canceled = expect(reopened).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(service.listPending()).toHaveLength(1));
+    const nextId = service.listPending()[0].id;
+    expect(nextId).not.toBe(id);
+    await service.approveProject(nextId);
+    service.openHooks(nextId);
+    broadcast.mockClear();
+    expect(() => service.writeTerminal(id, "late")).not.toThrow();
+    expect(() => service.resizeTerminal(id, 80, 24)).not.toThrow();
+    terminals[0].data("late output");
+    terminals[0].exit();
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(terminals[1].write).not.toHaveBeenCalled();
+    expect(terminals[1].resize).not.toHaveBeenCalled();
+    expect(service.listPending()[0].terminalOpen).toBe(true);
+    expect(() => service.openHooks(id)).toThrow("已失效");
+    service.writeTerminal(nextId, "live");
+    expect(terminals[1].write).toHaveBeenCalledWith("live");
+    service.cancel(nextId);
+    await canceled;
+  });
+
+  it("detaches a naturally exited terminal and permits opening a replacement", async () => {
+    const { workspacePath } = await fixture();
+    const terminal = { write: vi.fn(), kill: vi.fn(),
+      onData: vi.fn(() => ({ dispose: vi.fn() })),
+      onExit: vi.fn(callback => { terminal.exit = callback; return { dispose: vi.fn() }; }) };
+    const pty = { spawn: vi.fn(() => terminal) };
+    const service = createCodexWorkspaceTrustService({ broadcast: vi.fn(), pty, trustProject: async () => ({ added: false }) });
+    const waiting = service.request({ sessionId: "natural", workspacePath });
+    const canceled = expect(waiting).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(service.listPending()).toHaveLength(1));
+    const id = service.listPending()[0].id;
+    await service.approveProject(id);
+    service.openHooks(id);
+    terminal.exit();
+    expect(service.listPending()[0].terminalOpen).toBe(false);
+    expect(terminal.onData.mock.results[0].value.dispose).toHaveBeenCalledOnce();
+    service.openHooks(id);
+    expect(pty.spawn).toHaveBeenCalledTimes(2);
+    service.cancel(id);
+    await canceled;
+    expect(terminal.kill).toHaveBeenCalledOnce();
+  });
+
   it("does not expose a reusable workspace while its Hook probe is pending", async () => {
     const { workspacePath } = await fixture();
     const script = await fs.readFile(path.join(workspacePath, ".codex", "pannel-handle-hook.ps1"), "utf8");
@@ -54,8 +128,8 @@ describe("Codex graphical workspace trust", () => {
     const service = createCodexWorkspaceTrustService({ broadcast: vi.fn(), listHooks });
     const waiting = service.request({ sessionId: "one", workspacePath, persistent: true });
     await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
-    await service.approveProject("one");
-    expect(await service.finishHooks("one")).toBe(true);
+    await service.approveProject(service.listPending().find(entry => entry.sessionId === "one").id);
+    expect(await service.finishHooks(service.listPending().find(entry => entry.sessionId === "one").id)).toBe(true);
     await waiting;
     await service.release("one");
     expect(await fs.readFile(path.join(process.env.CODEX_HOME, "config.toml"), "utf8")).toContain('trust_level = "trusted"');
@@ -67,8 +141,8 @@ describe("Codex graphical workspace trust", () => {
     const rejected = expect(revoked).rejects.toThrow("已取消");
     await vi.waitFor(() => expect(next.listPending()[0]?.ready).toBe(true));
     expect(next.listPending()[0].phase).toBe("hooks");
-    expect(await next.finishHooks("three")).toBe(false);
-    next.cancel("three");
+    expect(await next.finishHooks(next.listPending().find(entry => entry.sessionId === "three").id)).toBe(false);
+    next.cancel(next.listPending().find(entry => entry.sessionId === "three").id);
     await rejected;
     trusted = true;
     await fs.writeFile(path.join(workspacePath, ".codex", "pannel-handle-hook.ps1"), "changed script");
@@ -76,7 +150,7 @@ describe("Codex graphical workspace trust", () => {
     const canceled = expect(changed).rejects.toThrow("已取消");
     await vi.waitFor(() => expect(next.listPending()[0]?.ready).toBe(true));
     expect(next.listPending()[0].phase).toBe("hooks");
-    next.cancel("four");
+    next.cancel(next.listPending().find(entry => entry.sessionId === "four").id);
     await canceled;
   });
 
@@ -89,7 +163,7 @@ describe("Codex graphical workspace trust", () => {
     const waiting = service.request({ sessionId: "retry", workspacePath, persistent: true });
     await vi.waitFor(() => expect(service.listPending()[0]?.error).toBe("probe failed"));
     expect(service.listPending()[0].phase).toBe("hooks");
-    expect(await service.finishHooks("retry")).toBe(true);
+    expect(await service.finishHooks(service.listPending().find(entry => entry.sessionId === "retry").id)).toBe(true);
     await waiting;
   });
 
@@ -100,8 +174,8 @@ describe("Codex graphical workspace trust", () => {
     const waiting = service.request({ sessionId: "cancel", workspacePath, persistent: true });
     const rejected = expect(waiting).rejects.toThrow("已取消");
     await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
-    await service.approveProject("cancel");
-    service.cancel("cancel");
+    await service.approveProject(service.listPending().find(entry => entry.sessionId === "cancel").id);
+    service.cancel(service.listPending().find(entry => entry.sessionId === "cancel").id);
     await rejected;
     await service.release("cancel");
     expect(await fs.readFile(path.join(process.env.CODEX_HOME, "config.toml"), "utf8")).not.toContain('trust_level = "trusted"');
@@ -147,17 +221,17 @@ describe("Codex graphical workspace trust", () => {
     const waiting = service.request({ sessionId: "run-7", title: "SSH Codex", workspacePath });
     await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
     expect(service.listPending()[0].configPreview).toContain("hooks");
-    await service.approveProject("run-7");
-    expect(await service.finishHooks("run-7")).toBe(false);
+    await service.approveProject(service.listPending().find(entry => entry.sessionId === "run-7").id);
+    expect(await service.finishHooks(service.listPending().find(entry => entry.sessionId === "run-7").id)).toBe(false);
     expect(service.listPending()[0].error).toContain("尚未全部受信任");
     trusted = true;
-    expect(await service.finishHooks("run-7")).toBe(true);
+    expect(await service.finishHooks(service.listPending().find(entry => entry.sessionId === "run-7").id)).toBe(true);
     await expect(waiting).resolves.toBeUndefined();
     expect(service.listPending()).toEqual([]);
 
     const canceled = service.request({ sessionId: "run-8", title: "SSH Codex", workspacePath });
     await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
-    service.cancel("run-8");
+    service.cancel(service.listPending().find(entry => entry.sessionId === "run-8").id);
     await expect(canceled).rejects.toThrow("已取消");
     expect(trustProject).toHaveBeenCalledTimes(1);
   });

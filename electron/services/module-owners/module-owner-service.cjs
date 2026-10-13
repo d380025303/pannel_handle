@@ -83,7 +83,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       job.pendingErrors = [];
       job.status = "completed"; job.error = ""; job.creating = false;
       job.output = event.output || "";
-      if (!job.manual && dataStore && event.status === "completed" && job.output.trim()) {
+      if (!job.manual && job.autoCreateWorkItem && dataStore && event.status === "completed" && job.output.trim()) {
         pendingResults.set(job.runId, { job, item: { sourceRunId: job.runId, taskId: job.taskId, ownerId: job.ownerId, templateId: job.templateId,
           output: job.output, sourceSessionId: job.sessionId, sourceThreadId: job.threadId, sourceTurnId: job.turnId, taskName: job.taskName,
           owner: job.ownerSnapshot, template: job.templateSnapshot, tools: job.selectedTools, createdAt: Date.now() } });
@@ -166,7 +166,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     const token = randomBytes(32).toString("hex");
     if (body.toolCallback) body.toolCallback.bearerToken = token;
     const job = { templateId: id, ownerId: task?.ownerId, taskId: task?.id, token, body, startedAt: Date.now(), status: "creating", creating: true, claimed: false, seen: new Set(),
-      runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, manual: Boolean(task?.manual), onProgress: task?.onProgress, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
+      runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, autoCreateWorkItem: task?.autoCreateWorkItem !== false, manual: Boolean(task?.manual), onProgress: task?.onProgress, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
       ownerSnapshot: task ? structuredClone(store.get(id).records.find(owner => owner.id === task.ownerId)) : null,
       templateSnapshot: { title: template(id).title, cwd: template(id).cwd } };
     if (task?.recordHistory) {

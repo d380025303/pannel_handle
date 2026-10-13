@@ -51,6 +51,34 @@ afterEach(async () => {
   for (const f of fixtures.splice(0)) { f.service.shutdown(); await f.api.stop(); f.db.close(); rmSync(f.userData, { recursive: true, force: true }); }
 });
 describe("scheduled replies and manual work items through HTTP", () => {
+  it("creates results for legacy tasks without the new field", async () => {
+    const f = await fixture();
+    const legacy = { ...f.task }; delete legacy.autoCreateWorkItem;
+    const result = await f.service.generate("template", { mode: legacy.mode, prompt: legacy.prompt }, legacy);
+    f.end(result.result.body.sessionId, "兼容回复");
+    expect(f.work.list().total).toBe(1);
+  });
+  it.each([false, true])("keeps history independent when automatic task creation is disabled (history=%s)", async recordHistory => {
+    const f = await fixture();
+    await f.source("仅巡检回复", "completed", { autoCreateWorkItem: false, recordHistory });
+    expect(f.work.list().total).toBe(0);
+    expect(f.service.listTasks("template")[0].lastRun.status).toBe("completed");
+    const history = f.db.listTaskRuns("template", f.task.id);
+    expect(history.total).toBe(recordHistory ? 1 : 0);
+    if (recordHistory) expect(f.db.getTaskRun("template", f.task.id, history.records[0].id)).toMatchObject({ output: "仅巡检回复", status: "completed" });
+  });
+  it.each([false, true])("uses the launch snapshot when automatic creation changes during a run (initial=%s)", async initial => {
+    const f = await fixture();
+    const task = f.service.saveTask("template", { ownerId: f.task.ownerId, id: f.task.id, name: f.task.name, prompt: f.task.prompt,
+      mode: f.task.mode, enabled: false, tools: f.task.tools, schedule: f.task.schedule, autoCreateWorkItem: initial })[0];
+    const result = await f.service.generate("template", { mode: task.mode, prompt: task.prompt }, task);
+    f.service.saveTask("template", { ownerId: task.ownerId, id: task.id, name: task.name, prompt: task.prompt, mode: task.mode,
+      enabled: false, tools: task.tools, schedule: task.schedule, autoCreateWorkItem: !initial });
+    f.end(result.result.body.sessionId, "本轮结果");
+    expect(f.work.list().total).toBe(initial ? 1 : 0);
+    await f.source("下一轮结果", "completed", f.service.listTasks("template")[0]);
+    expect(f.work.list().total).toBe(1);
+  });
   it("validates follow-up values and allows marking unavailable tasks", async () => {
     const f = await fixture(); const item = await f.source();
     expect(item.needsFollowUp).toBe(true);

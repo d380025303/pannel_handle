@@ -1,3 +1,4 @@
+import { BATCH_ACTIONS, useWorkItemBatch } from "./useWorkItemBatch";
 import { useWorkItemActions } from "./useWorkItemActions";
 import { WorkItemQuickPrompts } from "./WorkItemQuickPrompts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -54,6 +55,10 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   const [attemptPage, setAttemptPage] = useState(0); const [attempts, setAttempts] = useState<Awaited<ReturnType<typeof window.workItemApi.listAttempts>> | null>(null);
   const [selectedAttemptId, setSelectedAttemptId] = useState(""); const [attempt, setAttempt] = useState<WorkItemAttempt | null>(null);
 
+  const batch = useWorkItemBatch(window.workItemApi, () => setReload(value => value + 1));
+  const selectionFilter = JSON.stringify([templateId, ownerId, statuses, keyword, followUp]);
+  useEffect(() => { batch.clear(); }, [selectionFilter]);
+  useEffect(() => { if (!visible) batch.reset(); }, [visible]);
   const { busy, perform, toggleFollowUp } = useWorkItemActions({
     api: window.workItemApi, item, dialog, prompt, reason, setItem, setError, setDialogError,
     refresh: () => setReload(value => value + 1),
@@ -87,12 +92,12 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     return () => { live = false; };
   }, [visible, templateId, ownerId, statuses, followUp, searchKeyword, page, reload]);
   useLayoutEffect(() => {
-    if (!ref.current || !dialog) return;
+    if (!ref.current || (!dialog && !batch.operation)) return;
     const background = ref.current;
     background.inert = true;
     background.setAttribute("aria-hidden", "true");
     return () => { background.inert = false; background.removeAttribute("aria-hidden"); };
-  }, [dialog]);
+  }, [dialog, batch.operation]);
   useEffect(() => {
     if (!dialog || !visible) return;
     let live = true;
@@ -124,6 +129,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   }, [dialog, visible, reload, attemptPage, selectedAttemptId]);
 
   function open(id: string, kind: Dialog["kind"]) {
+    if (batch.operation || batch.busy || busy) return;
     promptInitialized.current = false; setPrompt(""); setPromptMode("preview");
     setItem(null); setPreview(null); setAttempts(null); setAttempt(null); setSelectedAttemptId(""); setAttemptPage(0);
     setDialogError(""); setReason(""); setDialog({ id, kind });
@@ -158,10 +164,16 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
           {filtered && <button type="button" className="work-items-reset" onClick={resetFilters}>重置筛选</button>}
         </div>
       </header>
+      {batch.selected.size > 0 && <div className="work-items-batch-toolbar" role="group" aria-label="批量操作">
+        <span>已选 {batch.selected.size} 条</span>
+        <button type="button" disabled={busy || batch.busy} onClick={batch.clear}>清空选择</button>
+        {(Object.keys(BATCH_ACTIONS) as (keyof typeof BATCH_ACTIONS)[]).map(action => <button key={action} type="button" disabled={busy || loading || batch.busy} onClick={() => void batch.open(action)}>{`批量${BATCH_ACTIONS[action]}`}</button>)}
+      </div>}
       {error && <p className="module-owners-error" role="alert">{error}</p>}
       {data.storageErrors?.map((value, index) => <p key={index} className="module-owners-error" role="alert">{value}</p>)}
       <div className="module-owners-card work-items-scroll" aria-busy={loading}>
-        {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th>来源</th><th>回复摘要</th><th>状态</th><th>后续处理</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
+        {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th className="work-items-selection"><input type="checkbox" aria-label="全选当前页" disabled={loading || busy || batch.busy} checked={data.records.length > 0 && data.records.every(value => batch.selected.has(value.id))} ref={node => { if (node) node.indeterminate = data.records.some(value => batch.selected.has(value.id)) && !data.records.every(value => batch.selected.has(value.id)); }} onChange={event => batch.toggle(data.records, event.target.checked)} /></th><th>来源</th><th>回复摘要</th><th>状态</th><th>后续处理</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
+          <td className="work-items-selection"><input type="checkbox" aria-label={`选择任务：${value.taskName}`} disabled={loading || busy || batch.busy} checked={batch.selected.has(value.id)} onChange={event => batch.toggle([value], event.target.checked)} /></td>
           <td><strong title={value.taskName}>{value.taskName}</strong><div className={`work-items-source-meta${value.unavailable ? " module-owners-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{value.owner.name} · {value.template.title}{value.unavailable && <> · <span>{value.unavailable}</span></>}</div></td>
           <td><WorkItemSummary id={value.id} version={value.version} name={value.taskName} summary={value.summary} disabled={Boolean(dialog)} resetKey={JSON.stringify([page, templateId, ownerId, followUp, searchKeyword, statuses, reload])} /></td>
           <td><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.error && <div className="module-owners-error work-items-row-error" title={value.error}>{value.error}</div>}</td>
@@ -183,6 +195,14 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       </div>
       <footer className="work-items-pagination work-items-list-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
     </section>
+    {batch.operation && <OwnerDialog title={`批量${BATCH_ACTIONS[batch.operation]}`} busy={batch.busy} onClose={batch.close} wide>
+      <div className="module-owners-dialog-body work-items-batch-body">
+        <p role="status">{batch.busy ? "正在处理… · " : ""}可处理 {batch.entries.filter(value => value.state === "ready").length} 条 · 成功 {batch.entries.filter(value => value.state === "success").length} 条 · 跳过 {batch.entries.filter(value => value.state === "skipped").length} 条 · 失败 {batch.entries.filter(value => value.state === "failed").length} 条</p>
+        {batch.operation === "void" && !batch.done && <label>作废原因（可选）<textarea aria-label="批量作废原因" value={batch.reason} maxLength={2000} disabled={batch.busy} onChange={event => batch.setReason(event.target.value)} /></label>}
+        <ul className="work-items-batch-results">{batch.entries.map(value => <li key={value.id}><strong>{value.name}</strong><span>{({ ready: "可处理", skipped: "跳过", failed: "失败", success: "成功" })[value.state]}{value.reason && `：${value.reason}`}</span></li>)}</ul>
+      </div>
+      <footer className="module-owners-dialog-footer"><button type="button" disabled={batch.busy} onClick={batch.close}>关闭</button>{!batch.done && <button type="button" disabled={batch.busy || !batch.entries.some(value => value.state === "ready")} onClick={() => void batch.submit()}>确认批量操作</button>}</footer>
+    </OwnerDialog>}
     {dialog && <OwnerDialog title={titles[dialog.kind]} busy={busy} onClose={() => setDialog(null)} wide>
       <div className={`module-owners-dialog-body work-items-dialog-body${dialog.kind === "execute" ? " work-items-execute-body" : ""}`}>
         {dialogError && <div><p className="module-owners-error" role="alert">{dialogError}</p><button type="button" disabled={busy || dialogLoading} onClick={() => { setDialogError(""); setReload(value => value + 1); }}>重新查询</button></div>}
