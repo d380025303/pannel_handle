@@ -223,7 +223,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     }
     if (!socket.authenticated) {
       if (message.type === "password.login") {
-        auth.handlePasswordLogin(socket, message);
+        void auth.handlePasswordLogin(socket, message);
       } else {
         sendError(socket, "AUTH_REQUIRED", "请先输入移动访问密码。");
       }

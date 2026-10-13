@@ -94,11 +94,17 @@ function createMobileAccessStore({ accessFile, dataStore, now = () => Date.now()
     return getConfig();
   }
 
-  function verifyPassword(value) {
-    if (!state.password || typeof value !== "string" || value.length > 128) return false;
-    const expected = Buffer.from(state.password.hash, "base64");
-    const actual = crypto.scryptSync(value, Buffer.from(state.password.salt, "base64"), expected.length);
-    return expected.length > 0 && crypto.timingSafeEqual(expected, actual);
+  async function verifyPassword(value) {
+    const password = state.password;
+    if (!password || typeof value !== "string" || value.length > 128) return false;
+    const expected = Buffer.from(password.hash, "base64");
+    const actual = await new Promise((resolve, reject) => {
+      crypto.scrypt(value, Buffer.from(password.salt, "base64"), expected.length, (error, derived) => {
+        if (error) reject(error);
+        else resolve(derived);
+      });
+    });
+    return state.password === password && expected.length > 0 && crypto.timingSafeEqual(expected, actual);
   }
 
   function addAudit(type, details = {}) {

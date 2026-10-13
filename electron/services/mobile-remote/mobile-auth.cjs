@@ -1,13 +1,20 @@
 const crypto = require("node:crypto");
 
+const MAX_CONCURRENT_AUTH = 2;
+let activePasswordChecks = 0;
+
 function createMobileAuth({ accessStore, now, sendError, sendReady, releaseDeviceSizes, broadcastState, currentState, notifyConnection }) {
   const clients = new Map();
   const failedAttempts = new Map();
+  const pendingByIp = new Map();
+  const closedSockets = new WeakSet();
+  const pendingSockets = new WeakSet();
+  let authGeneration = 0;
 
   function allowAuthAttempt(ip) {
     const attempts = (failedAttempts.get(ip) || []).filter((at) => at >= now() - 60_000);
     failedAttempts.set(ip, attempts);
-    return attempts.length < 5;
+    return attempts.length + (pendingByIp.get(ip) || 0) < 5;
   }
 
   function releaseClient(client, reason) {
@@ -36,20 +43,43 @@ function createMobileAuth({ accessStore, now, sendError, sendReady, releaseDevic
     return client;
   }
 
-  function handlePasswordLogin(socket, message) {
-    if (!allowAuthAttempt(socket.remoteAddress)) {
+  async function handlePasswordLogin(socket, message) {
+    if (socket.readyState !== 1 || closedSockets.has(socket) || socket.authenticated) return;
+    if (pendingSockets.has(socket) || activePasswordChecks >= MAX_CONCURRENT_AUTH) {
+      sendError(socket, "AUTH_BUSY", "认证正在进行，请稍后再试。");
+      return;
+    }
+    const ip = socket.remoteAddress;
+    if (!allowAuthAttempt(ip)) {
       sendError(socket, "AUTH_RATE_LIMIT", "认证尝试过多，请稍后再试。");
       socket.close(1008, "Rate limited");
       return;
     }
-    if (!accessStore.verifyPassword(message.password)) {
-      const ip = socket.remoteAddress;
-      failedAttempts.set(ip, [...(failedAttempts.get(ip) || []).filter((at) => at >= now() - 60_000), now()]);
-      sendError(socket, "PASSWORD_INVALID", "移动访问密码错误。");
-      accessStore.recordAudit("connection.rejected", { remoteAddress: ip, reason: "invalid-password" });
-      return;
+    const generation = authGeneration;
+    const isValid = () => socket.readyState === 1 && !closedSockets.has(socket)
+      && !socket.authenticated && generation === authGeneration;
+    pendingSockets.add(socket);
+    pendingByIp.set(ip, (pendingByIp.get(ip) || 0) + 1);
+    activePasswordChecks += 1;
+    try {
+      const verified = await accessStore.verifyPassword(message.password);
+      if (!isValid()) return;
+      if (!verified) {
+        failedAttempts.set(ip, [...(failedAttempts.get(ip) || []).filter((at) => at >= now() - 60_000), now()]);
+        sendError(socket, "PASSWORD_INVALID", "移动访问密码错误。");
+        accessStore.recordAudit("connection.rejected", { remoteAddress: ip, reason: "invalid-password" });
+        return;
+      }
+      authenticateSocket(socket, message.deviceName);
+    } catch (error) {
+      if (isValid()) sendError(socket, "AUTH_FAILED", "认证失败，请稍后再试。");
+    } finally {
+      pendingSockets.delete(socket);
+      const remaining = pendingByIp.get(ip) - 1;
+      if (remaining) pendingByIp.set(ip, remaining);
+      else pendingByIp.delete(ip);
+      activePasswordChecks -= 1;
     }
-    authenticateSocket(socket, message.deviceName);
   }
 
   function disconnectClient(id, reason = "desktop-disconnect") {
@@ -68,10 +98,12 @@ function createMobileAuth({ accessStore, now, sendError, sendReady, releaseDevic
   }
 
   function disconnectAll(reason) {
+    authGeneration += 1;
     for (const client of [...clients.values()]) disconnectClient(client.id, reason);
   }
 
   function handleSocketClosed(socket) {
+    closedSockets.add(socket);
     const client = [...clients.values()].find((item) => item.socket === socket);
     if (client) releaseClient(client, socket.mobileCloseReason || "socket-closed");
   }

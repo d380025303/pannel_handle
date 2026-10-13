@@ -65,21 +65,21 @@ function fixture(graphicalService) {
 }
 
 describe("mobile component collaboration", () => {
-  it("authenticates a password and exposes a connected client", () => {
+  it("authenticates a password and exposes a connected client", async () => {
     const f = fixture();
     const client = socket();
-    f.auth.handlePasswordLogin(client, { password: "wrong-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "wrong-password", deviceName: "Phone" });
     expect(f.accessStore.addDevice).not.toHaveBeenCalled();
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     expect(f.accessStore.verifyPassword).toHaveBeenCalledWith("correct-password");
     expect(f.auth.getClients()[0].socket).toBe(client);
     expect(client.authenticated).toBe(true);
   });
 
-  it("releases mobile size ownership immediately after disconnect", () => {
+  it("releases mobile size ownership immediately after disconnect", async () => {
     const f = fixture();
     const first = socket();
-    f.auth.handlePasswordLogin(first, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(first, { password: "correct-password", deviceName: "Phone" });
     first.subscriptions.add("run-1");
     f.sizes.applySize("run-1", first.mobileDevice.id, 80, 20);
     f.sizes.resizeFromDesktop("run-1", 140, 45);
@@ -90,20 +90,20 @@ describe("mobile component collaboration", () => {
     expect(f.stateHub.resize).toHaveBeenLastCalledWith("run-1", 140, 45);
   });
 
-  it("allows separate authenticated clients and disconnects one without releasing another", () => {
+  it("allows separate authenticated clients and disconnects one without releasing another", async () => {
     const f = fixture();
     const first = socket();
-    f.auth.handlePasswordLogin(first, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(first, { password: "correct-password", deviceName: "Phone" });
     f.sizes.applySize("run-1", first.mobileDevice.id, 80, 20);
     const other = socket();
-    f.auth.handlePasswordLogin(other, { password: "correct-password", deviceName: "Other" });
+    await f.auth.handlePasswordLogin(other, { password: "correct-password", deviceName: "Other" });
     expect(f.auth.getClients()).toHaveLength(2);
     f.auth.disconnectClient(first.mobileDevice.id);
     expect(f.auth.getClients()).toHaveLength(1);
     expect(f.sizes.getSizeState("run-1").owner).toBe("desktop");
   });
 
-  it("distinguishes a service stop from a desktop disconnect and password change", () => {
+  it("distinguishes a service stop from a desktop disconnect and password change", async () => {
     const f = fixture();
     for (const [reason, code] of [
       ["service-stopped", "SERVICE_STOPPED"],
@@ -111,17 +111,17 @@ describe("mobile component collaboration", () => {
       ["password-changed", "PASSWORD_CHANGED"]
     ]) {
       const client = socket();
-      f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+      await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
       f.auth.disconnectClient(client.mobileDevice.id, reason);
       expect(f.sendError).toHaveBeenLastCalledWith(client, code, expect.any(String));
     }
   });
 
-  it("records the WebSocket close code for an unexpected disconnect", () => {
+  it("records the WebSocket close code for an unexpected disconnect", async () => {
     const f = fixture();
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     client.emit("close", 1006);
     expect(f.accessStore.recordAudit).toHaveBeenCalledWith("connection.disconnected",
       expect.objectContaining({ reason: "socket-close-1006" }));
@@ -136,24 +136,30 @@ describe("mobile component collaboration", () => {
     message({ type: "terminal.input", sessionId: "run-1", data: "x" });
     expect(f.terminalManager.write).not.toHaveBeenCalled();
     expect(f.sendError).toHaveBeenLastCalledWith(client, "AUTH_REQUIRED", expect.any(String));
-    for (let i = 0; i < 6; i++) message({ type: "password.login", password: "bad", deviceName: "Phone" });
+    for (let i = 0; i < 6; i++) {
+      message({ type: "password.login", password: "bad", deviceName: "Phone" });
+      await Promise.resolve();
+    }
     expect(f.accessStore.verifyPassword).toHaveBeenCalledTimes(5);
     expect(f.sendError).toHaveBeenLastCalledWith(client, "AUTH_RATE_LIMIT", expect.any(String));
     await vi.advanceTimersByTimeAsync(60_001);
     message({ type: "password.login", password: "correct-password", deviceName: "Phone" });
+    await Promise.resolve();
     message({ type: "terminal.input", sessionId: "run-1", data: "hello" });
     expect(f.terminalManager.write).toHaveBeenCalledWith("run-1", "hello");
   });
 
-  it("requires a valid password before issuing a device and receiving sessions", () => {
+  it("requires a valid password before issuing a device and receiving sessions", async () => {
     const f = fixture();
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
     const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
     message({ type: "password.login", password: "wrong-password", deviceName: "Phone" });
+    await Promise.resolve();
     expect(f.sendError).toHaveBeenLastCalledWith(client, "PASSWORD_INVALID", expect.any(String));
     expect(f.accessStore.addDevice).not.toHaveBeenCalled();
     message({ type: "password.login", password: "correct-password", deviceName: "Phone" });
+    await Promise.resolve();
     expect(f.accessStore.verifyPassword).toHaveBeenCalledWith("correct-password");
     expect(client.authenticated).toBe(true);
     expect(f.send).toHaveBeenCalledWith(client, expect.objectContaining({ type: "ready" }));
@@ -166,7 +172,7 @@ describe("mobile component collaboration", () => {
     const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
     message({ type: "files.list", path: null, requestId: "before" });
     expect(f.files.list).not.toHaveBeenCalled();
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     message({ type: "files.list", path: null, requestId: "list-1" });
     message({ type: "files.download.prepare", path: "C:\\note.txt", requestId: "get-1" });
     await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(client,
@@ -181,7 +187,7 @@ describe("mobile component collaboration", () => {
     const f = fixture();
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
     f.stateHub.getDeltas.mockReturnValue([{ data: "delta", seq: 2 }]);
     message({ type: "terminal.subscribe", sessionId: "run-1", lastSeq: 1 });
@@ -210,7 +216,7 @@ describe("mobile component collaboration", () => {
     ];
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
     message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "write", requestId: "1" });
     message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "auto", requestId: "2" });
@@ -234,7 +240,7 @@ describe("mobile component collaboration", () => {
     session.quickCommands = [{ id: "auto", command: "检查", mode: "auto-enter" }, { id: "once", command: "解释", mode: "one-time" }];
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
-    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    await f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
     client.graphicalSessionId = "run-1";
     const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, sessionId: "run-1", threadId: "thread-1", ...payload }));
     graphicalService.submit.mockRejectedValueOnce(new Error("提交失败"));
@@ -465,4 +471,63 @@ it("does not start the LAN listener if the local port cannot be bound", async ()
   expect(localServer.close).not.toHaveBeenCalled();
   expect(wss.close).toHaveBeenCalledTimes(1);
   expect(service.getState()).toMatchObject({ running: false, localUrl: "" });
+});
+
+describe("asynchronous mobile authentication", () => {
+  it("bounds global work and rejects duplicate requests while other messages remain responsive", async () => {
+    const f = fixture();
+    let resolve;
+    f.accessStore.verifyPassword.mockImplementation(() => new Promise(done => { resolve = done; }));
+    const first = socket();
+    const pending = f.auth.handlePasswordLogin(first, { password: "correct-password" });
+    await f.auth.handlePasswordLogin(first, { password: "correct-password" });
+    expect(f.accessStore.verifyPassword).toHaveBeenCalledTimes(1);
+    const other = fixture();
+    let finishOther;
+    other.accessStore.verifyPassword.mockImplementation(() => new Promise(done => { finishOther = done; }));
+    const second = other.auth.handlePasswordLogin(socket(), { password: "correct-password" });
+    await f.auth.handlePasswordLogin(socket(), { password: "correct-password" });
+    expect(f.accessStore.verifyPassword).toHaveBeenCalledTimes(1);
+    await new Promise(done => setTimeout(done, 0));
+    expect(first.authenticated).not.toBe(true);
+    resolve(true);
+    finishOther(true);
+    await Promise.all([pending, second]);
+    expect(first.authenticated).toBe(true);
+  });
+
+  it.each([true, false])("ignores verification after a socket closes (result %s)", async result => {
+    const f = fixture();
+    let resolve;
+    f.accessStore.verifyPassword.mockImplementation(() => new Promise(done => { resolve = done; }));
+    const client = socket();
+    const pending = f.auth.handlePasswordLogin(client, { password: "test" });
+    f.auth.handleSocketClosed(client);
+    resolve(result);
+    await pending;
+    expect(f.auth.getClients()).toHaveLength(0);
+    expect(f.accessStore.recordAudit).not.toHaveBeenCalled();
+    expect(f.sendError).not.toHaveBeenCalled();
+  });
+
+  it.each(["password-changed", "service-stopped"])("invalidates pending authentication on %s", async reason => {
+    const f = fixture();
+    let resolve;
+    f.accessStore.verifyPassword.mockImplementation(() => new Promise(done => { resolve = done; }));
+    const pending = f.auth.handlePasswordLogin(socket(), { password: "test" });
+    f.auth.disconnectAll(reason);
+    resolve(true);
+    await pending;
+    expect(f.auth.getClients()).toHaveLength(0);
+  });
+
+  it("releases capacity after a verification error", async () => {
+    const f = fixture();
+    f.accessStore.verifyPassword.mockRejectedValueOnce(new Error("scrypt failed"));
+    const client = socket();
+    await f.auth.handlePasswordLogin(client, { password: "correct-password" });
+    expect(f.sendError).toHaveBeenLastCalledWith(client, "AUTH_FAILED", expect.any(String));
+    await f.auth.handlePasswordLogin(client, { password: "correct-password" });
+    expect(client.authenticated).toBe(true);
+  });
 });
