@@ -21,6 +21,8 @@ function createMobileUploads({ now = () => Date.now() } = {}) {
   const deleteDirectory = entry => {
     const directory = path.dirname(entry.path);
     const cleanup = (async () => {
+      // Wait for pipeline to close the file handle before removing its directory.
+      if (entry.upload) await entry.upload.catch(() => {});
       const options = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
       try { await fs.promises.rm(directory, options); }
       catch {
@@ -34,6 +36,7 @@ function createMobileUploads({ now = () => Date.now() } = {}) {
   const remove = id => {
     const entry = entries.get(id);
     if (!entry) return;
+    entry.controller?.abort();
     entries.delete(id);
     deleteDirectory(entry);
   };
@@ -67,12 +70,14 @@ function createMobileUploads({ now = () => Date.now() } = {}) {
       response.writeHead(403); response.end(); return;
     }
     entry.state = "uploading";
+    entry.controller = new AbortController();
     let bytes = 0;
     try {
-      await pipeline(request, new Transform({ transform(chunk, _encoding, callback) {
+      entry.upload = pipeline(request, new Transform({ transform(chunk, _encoding, callback) {
         bytes += chunk.length;
         callback(bytes > MAX_FILE_BYTES || bytes > entry.size ? new Error("附件超过大小限制。") : null, chunk);
-      } }), fs.createWriteStream(entry.path, { flags: "wx", mode: 0o600 }));
+      } }), fs.createWriteStream(entry.path, { flags: "wx", mode: 0o600 }), { signal: entry.controller.signal });
+      await entry.upload;
       if (entries.get(id) !== entry) throw new Error("附件上传已取消。");
       if (bytes !== entry.size) throw new Error("附件大小与声明不符。");
       entry.state = "ready";
@@ -82,7 +87,6 @@ function createMobileUploads({ now = () => Date.now() } = {}) {
       response.end(JSON.stringify({ fileId: id, name: entry.name }));
     } catch (error) {
       remove(id);
-      deleteDirectory(entry);
       if (!response.headersSent) { response.writeHead(400); response.end(error.message); }
       else response.destroy();
     }

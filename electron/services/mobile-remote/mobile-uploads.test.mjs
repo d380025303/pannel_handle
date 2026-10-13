@@ -1,5 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
+import { createServer, request as httpRequest } from "node:http";
+import { once } from "node:events";
+import nodeFs from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { existsSync, readFileSync, promises as fs } from "node:fs";
@@ -50,6 +53,80 @@ it("rejects oversized declarations and partial uploads", async () => {
     new URL(url, "http://localhost").searchParams.get("ticket"));
   expect(reply.status).toBe(400);
   expect(() => store.paths(socket, "session-1", "thread-1", [fileId])).toThrow("失效");
+});
+
+it.each(["discard", "disconnect", "session", "expiry", "stop"])("closes real HTTP uploads and file handles on %s", async reason => {
+  let time = Date.now();
+  const store = uploadsModule.createMobileUploads({ now: () => time });
+  stores.push(store);
+  const socket = { authenticated: true, graphicalSessionId: "session-1" };
+  const writes = [];
+  const originalWrite = nodeFs.createWriteStream;
+  vi.spyOn(nodeFs, "createWriteStream").mockImplementation((...args) => {
+    const stream = originalWrite(...args);
+    writes.push(stream);
+    return stream;
+  });
+  const incoming = [], receiving = [], clients = [];
+  const server = createServer((request, reply) => {
+    const url = new URL(request.url, "http://localhost");
+    incoming.push(request);
+    receiving.push(store.receive(request, reply, url.pathname.split("/").at(-1), url.searchParams.get("ticket")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    for (let round = 0; round < (reason === "discard" ? 2 : 1); round++) {
+      const ids = [];
+      for (let index = 0; index < 10; index++) {
+        const { fileId, url } = store.prepare(socket, "session-1", "thread-1", `${round}-${index}.txt`, 4);
+        ids.push(fileId);
+        const client = httpRequest({ hostname: "127.0.0.1", port: server.address().port, path: url,
+          method: "POST", headers: { "Content-Length": 4 }, agent: false });
+        client.on("error", () => {});
+        clients.push(client);
+        client.write("a"); // Leave the real HTTP request open; cancellation must end it.
+      }
+      await vi.waitFor(() => {
+        expect(writes).toHaveLength((round + 1) * 10);
+        expect(writes.slice(round * 10).every(stream => stream.pending === false)).toBe(true);
+      });
+      expect(incoming.filter(request => !request.destroyed)).toHaveLength(10);
+      expect(writes.filter(stream => !stream.closed)).toHaveLength(10);
+      expect(() => store.prepare(socket, "session-1", "thread-1", "extra.txt", 4)).toThrow("10 个");
+      if (reason === "discard") store.discard(socket, ids);
+      else if (reason === "disconnect") store.releaseSocket(socket);
+      else if (reason === "session") store.releaseSession("session-1");
+      else if (reason === "stop") await store.stop();
+      else {
+        time += 5 * 60 * 1000;
+        store.prepare(socket, "session-1", "thread-1", "next.txt", 4); // prepare triggers expiry sweep.
+      }
+      await vi.waitFor(() => {
+        expect(incoming.every(request => request.destroyed)).toBe(true);
+        expect(writes.every(stream => stream.closed && stream.fd === null)).toBe(true);
+        expect(writes.every(stream => !existsSync(dirname(stream.path)))).toBe(true);
+      });
+      await Promise.all(receiving);
+    }
+  } finally {
+    for (const client of clients) client.destroy();
+    await store.stop();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+}, 10_000);
+
+it("rejects payloads exceeding the declared size or the 10 MB limit", async () => {
+  const { store, socket } = fixture();
+  for (const [size, payload] of [[2, Buffer.from("abc")], [uploadsModule.MAX_FILE_BYTES, Buffer.alloc(uploadsModule.MAX_FILE_BYTES + 1)]]) {
+    const { fileId, url } = store.prepare(socket, "session-1", "thread-1", "overflow.txt", size);
+    const reply = response();
+    await store.receive(Readable.from([payload]), reply, fileId, new URL(url, "http://localhost").searchParams.get("ticket"));
+    expect(reply.status).toBe(400);
+    expect(reply.body).toContain("大小限制");
+    expect(() => store.paths(socket, "session-1", "thread-1", [fileId])).toThrow("失效");
+  }
 });
 
 it.runIf(process.platform === "win32")("keeps timers running while three locked attachments are removed and awaits retry on stop", async () => {
