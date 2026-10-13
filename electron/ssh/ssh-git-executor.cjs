@@ -5,13 +5,14 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function appendLimited(current, data, limit) {
+function appendLimited(current, currentBytes, data, limit) {
+  if (currentBytes >= limit) return { value: current, bytes: currentBytes, truncated: true };
   const next = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-  const currentBytes = Buffer.byteLength(current, "utf-8");
-  if (currentBytes >= limit) return { value: current, truncated: true };
   const remaining = limit - currentBytes;
-  if (Buffer.byteLength(next, "utf-8") <= remaining) return { value: current + next, truncated: false };
-  return { value: current + Buffer.from(next, "utf-8").subarray(0, remaining).toString("utf-8"), truncated: true };
+  const nextBytes = Buffer.byteLength(next, "utf-8");
+  if (nextBytes <= remaining) return { value: current + next, bytes: currentBytes + nextBytes, truncated: false };
+  const suffix = Buffer.from(next, "utf-8").subarray(0, remaining).toString("utf-8");
+  return { value: current + suffix, bytes: currentBytes + Buffer.byteLength(suffix, "utf-8"), truncated: true };
 }
 
 function createCommandError(actionName, code, stdout, stderr, canceled = false) {
@@ -38,19 +39,23 @@ function createSshGitExecutor({ sshSessionRuntime }) {
     }
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let truncated = false;
     const limit = options.maxOutputBytes || DEFAULT_MAX_OUTPUT_BYTES;
     const handle = await sshSessionRuntime.execStreaming(sessionId, command, {
       actionName: options.actionName,
       connectTimeoutMs: options.timeoutMs,
       onStdout(data) {
-        const appended = appendLimited(stdout, data, limit);
+        const appended = appendLimited(stdout, stdoutBytes, data, limit);
         stdout = appended.value;
+        stdoutBytes = appended.bytes;
         truncated ||= appended.truncated;
       },
       onStderr(data) {
-        const appended = appendLimited(stderr, data, limit);
+        const appended = appendLimited(stderr, stderrBytes, data, limit);
         stderr = appended.value;
+        stderrBytes = appended.bytes;
         truncated ||= appended.truncated;
       }
     });
