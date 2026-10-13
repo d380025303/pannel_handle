@@ -20,6 +20,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
+      "@pannel/screenshot-shortcut": [
+        "./electron/shared/screenshot-shortcut.d.cts"
+      ],
       "@modelcontextprotocol/ext-apps/app-bridge": [
         "./node_modules/@modelcontextprotocol/ext-apps/dist/src/app-bridge.d.ts"
       ]

@@ -20,3 +20,4 @@ idea-plugin/build/
 temp/
 __pycache__/
 *.pyc
+.cache/

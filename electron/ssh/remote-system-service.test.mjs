@@ -159,7 +159,7 @@ describe("remote-system-service", () => {
     }
   });
 
-  it.each([1, 2])("preserves Chinese mount paths split after UTF-8 byte %i", async (splitByte) => {
+  it.each([1, 2, 3, 4, 5])("preserves Chinese mount paths split after UTF-8 byte %i", async (splitByte) => {
     const core = CORE_SAMPLE.replaceAll("/data", "/数据");
     const disk = DISK_SAMPLE.replaceAll("/data", "/数据");
     const nextCore = core.replace(
