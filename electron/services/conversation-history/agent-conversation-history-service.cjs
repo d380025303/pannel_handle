@@ -29,6 +29,7 @@ function createAgentConversationHistoryService({
   const geminiMetadataCache = new Map();
   const listCache = new Map();
   const messageCache = new Map();
+  const geminiMessageCache = new Map();
   const codexMessageCache = new Map();
   const codeBuddyMessageCache = new Map();
   function getSession(panelSessionId) {
@@ -141,11 +142,11 @@ function createAgentConversationHistoryService({
       : reference.provider === "opencode"
         ? getLocalOpenCodeMessages({ homeDir, id: reference.id, fsApi, Database })
       : reference.provider === "gemini"
-        ? getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi })
+        ? await getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi, messageCache: geminiMessageCache })
         : reference.provider === "grok"
           ? await getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
           : await getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi, messageCache: codeBuddyMessageCache });
-    if (reference.provider !== "codebuddy") messages.sort((left, right) => right.timestamp - left.timestamp);
+    if (reference.provider !== "codebuddy" && reference.provider !== "gemini") messages.sort((left, right) => right.timestamp - left.timestamp);
     messageCache.set(cacheKey, { messages, createdAt: now });
     if (messageCache.size > MAX_MESSAGE_CACHE_ENTRIES) messageCache.delete(messageCache.keys().next().value);
     return {

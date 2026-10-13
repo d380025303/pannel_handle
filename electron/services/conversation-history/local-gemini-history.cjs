@@ -142,20 +142,44 @@ async function listLocalGemini({ homeDir, cwd, scope, fsApi, metadataCache }) {
   return items;
 }
 
-function getLocalGeminiMessages({ homeDir, cwd, id, fsApi }) {
+async function getLocalGeminiMessages({ homeDir, cwd, id, fsApi, messageCache = new Map() }) {
   const separator = id.indexOf(":");
   const projectHash = separator >= 0 ? id.slice(0, separator) : geminiProjectHash(cwd);
   const sessionId = separator >= 0 ? id.slice(separator + 1) : id;
-  const candidate = getGeminiChatFiles(fsApi, homeDir, cwd, "all").find(entry => entry.projectHash === projectHash && path.basename(entry.filePath).replace(/\.jsonl?$/i, "") === sessionId);
+  const candidate = (await getGeminiChatFilesAsync(fsApi, homeDir, cwd, "all")).find(entry => entry.projectHash === projectHash && path.basename(entry.filePath).replace(/\.jsonl?$/i, "") === sessionId);
   if (!candidate) throw new Error("Gemini conversation is unavailable.");
-  return materializeGeminiMessages(readGeminiRecords(fsApi, candidate.filePath)).flatMap(item => {
-    const text = typeof item.content === "string" ? item.content.trim() : "";
-    if (!text) return [];
-    return [{ id: String(item.id), provider: "gemini", kind: item.type === "user" ? "user" : "reply", text, timestamp: timestampMs(item.timestamp) }];
-  });
+  const filePath = candidate.filePath;
+  const signatureOf = stat => JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
+  try {
+    const signature = signatureOf(await fsApi.promises.stat(filePath));
+    const cached = messageCache.get(filePath);
+    if (cached?.signature === signature) return await cached.result;
+    const { parseGeminiTranscript } = require("./gemini-history-worker-client.cjs");
+    const entry = { signature, result: null };
+    entry.result = (async () => {
+      const text = await fsApi.promises.readFile(filePath);
+      const messages = await parseGeminiTranscript({ text, filePath });
+      // Never retain a snapshot under an old signature if the provider wrote during the read.
+      const afterSignature = signatureOf(await fsApi.promises.stat(filePath));
+      if (signature !== afterSignature && messageCache.get(filePath) === entry) messageCache.delete(filePath);
+      return messages;
+    })();
+    messageCache.delete(filePath);
+    messageCache.set(filePath, entry);
+    if (messageCache.size > 2) messageCache.delete(messageCache.keys().next().value);
+    try { return await entry.result; }
+    catch (error) {
+      if (messageCache.get(filePath) === entry) messageCache.delete(filePath);
+      throw error;
+    }
+  } catch (error) {
+    if (error.code === "ENOENT") messageCache.delete(filePath);
+    throw error;
+  }
 }
 
 module.exports = {
+  parseGeminiRecords,
   geminiProjectHash,
   getGeminiChatFiles,
   readGeminiRecords,
