@@ -711,6 +711,33 @@ describe("agent token live statistics", () => {
     }));
   });
 
+  it("delivers Grok whitespace chunks once through the live reader", async () => {
+    const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn() };
+    const harness = createHarness({ conversationSink: sink });
+    const session = { ...harness.session, agentProvider: "grok" };
+    const input = { sessionId: "grok-session", transcriptPath: "C:\\work\\updates.jsonl" };
+    harness.service.handleHook({ provider: "grok", input: { ...input, hookEventName: "session_start" }, session });
+    await flush();
+    harness.service.handleHook({ provider: "grok", input: { ...input, hookEventName: "user_prompt_submit" }, session });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+    const chunks = ["Hello", " ", "world", "\n", "next"];
+    for (const [index, text] of chunks.entries()) {
+      const line = JSON.stringify({ timestamp: index + 1, params: {
+        _meta: { promptId: "turn-one", eventId: `chunk-${index}` },
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }
+      } }) + "\n";
+      harness.files.append(line + line);
+    }
+    await harness.intervals[0]();
+    await vi.waitFor(() => expect(sink.appendMessages).toHaveBeenCalledTimes(chunks.length));
+    const messages = sink.appendMessages.mock.calls.flatMap(([id, messages]) => {
+      expect(id).toBe("panel-1");
+      return messages;
+    });
+    expect(messages.map(message => message.text)).toEqual(chunks);
+    expect(messages.map(message => message.text).join("")).toBe("Hello world\nnext");
+  });
+
   it("tracks and persists Qoder transcript usage", async () => {
     const tempDirectory = await mkdtemp(path.join(tmpdir(), "pannel-handle-qoder-token-"));
     const transcriptPath = path.join(tempDirectory, "qoder.jsonl");

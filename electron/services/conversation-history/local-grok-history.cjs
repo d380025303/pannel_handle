@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { getText } = require("./agent-conversation-transcript.cjs");
+const { getGrokChunkText } = require("./grok-chunk-text.cjs");
 const { readJsonLines, timestampMs, normalizeCwd } = require("./history-values.cjs");
 
 function getGrokSessionDirectories(fsApi, homeDir) {
@@ -18,20 +18,20 @@ function getGrokSessionDirectories(fsApi, homeDir) {
 
 function parseGrokMessages(text) {
   const messages = new Map();
+  const seenEventIds = new Set();
   readJsonLines(text, item => {
     const params = item?.params || {};
     const update = params.update || {};
     const isUser = update.sessionUpdate === "user_message_chunk";
     if (!isUser && update.sessionUpdate !== "agent_message_chunk") return;
-    const content = update.content;
-    const text = typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? getText(content)
-        : typeof content?.text === "string"
-          ? content.text
-          : "";
+    const text = getGrokChunkText(update.content);
     if (!text) return;
+    const eventId = params._meta?.eventId;
+    if (eventId) {
+      const id = String(eventId);
+      if (seenEventIds.has(id)) return;
+      seenEventIds.add(id);
+    }
     const role = isUser ? "user" : "reply";
     const promptId = String(params._meta?.promptId || update.prompt_id || params._meta?.eventId || item.timestamp || messages.size);
     const key = `${promptId}:${role}`;

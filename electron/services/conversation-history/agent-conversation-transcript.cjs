@@ -1,3 +1,5 @@
+const { getGrokChunkText } = require("./grok-chunk-text.cjs");
+
 function getText(content) {
   if (!Array.isArray(content)) return "";
   return content
@@ -96,14 +98,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     const isUser = updateType === "user_message_chunk";
     if (!isUser && updateType !== "agent_message_chunk") return null;
     if (isUser && !options.includeUser) return null;
-    const content = update.content;
-    const text = typeof content === "string"
-      ? content.trim()
-      : Array.isArray(content)
-        ? getText(content)
-        : typeof content?.text === "string"
-          ? content.text.trim()
-          : "";
+    const text = getGrokChunkText(update.content);
     if (!text) return null;
     const meta = params._meta || {};
     return {

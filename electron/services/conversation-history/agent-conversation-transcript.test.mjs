@@ -7,8 +7,45 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
+const { parseGrokMessages } = require("./local-grok-history.cjs");
+const { createAgentConversationManager } = require("../../core/agent-conversation-manager.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it.each([
+    ["Hello", " ", "world"],
+    [" \nHello", "\n", "\nworld\t "],
+    ["Hello ", "\t \n", " world"],
+    [" ", "\n", "\t"]
+  ])("preserves Grok chunks through live delivery and history assembly: %j", (...chunks) => {
+    for (const shape of ["string", "object", "array"]) {
+      const lines = chunks.map((text, index) => JSON.stringify({
+        timestamp: index + 1,
+        params: {
+          _meta: { promptId: "prompt-one", eventId: `event-${index}` },
+          update: { sessionUpdate: "agent_message_chunk", content: shape === "string" ? text
+            : shape === "object" ? { type: "text", text }
+              : [{ type: "text", text: text.slice(0, 1) }, { type: "image", text: "ignored" },
+                { type: "output_text", text: text.slice(1) }] }
+        }
+      }));
+      const parser = createAgentConversationTranscriptParser("grok");
+      const manager = createAgentConversationManager({ broadcast() {} });
+      manager.startTurn({ sessionId: "panel", provider: "grok", supported: true });
+      for (const line of lines) {
+        const messages = parser.pushLine(line);
+        expect(messages).toHaveLength(1);
+        manager.appendMessages("panel", messages);
+        expect(parser.pushLine(line)).toEqual([]);
+      }
+      const liveChunks = manager.getTurn("panel").messages.map(message => message.text);
+      expect(liveChunks).toEqual(chunks);
+      const expected = chunks.join("").trim();
+      const history = parseGrokMessages(lines.flatMap(line => [line, line]).join("\n"));
+      expect(history.map(message => message.text)).toEqual(expected ? [expected] : []);
+      expect(liveChunks.join("").trim()).toBe(expected);
+    }
+  });
+
   it("keeps local and remote Codex message identities aligned", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "codex-history-"));
     try {
