@@ -16,6 +16,48 @@ vi.mock("react-markdown", async importOriginal => {
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it("keeps large tool details unmounted through updates and renders the full result on expansion", () => {
+  const serialized = vi.fn();
+  const payload = "x".repeat(512 * 1024);
+  const controller = { expandedGroupId: "tool-0", scrollRef: { current: null } } as unknown as ComponentProps<typeof GraphicalTimeline>["controller"];
+  const snapshot: GraphicalSnapshot = {
+    threadId: "thread-1", provider: "codex", busy: true, archived: false, error: null,
+    mode: "default", nativeMode: null, capabilities: { history: true }, pendingPlan: null, approvals: [], questions: [],
+    items: Array.from({ length: 30 }, (_, index) => ({
+      id: `tool-${index}`, type: "mcpToolCall", toolName: `Tool ${index}`, status: "completed",
+      result: { toJSON() { serialized(); return { payload }; } },
+      arguments: { toJSON() { serialized(); return { path: "input.txt" }; } },
+      changes: [{ toJSON() { serialized(); return { path: "output.txt" }; } }]
+    }))
+  };
+  const view = render(<GraphicalTimeline snapshot={snapshot} controller={controller} />);
+  for (let update = 0; update < 5; update++) {
+    view.rerender(<GraphicalTimeline snapshot={{ ...snapshot, items: [...snapshot.items,
+      { id: "reply", type: "agentMessage", text: `Increment ${update}` }
+    ] }} controller={{ ...controller }} />);
+  }
+  expect(view.container.querySelectorAll(".graphical-tool summary")).toHaveLength(30);
+  expect(view.container.querySelectorAll(".graphical-tool-details")).toHaveLength(0);
+  expect(serialized).not.toHaveBeenCalled();
+
+  const tool = view.container.querySelector(".graphical-tool") as HTMLDetailsElement;
+  tool.open = true;
+  fireEvent(tool, new Event("toggle"));
+  expect(view.container.querySelectorAll(".graphical-tool-details")).toHaveLength(1);
+  expect(serialized).toHaveBeenCalledTimes(3);
+  const blocks = tool.querySelectorAll("pre");
+  expect(blocks[0].textContent).toBe(JSON.stringify({ path: "input.txt" }, null, 2));
+  expect(blocks[1].textContent).toBe(JSON.stringify({ payload }, null, 2));
+  expect(blocks[2].textContent).toBe(JSON.stringify([{ path: "output.txt" }], null, 2));
+
+  tool.open = false;
+  fireEvent(tool, new Event("toggle"));
+  serialized.mockClear();
+  view.rerender(<GraphicalTimeline snapshot={{ ...snapshot }} controller={{ ...controller }} />);
+  expect(view.container.querySelectorAll(".graphical-tool-details")).toHaveLength(0);
+  expect(serialized).not.toHaveBeenCalled();
+});
+
 it("skips unchanged history Markdown on parent updates, refreshes changed messages, and copies code", async () => {
   mocks.copy.mockResolvedValue(undefined);
   const setError = vi.fn();

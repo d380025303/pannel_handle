@@ -346,7 +346,7 @@ it("uses saved graphical quick commands and preserves one-time commands on failu
   expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("继续解释");
 });
 
-it("shows concise CodeBuddy tool summaries and full titles on expansion", () => {
+it("shows concise CodeBuddy tool summaries and full titles on expansion", async () => {
   const { emit } = fixture();
   const command = "`cd /c/mine/crm/personal/pannel_handle && git diff electron/services/codebuddy-acp/session-service.cjs`";
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
@@ -368,7 +368,7 @@ it("shows concise CodeBuddy tool summaries and full titles on expansion", () => 
   expect(summaries[2].textContent).not.toContain("first line");
   expect(summaries[3].textContent).not.toContain("x".repeat(81));
   fireEvent.click(summaries[1]);
-  expect(screen.getByText(command)).toBeTruthy();
+  await waitFor(() => expect(screen.getByText(command)).toBeTruthy());
   expect(screen.getAllByText("Show diffs of the two test files")).toHaveLength(2);
 });
 
@@ -799,7 +799,7 @@ it("opens history and starts a new conversation from the single menu", () => {
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-it("groups adjacent commands and file changes while keeping approvals visible", () => {
+it("groups adjacent commands and file changes while keeping approvals visible", async () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
     ...snapshot, items: [
@@ -823,10 +823,10 @@ it("groups adjacent commands and file changes while keeping approvals visible", 
   fireEvent.click(screen.getByText("文件变更"));
   const fileTool = screen.getByText("文件变更").closest("details") as HTMLDetailsElement | null;
   expect(fileTool?.open).toBe(true);
-  expect(fileTool?.querySelector("pre")?.textContent).toContain("src/App.tsx");
+  await waitFor(() => expect(fileTool?.querySelector("pre")?.textContent).toContain("src/App.tsx"));
 });
 
-it("separates groups at messages and turns, and preserves expansion through updates", () => {
+it("separates groups at messages and turns, and preserves expansion through updates", async () => {
   const { emit } = fixture();
   const first = { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pwd", status: "inProgress" };
   const second = { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "dir", status: "completed" };
@@ -837,10 +837,11 @@ it("separates groups at messages and turns, and preserves expansion through upda
   expect(document.querySelectorAll(".graphical-tool-group")).toHaveLength(3);
   const firstGroup = screen.getByRole("button", { name: /工具调用 · 2 项/ });
   fireEvent.click(firstGroup);
-  expect(screen.getAllByText("pwd")).toHaveLength(2);
+  expect(screen.getAllByText("pwd")).toHaveLength(1);
   const firstTool = screen.getAllByText("pwd")[0].closest("details") as HTMLDetailsElement;
   fireEvent.click(firstTool.querySelector("summary")!);
   expect(firstTool.open).toBe(true);
+  await waitFor(() => expect(firstTool.querySelector(".graphical-tool-details")).toBeTruthy());
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
     ...snapshot, items: [{ ...first, output: "done", status: "completed" }, ...items.slice(1)]
   } });

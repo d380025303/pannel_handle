@@ -132,7 +132,7 @@ export function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; cod
   return <details className="graphical-tool" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><span className="graphical-tool-label">{presentation?.label || toolLabel(item)}</span><span className="graphical-tool-summary">{presentation?.summary ?? toolSummary(item)}</span>
       <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
-    {(!item.toolContent || expanded) && <div className="graphical-tool-details">
+    {expanded && <div className="graphical-tool-details">
       {codeBuddy && item.toolName && <pre>{item.toolName}</pre>}
       {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
       {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
