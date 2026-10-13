@@ -14,6 +14,51 @@ function fixture() {
 const source = number => ({ sourceRunId: `run-${number}`, templateId: number % 2 ? "one" : "two", ownerId: `owner-${number % 2}`, taskId: "timer", taskName: "巡检", template: { title: "工程" }, owner: { name: "负责人" }, tools: [], output: `最终结果 ${number}` });
 afterEach(() => { for (const f of fixtures.splice(0)) { f.db.close(); rmSync(f.userData, { recursive: true, force: true }); } });
 describe("work item SQLite persistence", () => {
+  it("backfills once, preserves false and rolls back when the completion marker fails", () => {
+    const database = new DatabaseSync(":memory:");
+    const updates = [];
+    let rejectMarker = false;
+    const store = createWorkItemStore(() => ({
+      exec: sql => {
+        if (/UPDATE app_module_owner_work_items SET value_json/.test(sql)) updates.push(sql);
+        database.exec(sql);
+      },
+      prepare: sql => {
+        if (rejectMarker && /INSERT INTO app_migrations.*VALUES\(4,/.test(sql)) throw new Error("marker failed");
+        return database.prepare(sql);
+      }
+    }), callback => callback());
+    const initialize = () => {
+      database.exec("BEGIN IMMEDIATE");
+      try { store.initializeWorkItems(); database.exec("COMMIT"); }
+      catch (error) { database.exec("ROLLBACK"); throw error; }
+    };
+    try {
+      database.exec("CREATE TABLE app_migrations(version INTEGER PRIMARY KEY,completed_at INTEGER NOT NULL)");
+      initialize();
+      const insert = database.prepare(`INSERT INTO app_module_owner_work_items
+        (id,source_run_id,task_id,owner_id,template_id,status,version,created_at,output,task_name,owner_name,template_name,needs_follow_up,value_json)
+        VALUES(?,?,'task','owner','template','pending',1,1,'','task','owner','template',?,?)`);
+      insert.run("missing-true", "run-1", 1, '{}');
+      insert.run("missing-false", "run-2", 0, '{}');
+      insert.run("explicit-false", "run-3", 0, '{"needsFollowUp":false}');
+      database.exec("DELETE FROM app_migrations WHERE version=4");
+      updates.length = 0;
+      rejectMarker = true;
+      expect(initialize).toThrow("marker failed");
+      expect(database.prepare("SELECT 1 FROM app_migrations WHERE version=4").get()).toBeUndefined();
+      expect(store.getWorkItem("missing-true")).toEqual({});
+      rejectMarker = false;
+      initialize();
+      expect(store.getWorkItem("missing-true")).toEqual({ needsFollowUp: true });
+      expect(store.getWorkItem("missing-false")).toEqual({ needsFollowUp: false });
+      expect(store.getWorkItem("explicit-false")).toEqual({ needsFollowUp: false });
+      expect(updates).toHaveLength(2);
+      updates.length = 0;
+      initialize(); initialize();
+      expect(updates).toHaveLength(0);
+    } finally { database.close(); }
+  });
   it("adds a covering task index to existing databases and uses both template and task", () => {
     const database = new DatabaseSync(":memory:");
     let query;
@@ -39,7 +84,7 @@ describe("work item SQLite persistence", () => {
     const item = db.insertWorkItem(source(0));
     db.close();
     const legacy = new DatabaseSync(path.join(userData, "agent-token-stats.sqlite3"));
-    legacy.exec("UPDATE app_module_owner_work_items SET value_json=json_remove(value_json,'$.needsFollowUp'); ALTER TABLE app_module_owner_work_items DROP COLUMN needs_follow_up");
+    legacy.exec("DELETE FROM app_migrations WHERE version=4; UPDATE app_module_owner_work_items SET value_json=json_remove(value_json,'$.needsFollowUp'); ALTER TABLE app_module_owner_work_items DROP COLUMN needs_follow_up");
     legacy.close();
     db.open();
     expect(db.getWorkItem(item.id)).toMatchObject({ needsFollowUp: true, version: 1 });

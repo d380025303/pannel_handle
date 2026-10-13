@@ -24,9 +24,12 @@ function createWorkItemStore(database, transaction) {
     if (!db().prepare("PRAGMA table_info(app_module_owner_work_items)").all().some(column => column.name === "needs_follow_up")) {
       db().exec("ALTER TABLE app_module_owner_work_items ADD COLUMN needs_follow_up INTEGER NOT NULL DEFAULT 1");
     }
-    db().exec(`UPDATE app_module_owner_work_items SET value_json=json_set(value_json,'$.needsFollowUp',json(CASE WHEN needs_follow_up=1 THEN 'true' ELSE 'false' END))
-      WHERE json_type(value_json,'$.needsFollowUp') IS NULL`);
-    db().prepare("INSERT INTO app_migrations(version,completed_at) VALUES(4,?) ON CONFLICT(version) DO NOTHING").run(Date.now());
+    // The caller wraps initialization in a transaction, including the completion marker.
+    if (!db().prepare("SELECT 1 FROM app_migrations WHERE version=4").get()) {
+      db().exec(`UPDATE app_module_owner_work_items SET value_json=json_set(value_json,'$.needsFollowUp',json(CASE WHEN needs_follow_up=1 THEN 'true' ELSE 'false' END))
+        WHERE json_type(value_json,'$.needsFollowUp') IS NULL`);
+      db().prepare("INSERT INTO app_migrations(version,completed_at) VALUES(4,?)").run(Date.now());
+    }
     db().prepare("INSERT INTO app_migrations(version,completed_at) VALUES(5,?) ON CONFLICT(version) DO NOTHING").run(Date.now());
   }
   function getWorkItem(id) {
