@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import http from "node:http";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 
 const require = createRequire(import.meta.url);
 const { parseStartupLine, waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
@@ -12,6 +14,64 @@ afterEach(async () => {
 });
 
 describe("CodeBuddy HTTP ACP transport", () => {
+  it("cleans up on request close when the subscription response is not SSE", async () => {
+    let trackedRequests;
+    class RequestSet extends Set {
+      constructor() { super(); trackedRequests = this; }
+    }
+    const isolatedModule = { exports: {} };
+    runInNewContext(readFileSync(new URL("./http-transport.cjs", import.meta.url), "utf8"),
+      { require, module: isolatedModule, Set: RequestSet, URL, Buffer, setTimeout, clearTimeout });
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(req.url.endsWith("/connect") ? { connectionId: "conn-1" } : {}));
+    });
+    servers.push(server); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = isolatedModule.exports.createCodeBuddyHttpTransport({
+      endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret"
+    });
+    try {
+      await expect(transport.connect()).rejects.toThrow("未提供 ACP SSE 推送");
+      await new Promise(resolve => setImmediate(resolve));
+      expect(trackedRequests.size).toBe(0);
+    } finally { await transport.close(); }
+  });
+  it("releases 100 completed HTTP failures before the transport closes", async () => {
+    let trackedRequests;
+    let added = 0;
+    let removed = 0;
+    class RequestSet extends Set {
+      constructor() { super(); trackedRequests = this; }
+      add(value) { added++; return super.add(value); }
+      delete(value) { const deleted = super.delete(value); if (deleted) removed++; return deleted; }
+    }
+    const isolatedModule = { exports: {} };
+    runInNewContext(readFileSync(new URL("./http-transport.cjs", import.meta.url), "utf8"),
+      { require, module: isolatedModule, Set: RequestSet, URL, Buffer, setTimeout, clearTimeout });
+    let completed = 0;
+    const server = http.createServer((req, res) => {
+      res.on("finish", () => { completed++; });
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "plugin unavailable", requestId: "failure-500" } }));
+    });
+    servers.push(server); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = isolatedModule.exports.createCodeBuddyHttpTransport({
+      endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret"
+    });
+    try {
+      for (let index = 0; index < 100; index++) {
+        await expect(transport.rest("GET", "/api/v1/plugins")).rejects.toThrow(/HTTP 500.*plugin unavailable.*failure-500/);
+        expect(trackedRequests.size).toBe(0);
+      }
+      expect(completed).toBe(100);
+      expect(added).toBe(100);
+      expect(removed).toBe(100);
+      await transport.close();
+      await transport.close();
+      await expect(transport.rest("GET", "/api/v1/plugins")).rejects.toThrow("已关闭");
+      expect(added).toBe(100);
+    } finally { await transport.close(); }
+  });
   it("confirms the outgoing prompt without waiting for the HTTP response to finish", async () => {
     let finishResponse;
     let received;

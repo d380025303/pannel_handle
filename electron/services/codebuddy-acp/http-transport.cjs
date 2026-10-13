@@ -144,6 +144,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
           let detail = "";
           res.on("data", chunk => { if (detail.length < ERROR_DETAIL_LIMIT) detail += chunk.toString("utf8").slice(0, ERROR_DETAIL_LIMIT - detail.length); });
           res.on("end", () => {
+            requests.delete(req);
             const explanation = httpErrorDetail(detail, res.headers, password);
             reject(new Error(`CodeBuddy HTTP ACP 返回 HTTP ${res.statusCode}${res.statusCode === 401 ? "（认证失败）" : ""}。${explanation ? ` ${explanation}` : ""}`));
           });
@@ -179,6 +180,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
         });
       });
       requests.add(req);
+      req.once("close", () => requests.delete(req));
       if (onSent) req.once("finish", onSent);
       if (timeoutMs) req.setTimeout(timeoutMs, () => req.destroy(new Error("CodeBuddy HTTP 请求超时。")));
       req.on("error", error => {
