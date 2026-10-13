@@ -1,6 +1,6 @@
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-const { parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
+const { createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
 const { normalizeCwd, timestampMs } = require("./history-values.cjs");
 
 function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database = DatabaseSync }) {
@@ -54,7 +54,25 @@ async function getLocalCodexMessages({ homeDir, id, fsApi, messageCache, Databas
     const cached = messageCache?.get(file);
     if (cached?.signature === signature) return cached.messages;
     const text = await fsApi.promises.readFile(file, "utf-8");
-    const messages = parseAgentConversationText("codex", text, { includeUser: true });
+    const parser = createAgentConversationTranscriptParser("codex", { includeUser: true });
+    const messages = [];
+    let lines = 0;
+    let bytes = 0;
+    for (let start = 0; start < text.length;) {
+      const newline = text.indexOf("\n", start);
+      const end = newline === -1 ? text.length : newline + 1;
+      const line = text.slice(start, end);
+      if (line.trim()) messages.push(...parser.pushLine(line));
+      lines += 1;
+      bytes += Buffer.byteLength(line, "utf8");
+      start = end;
+      // Bound each parsing batch so timers and other IPC can keep running.
+      if (lines >= 128 || bytes >= 256 * 1024) {
+        await new Promise(resolve => setImmediate(resolve));
+        lines = 0;
+        bytes = 0;
+      }
+    }
     // Do not cache a snapshot if the file changed while it was being read.
     const after = await fsApi.promises.stat(file);
     const afterSignature = JSON.stringify([after.dev, after.ino, after.size, after.mtimeMs, after.ctimeMs]);
