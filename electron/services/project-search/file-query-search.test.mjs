@@ -6,6 +6,35 @@ import path from "node:path";
 import { createProjectSearchService } from "./project-search-service.cjs";
 
 describe("file regex worker isolation", () => {
+  it.each(["searchFiles", "searchWorkspaceEntries"])("applies whole-word and case options together in %s", async (method) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-file-options-"));
+    try {
+      for (const name of ["foo.txt", "foobar.txt"]) {
+        fs.writeFileSync(path.join(dir, name), "");
+      }
+      const service = createProjectSearchService({
+        terminalManager: { getSession: () => ({ type: "windows", cwd: dir }) }
+      });
+      const names = async (query, options) => (await service[method]("run-1", query, undefined, options))
+        .results.map((entry) => entry.name).sort();
+      expect(await names("foo", { regex: true, wholeWord: true })).toEqual(["foo.txt"]);
+      expect(await names("foo", { regex: true, wholeWord: false })).toEqual(["foo.txt", "foobar.txt"]);
+      for (const name of ["FOO.md", "bar.txt", "barbaz.txt", "foo+.txt"]) {
+        fs.writeFileSync(path.join(dir, name), "");
+      }
+      for (const regex of [false, true]) {
+        expect(await names("foo", { regex, wholeWord: true, caseSensitive: true })).toEqual(["foo+.txt", "foo.txt"]);
+        expect(await names("foo", { regex, wholeWord: true })).toEqual(["FOO.md", "foo+.txt", "foo.txt"]);
+        expect(await names("foo", { regex, wholeWord: false, caseSensitive: true })).toEqual(["foo+.txt", "foo.txt", "foobar.txt"]);
+      }
+      expect(await names("foo|bar", { regex: true, wholeWord: true, caseSensitive: true }))
+        .toEqual(["bar.txt", "foo+.txt", "foo.txt"]);
+      expect(await names("foo.", { wholeWord: true, caseSensitive: true })).toEqual(["foo.txt"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it.each(["searchFiles", "searchWorkspaceEntries"])("times out %s while timers stay responsive and recovers", async (method) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-regex-"));
     try {

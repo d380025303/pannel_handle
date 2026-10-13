@@ -18,7 +18,7 @@ async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIM
   }
 
   const worker = new Worker(path.join(__dirname, "file-query-worker.cjs"), {
-    workerData: { query, caseSensitive: Boolean(options.caseSensitive) }
+    workerData: { query, caseSensitive: Boolean(options.caseSensitive), wholeWord: Boolean(options.wholeWord) }
   });
   let pending;
   let failure;

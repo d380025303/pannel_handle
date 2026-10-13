@@ -73,12 +73,17 @@ function isOrderedSubsequence(candidate, query, caseSensitive = false) {
   return queryIndex === normalizedQuery.length;
 }
 
+function createFileQueryMatcher(query, options = {}) {
+  const pattern = options.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(options.wholeWord ? `\\b(?:${pattern})\\b` : pattern, options.caseSensitive ? "" : "i");
+}
+
 function matchesFileQuery(candidate, query, options = {}) {
   const value = String(candidate || "");
   if (options.regex) throw new Error("File regex queries must run in the file search worker.");
   const haystack = options.caseSensitive ? value : value.toLowerCase();
   const needle = options.caseSensitive ? query : query.toLowerCase();
-  if (options.wholeWord) return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, options.caseSensitive ? "" : "i").test(value);
+  if (options.wholeWord) return createFileQueryMatcher(query, options).test(value);
   return isOrderedSubsequence(haystack, needle, options.caseSensitive);
 }
 
@@ -89,5 +94,6 @@ module.exports = {
   getLineMatches,
   normalizeQuery,
   isOrderedSubsequence,
-  matchesFileQuery
+  matchesFileQuery,
+  createFileQueryMatcher
 };

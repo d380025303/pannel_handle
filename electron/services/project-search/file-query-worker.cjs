@@ -1,7 +1,8 @@
 const { parentPort, workerData } = require("node:worker_threads");
+const { createFileQueryMatcher } = require("./search-matching.cjs");
 
 try {
-  const matcher = new RegExp(workerData.query, workerData.caseSensitive ? "" : "i");
+  const matcher = createFileQueryMatcher(workerData.query, { ...workerData, regex: true });
   parentPort.on("message", ({ entries, limit }) => {
     const matches = [];
     for (let index = 0; index < entries.length && matches.length < limit; index += 1) {
