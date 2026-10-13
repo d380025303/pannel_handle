@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { MAX_REQUEST_BYTES, createResponsesChatCompletionsBridgeService } = require("./responses-chat-completions-bridge-service.cjs");
+const { MAX_REQUEST_BYTES, pipeWebStream, createResponsesChatCompletionsBridgeService } = require("./responses-chat-completions-bridge-service.cjs");
 const services = [];
 
 afterEach(async () => {
@@ -26,6 +26,104 @@ function createService(fetchImpl, options = {}) {
 }
 
 describe("Responses Chat Completions bridge", () => {
+  it.each(["iterator", "reader"])("awaits asynchronous chunk processing for the %s stream API", async api => {
+    let reads = 0;
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const read = async () => ++reads <= 2 ? { value: Buffer.from("chunk"), done: false } : { done: true };
+    const releaseLock = vi.fn();
+    const stream = api === "reader" ? { getReader: () => ({ read, releaseLock }) } : {
+      async *[Symbol.asyncIterator]() {
+        for (;;) { const next = await read(); if (next.done) return; yield next.value; }
+      }
+    };
+    const piping = pipeWebStream(stream, () => gate);
+    await vi.waitFor(() => expect(reads).toBe(1));
+    release();
+    await piping;
+    expect(reads).toBe(3);
+    if (api === "reader") expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it.each(["resume", "disconnect", "shutdown"])("bounds the HTTP queue while paused and exits on %s", async action => {
+    let reads = 0;
+    let exited = false;
+    let upstreamSignal;
+    let bridgeResponse;
+    let peakPausedQueue = 0;
+    let paused = true;
+    const originalWrite = http.ServerResponse.prototype.write;
+    const write = vi.spyOn(http.ServerResponse.prototype, "write").mockImplementation(function (...args) {
+      const result = originalWrite.apply(this, args);
+      bridgeResponse = this;
+      if (paused) peakPausedQueue = Math.max(peakPausedQueue, this.writableLength);
+      return result;
+    });
+    const text = "x".repeat(16 * 1024);
+    const service = createService(async (_url, { signal }) => {
+      upstreamSignal = signal;
+      return { ok: true, body: {
+        async *[Symbol.asyncIterator]() {
+          try {
+            for (let index = 0; index < 256; index++) {
+              reads++;
+              yield Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+              await new Promise(resolve => setImmediate(resolve));
+            }
+            yield Buffer.from("data: [DONE]\n\n");
+          } finally { exited = true; }
+        }
+      } };
+    });
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    let incoming;
+    const client = http.request(`${launch.baseUrl}/responses`, {
+      method: "POST", headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" }
+    }, response => { incoming = response; response.pause(); });
+    client.on("error", () => {});
+    client.end(JSON.stringify({ model: "model-a", input: "hello", stream: true }));
+    try {
+      await vi.waitFor(() => {
+        expect(incoming).toBeDefined();
+        expect(bridgeResponse?.writableNeedDrain).toBe(true);
+      });
+      const stalledReads = reads;
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(reads).toBe(stalledReads);
+      expect(reads).toBeLessThan(256);
+      expect(peakPausedQueue).toBeLessThan(128 * 1024);
+      console.info(`HTTP backpressure (${action}): ${reads}/256 chunks read, peak paused queue ${peakPausedQueue} bytes`);
+      paused = false;
+      if (action === "resume") {
+        const chunks = [];
+        const completed = new Promise((resolve, reject) => {
+          incoming.on("data", chunk => chunks.push(chunk));
+          incoming.once("end", resolve);
+          incoming.once("error", reject);
+        });
+        incoming.resume();
+        await completed;
+        const events = Buffer.concat(chunks).toString().split("\n").filter(line => line.startsWith("data:")).map(line => JSON.parse(line.slice(5)));
+        expect(events.filter(event => event.type === "response.output_text.delta").map(event => event.delta).join(""))
+          .toBe(text.repeat(256));
+        expect(events.at(-1).type).toBe("response.completed");
+        expect(exited).toBe(true);
+      } else {
+        if (action === "disconnect") client.destroy();
+        else { const closing = service.shutdown(); incoming.resume(); await closing; }
+        await vi.waitFor(() => {
+          expect(upstreamSignal.aborted).toBe(true);
+          expect(exited).toBe(true);
+        }, { timeout: 1000 });
+        expect(reads).toBe(stalledReads);
+      }
+      expect(bridgeResponse.listenerCount("drain")).toBe(0);
+    } finally {
+      client.destroy();
+      write.mockRestore();
+    }
+  }, 10000);
+
   it.each(["localhost", "route"])("keeps timers responsive during a slow WSL %s probe", async phase => {
     let probeFinished = false;
     let timerBeforeProbe = false;

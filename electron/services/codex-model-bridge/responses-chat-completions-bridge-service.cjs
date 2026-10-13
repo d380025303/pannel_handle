@@ -34,6 +34,26 @@ function writeSse(response, event) {
   if (!response.destroyed && !response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
+function waitForResponseDrain(response, signal) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      response.off("drain", drained);
+      response.off("close", closed);
+      response.off("error", failed);
+      signal.removeEventListener("abort", closed);
+    };
+    const drained = () => { cleanup(); resolve(); };
+    const failed = error => { cleanup(); reject(error); };
+    const closed = () => failed(signal.reason || new Error("Bridge response closed."));
+    response.once("drain", drained);
+    response.once("close", closed);
+    response.once("error", failed);
+    signal.addEventListener("abort", closed, { once: true });
+    if (signal.aborted || response.destroyed || response.writableEnded) closed();
+    else if (!response.writableNeedDrain) drained();
+  });
+}
+
 function errorResponse(response, statusCode, message, type = "responses_chat_bridge_error") {
   if (response.destroyed || response.writableEnded) return;
   if (response.headersSent) {
@@ -48,7 +68,7 @@ function errorResponse(response, statusCode, message, type = "responses_chat_bri
 async function pipeWebStream(stream, onChunk) {
   if (!stream) return;
   if (typeof stream[Symbol.asyncIterator] === "function") {
-    for await (const chunk of stream) onChunk(Buffer.from(chunk));
+    for await (const chunk of stream) await onChunk(Buffer.from(chunk));
     return;
   }
   const reader = stream.getReader();
@@ -56,7 +76,7 @@ async function pipeWebStream(stream, onChunk) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      onChunk(Buffer.from(value));
+      await onChunk(Buffer.from(value));
     }
   } finally {
     reader.releaseLock();
@@ -149,11 +169,16 @@ function createResponsesChatCompletionsBridgeService({
       });
       accumulator.start();
       try {
-        await pipeWebStream(upstream.body, chunk => accumulator.push(chunk));
+        await waitForResponseDrain(response, controller.signal);
+        await pipeWebStream(upstream.body, async chunk => {
+          controller.signal.throwIfAborted();
+          accumulator.push(chunk);
+          await waitForResponseDrain(response, controller.signal);
+        });
       } catch (error) {
         if (!controller.signal.aborted) accumulator.fail(error);
       }
-      if (!response.destroyed && !response.writableEnded) {
+      if (!controller.signal.aborted && !response.destroyed && !response.writableEnded) {
         accumulator.finish();
         response.end();
       }
