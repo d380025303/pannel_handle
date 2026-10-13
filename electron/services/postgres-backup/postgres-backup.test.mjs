@@ -1,3 +1,4 @@
+import { dashboardRows } from "./remote-dashboard-fixture.mjs";
 import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +30,7 @@ describe("remote statistics", () => {
       } },
       { device_id, table_name: "token_daily", data: { date: "2026-09-21", provider: "codex", total_tokens: 15 } }
     ]);
-    const client = { query: async (_sql, params) => ({ rows: params?.length ? rows.filter(row => row.device_id === params[0]) : rows }) };
+    const client = { query: async (_sql, params) => ({ rows: dashboardRows(rows, params) }) };
     const all = await getRemoteDashboard(client, { range: "all", deviceId: "all" });
     const one = await getRemoteDashboard(client, { range: "all", deviceId: "computer-a" });
     expect(all.summary.sessionCount).toBe(2);
@@ -390,8 +391,8 @@ describe("statistics snapshot synchronization", () => {
           if (index < 0) remote.push(row);
           else if (JSON.stringify(remote[index].data) !== JSON.stringify(row.data)) remote[index] = row;
         }
-      } else if (sql.includes("SELECT device_id,table_name,data FROM ph_stat_rows")) {
-        return { rows: structuredClone(params.length ? remote.filter(row => row.device_id === params[0]) : remote) };
+      } else if (sql.includes("WITH filtered_sessions AS")) {
+        return { rows: dashboardRows(structuredClone(remote), params) };
       }
       return { rows: [] };
     } };
