@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { generateKeyPairSync } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { Server } = require("ssh2");
 const { createKnownHostStore } = require("../stores/known-host-store.cjs");
 const { createSshGitExecutor } = require("./ssh-git-executor.cjs");
 const {
@@ -47,6 +49,73 @@ function createKnownHostStoreForTest() {
 }
 
 describe("ssh-session-runtime", () => {
+  it.each([undefined, null, "0", NaN, 0.5])("rejects missing or invalid exit status %s and closes the client", async code => {
+    const client = createClient();
+    client.exec = vi.fn((_command, callback) => {
+      const stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      callback(undefined, stream);
+      queueMicrotask(() => {
+        stream.emit("data", Buffer.from("partial-output"));
+        stream.emit("close", code);
+      });
+    });
+    const runtime = createRuntime({ type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
+    await expect(runtime.exec("run-1", "command", { allowExitCodes: [code], actionName: "Test command" }))
+      .rejects.toThrow("Test command connection interrupted before an exit status was received.");
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["disconnect", 0, 1])("handles real SSH server completion: %s", async completion => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" }
+    });
+    const connections = new Set();
+    const server = new Server({ hostKeys: [privateKey] }, connection => {
+      connections.add(connection);
+      connection.on("error", () => {});
+      connection.on("close", () => connections.delete(connection));
+      connection.on("authentication", context => context.accept());
+      connection.on("ready", () => connection.on("session", accept => {
+        accept().on("exec", acceptCommand => {
+          const stream = acceptCommand();
+          stream.write("partial-output");
+          if (completion !== "disconnect") {
+            stream.write("-complete");
+            stream.exit(completion);
+            stream.end();
+          }
+        });
+      }));
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const runtime = createRuntime({ type: "ssh", sshConfig: {
+        host: "127.0.0.1", port: server.address().port, username: "test"
+      } });
+      const options = { onStdout: () => {
+        if (completion === "disconnect") for (const connection of connections) connection._sock.destroy();
+      } };
+      if (completion === "disconnect") {
+        await expect(runtime.exec("run-1", "command", options)).rejects.toThrow("connection interrupted");
+      } else if (completion === 0) {
+        await expect(runtime.exec("run-1", "command", options)).resolves.toBe("partial-output-complete");
+      } else {
+        await expect(runtime.exec("run-1", "command", options)).rejects.toThrow("exit code 1");
+        await expect(runtime.exec("run-1", "command", { ...options, allowExitCodes: [1] }))
+          .resolves.toBe("partial-output-complete");
+      }
+    } finally {
+      for (const connection of connections) connection._sock.destroy();
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
   const text = "中文🙂🚀 Git 输出\n";
   const bytes = Buffer.from(text);
   const splits = Array.from({ length: bytes.length - 1 }, (_, index) => index + 1);

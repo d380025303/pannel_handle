@@ -175,7 +175,11 @@ function createSshSessionRuntime({
             finish(new Error(`${actionName} terminated by signal ${signal}.`));
             return;
           }
-          if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
+          if (!Number.isInteger(code)) {
+            finish(new Error(`${actionName} connection interrupted before an exit status was received.`));
+            return;
+          }
+          if (!allowExitCodes.includes(code)) {
             finish(new Error(stderr.trim() || `${actionName} failed with exit code ${code}.`));
             return;
           }
