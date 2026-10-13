@@ -62,7 +62,8 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
   }
 
   function sameContext(left, right) {
-    return left.session === right.session && left.directories === right.directories;
+    const rightSession = right.sessionRef ? right.sessionRef.deref() : (right.session ?? null);
+    return left.session === rightSession && left.directories === right.directories;
   }
 
   async function discover(root, provider, source, excluded = new Set()) {
@@ -158,7 +159,10 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
     const catalog = await discoverCatalog(provider, sessionId);
     if (!sameContext(initial, context(provider, sessionId))) throw new Error("会话已切换，请刷新列表。");
     catalogs.delete(initial.key);
-    catalogs.set(initial.key, { ...initial, skills: new Map(catalog.skills.map(skill => [skill.id, { ...skill }])) });
+    // Requests retain their session locally; the long-lived cache must not retain its output buffers.
+    catalogs.set(initial.key, { key: initial.key, directories: initial.directories,
+      sessionRef: initial.session ? new WeakRef(initial.session) : null,
+      skills: new Map(catalog.skills.map(skill => [skill.id, { ...skill }])) });
     // Keep the cache bounded when many terminal sessions are opened over time.
     if (catalogs.size > 100) catalogs.delete(catalogs.keys().next().value);
     return catalog;

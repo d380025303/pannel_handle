@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,58 @@ import { createSkillsService } from "./skills-service.cjs";
 const require = createRequire(import.meta.url);
 const SftpClient = require("ssh2-sftp-client");
 const { createSshFileSystem } = require("../../ssh/ssh-file-system.cjs");
+
+it("releases closed sessions and their output buffers without evicting Skills catalogs", () => {
+  const result = execFileSync(process.execPath, ["--expose-gc", "-e", `
+    const assert = require("node:assert/strict");
+    const { createSkillsService } = require(process.argv[1]);
+    const sessions = new Map();
+    const refs = [];
+    const service = createSkillsService({ homeDir: process.cwd(),
+      terminalManager: { getSession: id => sessions.get(id) },
+      fsApi: { promises: { readdir: async () => [] } } });
+    async function populate() {
+      for (let index = 0; index < 20; index++) {
+        const session = { id: String(index), output: Buffer.alloc(8 * 1024 * 1024, 120) };
+        sessions.set(session.id, session);
+        refs.push([new WeakRef(session), new WeakRef(session.output)]);
+        await service.list("codebuddy", session.id);
+      }
+      sessions.clear();
+    }
+    (async () => {
+      await populate();
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        global.gc();
+      }
+      const alive = refs.flat().filter(ref => ref.deref() !== undefined).length;
+      assert.equal(alive, 0, "closed sessions or output buffers retained by Skills cache");
+      // Keep the service alive throughout GC, without adding entries or triggering eviction.
+      await assert.rejects(service.read("codebuddy", "missing", "0"), /session does not exist/);
+      console.log(JSON.stringify({ sessions: 20, bufferMiB: 160, alive }));
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `, require.resolve("./skills-service.cjs")], { encoding: "utf8", timeout: 15000 });
+  expect(JSON.parse(result)).toEqual({ sessions: 20, bufferMiB: 160, alive: 0 });
+});
+
+it("rediscovers Skills when a session is replaced with identical directories", async () => {
+  const home = createHome();
+  writeSkill(home, ".codebuddy/skills/first", "---\nname: old\n---\nfirst");
+  let session = { id: "one", cwd: home, type: "windows" };
+  const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session } });
+  const { skills: [first] } = await service.list("codebuddy", session.id);
+  writeSkill(home, ".codebuddy/skills/first", "---\nname: new\n---\nfirst");
+  session = { ...session };
+  expect(await service.read("codebuddy", first.id, session.id)).toMatchObject({ name: "new" });
+});
+
+it("rejects a session replacement during Skills discovery", async () => {
+  let session = { id: "one", type: "windows" };
+  const service = createSkillsService({ homeDir: createHome(), terminalManager: { getSession: () => session },
+    fsApi: { promises: { readdir: async () => { session = { ...session }; return []; } } } });
+  await expect(service.list("codebuddy", "one")).rejects.toThrow("会话已切换");
+});
 
 it.each([
   [32 * 1024 * 1024, 32 * 1024 * 1024, false],
