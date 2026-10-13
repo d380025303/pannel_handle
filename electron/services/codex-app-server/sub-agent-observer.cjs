@@ -17,6 +17,12 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
   const terminalStatuses = ["completed", "failed", "shutdown", "interrupted", "deleted"];
   let textDeltas = [];
   const commandOutputLengths = new WeakMap();
+  // History backs off independently of the fixed discovery interval; never publish bookkeeping.
+  const historyPolls = new WeakMap();
+  const maxHistoryIntervalMs = Math.max(intervalMs, 30000);
+  function resetHistoryPoll(member) {
+    historyPolls.set(member, { delay: intervalMs, due: 0, status: member.status });
+  }
   function takeTextDeltas() { const result = textDeltas; textDeltas = []; return result; }
   let activeReads = 0; const readWaiters = [];
   async function readHistory(threadId, epoch) {
@@ -49,6 +55,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       if (!["idle", "notLoaded"].includes(status) || !terminalStatuses.includes(member.status)) member.status = status;
     }
     member.createdAt = thread.createdAt || member.createdAt;
+    if (!existing || member.status !== historyPolls.get(member)?.status) resetHistoryPoll(member);
     members.set(thread.id, member);
     if (!existing && members.size === 1) { expanded = true; selected = thread.id; schedule(); }
     return member;
@@ -59,7 +66,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       if (!item.agentThreadId) return;
       const member = members.get(item.agentThreadId) || add({ id: item.agentThreadId }, sender);
       if (!member) return;
-      if (live) member.eventRevision += 1;
+      if (live) { member.eventRevision += 1; resetHistoryPoll(member); }
       if (item.agentPath) member.name = item.agentPath;
       const status = { started: "running", interrupted: "interrupted", completed: "completed" }[item.kind];
       if (status) member.status = status;
@@ -70,7 +77,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
       const spawning = /spawn/i.test(item.tool || "") || threadId === item.newThreadId;
       const member = members.get(threadId) || (spawning ? add({ id: threadId }, sender) : null);
       if (!member) continue;
-      if (live) member.eventRevision += 1;
+      if (live) { member.eventRevision += 1; resetHistoryPoll(member); }
       if (spawning && item.prompt) member.task = item.prompt;
       const state = item.agentsStates?.[threadId];
       if (state?.status || item.agentStatus) member.status = state?.status || item.agentStatus;
@@ -146,10 +153,12 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     if (!valid(epoch)) return;
     const member = members.get(selected);
     if (expanded && member && (force || member.historyRevision !== member.eventRevision
-      || !terminalStatuses.includes(member.status) || member.error)) {
+      || (!terminalStatuses.includes(member.status) && Date.now() >= (historyPolls.get(member)?.due || 0)) || member.error)) {
       if (force) member.loading = true;
       member.error = null; if (force) notify();
+      if (force) resetHistoryPoll(member);
       const revision = member.eventRevision;
+      const previousStatus = member.status;
       try {
         const result = await readHistory(member.threadId, epoch);
         if (!valid(epoch)) return;
@@ -170,8 +179,13 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
             if (["completed", "interrupted"].includes(turn?.status)) member.status = turn.status;
             else if (turn?.status === "inProgress") member.status = "running";
           }
+          const poll = historyPolls.get(member);
+          poll.delay = force || historyChanged || previousStatus !== member.status
+            ? intervalMs : Math.min(poll.delay * 2, maxHistoryIntervalMs);
+          poll.due = Date.now() + poll.delay;
+          poll.status = member.status;
         }
-      } catch (cause) { if (valid(epoch)) member.error = cause.message; }
+      } catch (cause) { if (valid(epoch)) { member.error = cause.message; resetHistoryPoll(member); } }
       finally { if (valid(epoch)) member.loading = false; }
     }
     if (valid(epoch)) {
@@ -203,7 +217,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     if (method === "thread/started" && params.thread?.parentThreadId
       && (params.thread.parentThreadId === root || members.has(params.thread.parentThreadId))) {
       const member = add(params.thread);
-      if (member) member.eventRevision += 1;
+      if (member) { member.eventRevision += 1; resetHistoryPoll(member); }
       notify(); return true;
     }
     const threadId = params.threadId || params.thread?.id;
@@ -213,7 +227,7 @@ function createSubAgentObserver({ request, changed, deltaChanged = () => {}, int
     }
     const member = members.get(threadId);
     if (!member) return false;
-    member.eventRevision += 1;
+    member.eventRevision += 1; resetHistoryPoll(member);
     if (method === "thread/status/changed") member.status = runtimeStatus(params.status);
     if (method === "thread/name/updated" && params.name) member.name = params.name;
     if (method === "thread/closed") member.status = "notLoaded";

@@ -98,8 +98,56 @@ describe("Codex read-only sub-agent observer", () => {
     observer.reset("root", [spawn("a")]); await settle(); await vi.advanceTimersByTimeAsync(100);
     changed.mockClear(); request.mockClear();
     await vi.advanceTimersByTimeAsync(4500);
-    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(2);
+    expect(request.mock.calls.filter(([method]) => method === "thread/read")).toHaveLength(1);
     expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("backs off unchanged 8MiB history and synchronizes silent changes within 30s", async () => {
+    vi.useFakeTimers();
+    let text = "x".repeat(8 * 1024 * 1024), status = "inProgress";
+    const wire = () => JSON.stringify({ thread: { id: "a", status: { type: status === "inProgress" ? "active" : "idle" },
+      turns: [{ id: "turn", status, items: [{ id: "msg", type: "agentMessage", text }] }] } });
+    let response = wire();
+    const { observer, request, changed } = fixture(async (method, params) => method === "thread/list"
+      ? { data: [] } : params.threadId === "a" ? JSON.parse(response) : { thread: { id: params.threadId, turns: [] } });
+    const reads = () => request.mock.calls.filter(([method]) => method === "thread/read").length;
+    observer.reset("root", [spawn("a"), spawn("b")]); await settle(); await vi.advanceTimersByTimeAsync(100);
+    request.mockClear(); changed.mockClear();
+    await vi.advanceTimersByTimeAsync(6200);
+    expect(reads()).toBe(2);
+    expect(changed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(55700);
+    expect(reads()).toBe(5); // Read at 2, 6, 14, 30, 60 seconds.
+    expect(request.mock.calls.filter(([method]) => method === "thread/list")).toHaveLength(31);
+    expect(changed).not.toHaveBeenCalled();
+    text += "silent change"; response = wire();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(reads()).toBe(7); // Changed history resets to 2s, allowing another read at 92s.
+    expect(observer.snapshot().members[0].items[0].text).toBe(text);
+    expect(changed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30000);
+    const beforeRefresh = reads();
+    await observer.refresh();
+    expect(reads()).toBe(beforeRefresh + 1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reads()).toBe(beforeRefresh + 2);
+    await vi.advanceTimersByTimeAsync(30000);
+    const beforeEvent = reads();
+    text += "event change"; response = wire();
+    observer.observe("item/completed", { threadId: "a", turnId: "turn",
+      item: { id: "new", type: "agentMessage", text: "new message" } });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reads()).toBe(beforeEvent + 1);
+    status = "completed"; text += "final"; response = wire();
+    observer.observe("turn/completed", { threadId: "a", turn: { status } });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reads()).toBe(beforeEvent + 2);
+    expect(observer.snapshot().members[0].status).toBe("completed");
+    expect(observer.snapshot().members[0].items[0].text === text).toBe(true);
+    await observer.refresh();
+    expect(reads()).toBe(beforeEvent + 3);
+    observer.setView(true, "b"); await settle();
+    expect(request).toHaveBeenLastCalledWith("thread/read", { threadId: "b", includeTurns: true });
   });
 
   it("publishes changed history even when running metadata stays identical", async () => {
