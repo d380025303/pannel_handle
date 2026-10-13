@@ -78,6 +78,30 @@ afterEach(() => {
 });
 
 describe("remote-agent-bridge-service", () => {
+  it("marks remote MCP commands with missing SSH exit status as failed", async () => {
+    const harness = createHarness();
+    harness.sshSessionRuntime.execStreaming.mockImplementation(async (_sessionId, _command, options) => {
+      options.onStdout("partial output");
+      return { promise: Promise.resolve({ exitCode: -1 }), cancel: vi.fn() };
+    });
+    try {
+      const binding = await harness.service.createBinding("run-1");
+      const responsePromise = post(binding, {
+        id: 1, method: "tools/call",
+        params: { name: "remote_exec", arguments: { command: "git status" } }
+      });
+      await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+      harness.service.resolveApproval(harness.service.listPendingApprovals()[0].id, "once");
+      const response = await (await responsePromise).json();
+      expect(JSON.stringify(response)).toContain("partial output");
+      expect(harness.broadcast).toHaveBeenCalledWith("remote-agent:audit", expect.objectContaining({
+        tool: "remote_exec", status: "failed", exitCode: -1
+      }));
+    } finally {
+      await harness.service.shutdown();
+    }
+  });
+
   it("accumulates 4096 streaming chunks without scanning historical output", async () => {
     const harness = createHarness({}, { broadcast: () => {} });
     await harness.service.createBinding("run-1");

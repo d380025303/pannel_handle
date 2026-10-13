@@ -226,7 +226,7 @@ function createSshSessionRuntime({
         remoteStream.once("close", (code, signal) => {
           emitStdout(stdoutDecoder.end());
           emitStderr(stderrDecoder.end());
-          settle(undefined, { exitCode: signal || canceled ? -1 : Number.isInteger(code) ? code : 0, signal });
+          settle(undefined, { exitCode: signal || canceled ? -1 : Number.isInteger(code) ? code : -1, signal });
         });
         if (options.stdin) remoteStream.end(options.stdin); else remoteStream.end();
       });

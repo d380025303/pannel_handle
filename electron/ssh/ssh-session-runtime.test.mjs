@@ -66,7 +66,7 @@ describe("ssh-session-runtime", () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["disconnect", 0, 1])("handles real SSH server completion: %s", async completion => {
+  it.each(["disconnect", "channel-close", 0, 1, 7])("handles real SSH server completion: %s", async completion => {
     const { privateKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
       privateKeyEncoding: { type: "pkcs1", format: "pem" },
@@ -82,7 +82,9 @@ describe("ssh-session-runtime", () => {
         accept().on("exec", acceptCommand => {
           const stream = acceptCommand();
           stream.write("partial-output");
-          if (completion !== "disconnect") {
+          if (completion === "channel-close") {
+            stream.close();
+          } else if (completion !== "disconnect") {
             stream.write("-complete");
             stream.exit(completion);
             stream.end();
@@ -101,14 +103,26 @@ describe("ssh-session-runtime", () => {
       const options = { onStdout: () => {
         if (completion === "disconnect") for (const connection of connections) connection._sock.destroy();
       } };
-      if (completion === "disconnect") {
+      if (completion === "channel-close") {
+        const stdout = [];
+        const handle = await runtime.execStreaming("run-1", "command", { onStdout: chunk => stdout.push(chunk) });
+        await expect(handle.promise).resolves.toMatchObject({ exitCode: -1 });
+        expect(stdout.join("")).toBe("partial-output");
+        const executor = createSshGitExecutor({ sshSessionRuntime: runtime });
+        await expect(executor.runGit("run-1", "/repo", ["status"]))
+          .rejects.toMatchObject({ code: -1, stdout: "partial-output", canceled: false });
+      } else if (completion === "disconnect") {
         await expect(runtime.exec("run-1", "command", options)).rejects.toThrow("connection interrupted");
       } else if (completion === 0) {
         await expect(runtime.exec("run-1", "command", options)).resolves.toBe("partial-output-complete");
       } else {
-        await expect(runtime.exec("run-1", "command", options)).rejects.toThrow("exit code 1");
-        await expect(runtime.exec("run-1", "command", { ...options, allowExitCodes: [1] }))
+        await expect(runtime.exec("run-1", "command", options)).rejects.toThrow(`exit code ${completion}`);
+        await expect(runtime.exec("run-1", "command", { ...options, allowExitCodes: [completion] }))
           .resolves.toBe("partial-output-complete");
+      }
+      if (Number.isInteger(completion)) {
+        const handle = await runtime.execStreaming("run-1", "command");
+        await expect(handle.promise).resolves.toMatchObject({ exitCode: completion });
       }
     } finally {
       for (const connection of connections) connection._sock.destroy();
