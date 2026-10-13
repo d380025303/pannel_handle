@@ -1,4 +1,5 @@
 const { Client } = require("ssh2");
+const { StringDecoder } = require("node:string_decoder");
 const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const SECTION_MARKER = "__PANNEL_HANDLE_SECTION__";
@@ -272,6 +273,8 @@ function createRemoteSystemService({
       let stream;
       let stdout = "";
       let stderr = "";
+      const stdoutDecoder = new StringDecoder("utf8");
+      const stderrDecoder = new StringDecoder("utf8");
       const finish = (error) => {
         if (settled) return;
         settled = true;
@@ -300,10 +303,10 @@ function createRemoteSystemService({
           }
           stream = remoteStream;
           stream.on("data", (data) => {
-            stdout += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+            stdout += Buffer.isBuffer(data) ? stdoutDecoder.write(data) : String(data);
           });
           stream.stderr?.on("data", (data) => {
-            stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+            stderr += Buffer.isBuffer(data) ? stderrDecoder.write(data) : String(data);
           });
           stream.on("error", (error) => {
             if (settled) return;
@@ -311,6 +314,9 @@ function createRemoteSystemService({
             finish(error);
           });
           stream.on("close", (code) => {
+            if (settled) return;
+            stdout += stdoutDecoder.end();
+            stderr += stderrDecoder.end();
             if (Number.isInteger(code) && code !== 0) {
               finish(new Error(stderr.trim() || `Remote metrics command failed with exit code ${code}.`));
             } else {

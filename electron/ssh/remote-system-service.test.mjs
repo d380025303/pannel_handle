@@ -44,7 +44,8 @@ function createClient(outputs) {
     stream.stderr = new EventEmitter();
     callback(undefined, stream);
     queueMicrotask(() => {
-      stream.emit("data", outputs.shift());
+      const output = outputs.shift();
+      for (const chunk of Array.isArray(output) ? output : [output]) stream.emit("data", chunk);
       stream.emit("close", 0);
     });
   });
@@ -52,6 +53,74 @@ function createClient(outputs) {
 }
 
 describe("remote-system-service", () => {
+  it.each([1, 2])("decodes stderr independently and flushes trailing bytes after split %i", async (splitByte) => {
+    const client = createClient([]);
+    client.exec = vi.fn((_command, callback) => {
+      const stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      callback(undefined, stream);
+      queueMicrotask(() => {
+        const stdout = Buffer.from("数");
+        const stderr = Buffer.from("错误");
+        stream.emit("data", stdout.subarray(0, splitByte));
+        stream.stderr.emit("data", stderr.subarray(0, splitByte));
+        stream.emit("data", stdout.subarray(splitByte));
+        stream.stderr.emit("data", stderr.subarray(splitByte));
+        stream.stderr.emit("data", Buffer.from([0xe6]));
+        stream.emit("close", 1);
+      });
+    });
+    const service = createRemoteSystemService({
+      terminalManager: { getSession: () => ({ type: "ssh" }) },
+      sshSessionRuntime: { connectClient: async () => client }
+    });
+    try {
+      await expect(service.getMetrics("run-1")).rejects.toThrow("错误�");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  it.each([1, 2])("preserves Chinese mount paths split after UTF-8 byte %i", async (splitByte) => {
+    const core = CORE_SAMPLE.replaceAll("/data", "/数据");
+    const disk = DISK_SAMPLE.replaceAll("/data", "/数据");
+    const nextCore = core.replace(
+      "8 17 sdb1 30 0 300 30 40 0 400 40 0 2000 0",
+      "8 17 sdb1 30 0 400 30 40 0 600 40 0 2250 0"
+    );
+    const split = (output) => {
+      const bytes = Buffer.from(output);
+      const offset = bytes.indexOf(Buffer.from("数")) + splitByte;
+      return [bytes.subarray(0, offset), bytes.subarray(offset)];
+    };
+    const collect = async (chunked) => {
+      const outputs = [core, disk, nextCore, disk].map((output) => (
+        chunked ? split(output) : Buffer.from(output)
+      ));
+      const client = createClient(outputs);
+      const times = [1000, 2000];
+      const service = createRemoteSystemService({
+        terminalManager: { getSession: () => ({ type: "ssh" }) },
+        sshSessionRuntime: { connectClient: async () => client },
+        now: () => times.shift()
+      });
+      try {
+        const first = await service.getMetrics("run-1");
+        expect(first.disks[0]).toMatchObject({ mountPoint: "/数据", io: { readBytesPerSecond: null } });
+        return await service.getMetrics("run-1");
+      } finally {
+        await service.shutdown();
+      }
+    };
+    const baseline = await collect(false);
+    const chunked = await collect(true);
+    expect(chunked).toEqual(baseline);
+    expect(chunked.disks[0]).toMatchObject({
+      mountPoint: "/数据",
+      io: { readBytesPerSecond: 51200, writeBytesPerSecond: 102400, busyPercent: 25 }
+    });
+  });
+
   it("parses Linux CPU, network, memory, mount, and disk metrics", () => {
     expect(parseLinuxMetrics(SAMPLE)).toEqual({
       network: { receivedBytes: 3000, transmittedBytes: 1200 },
