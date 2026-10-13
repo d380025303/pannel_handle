@@ -136,14 +136,18 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
       stream.stderr?.on("error", (err) => {
         emitData(`\r\nSSH stderr stream error: ${err.message}\r\n`);
       });
-      stream.on("exit", (code) => {
+      stream.on("exit", (code, signal) => {
         shellExited = true;
-        if (Number.isInteger(code)) {
+        if (signal) {
+          exitCode = -1;
+        } else if (Number.isInteger(code)) {
           exitCode = code;
         }
       });
-      stream.on("close", (code) => {
-        if (Number.isInteger(code)) {
+      stream.on("close", (code, signal) => {
+        if (signal) {
+          exitCode = -1;
+        } else if (Number.isInteger(code)) {
           exitCode = code;
         }
         client.end();

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { generateKeyPairSync } from "node:crypto";
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
@@ -34,6 +35,76 @@ function createFakeClient(stream = createFakeStream()) {
 }
 
 describe("ssh2 terminal", () => {
+  it.each(["SIGTERM", "SIGKILL"])("preserves %s termination through either exit handler", signal => {
+    for (const source of ["exit", "close"]) {
+      const { client, stream } = createFakeClient();
+      const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+      const exits = [];
+      term.onExit(event => exits.push(event));
+      client.emit("ready");
+      if (source === "exit") stream.emit("exit", null, signal);
+      else stream.emit("exit", null);
+      stream.emit("close", null, source === "close" ? signal : undefined);
+      client.emit("close");
+      expect(exits).toEqual([{ exitCode: -1, reason: "remote-exit", retryable: false }]);
+    }
+  });
+
+  it.each(["TERM", "KILL", 0, 7])("reports remote exit %s once through a real ssh2 server", async status => {
+    const { Server } = require("ssh2");
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" }
+    });
+    const connections = new Set();
+    const server = new Server({ hostKeys: [privateKey] }, client => {
+      connections.add(client);
+      client.on("error", () => {});
+      client.on("close", () => connections.delete(client));
+      client.on("authentication", context => context.accept());
+      client.on("ready", () => client.on("session", accept => {
+        const session = accept();
+        session.on("pty", accept => accept());
+        session.on("shell", accept => {
+          const channel = accept();
+          if (typeof status === "string") channel.exit(status, false, "terminated");
+          else channel.exit(status);
+          channel.end();
+          channel.close();
+        });
+      }));
+    });
+    let term;
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const exits = [];
+      let client;
+      term = createSsh2Terminal({
+        connectionConfig: { host: "127.0.0.1", port: server.address().port, username: "test", readyTimeout: 3000 },
+        clientFactory: () => {
+          client = new (require("ssh2").Client)();
+          return client;
+        }
+      });
+      const closed = new Promise(resolve => client.once("close", resolve));
+      term.onExit(event => exits.push(event));
+      await closed;
+      expect(exits).toEqual([{
+        exitCode: typeof status === "string" ? -1 : status,
+        reason: "remote-exit",
+        retryable: false
+      }]);
+    } finally {
+      term?.kill();
+      for (const client of connections) client.end();
+      await new Promise(resolve => server.close(resolve));
+    }
+  }, 10000);
+
   it.each([32768, 65536])("yields while draining %i small chunks and preserves input order", async count => {
     const { client, stream } = createFakeClient();
     const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
