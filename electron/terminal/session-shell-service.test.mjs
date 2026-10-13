@@ -51,6 +51,54 @@ describe("graphical session shell", () => {
     expect(term.write).toHaveBeenCalledTimes(1);
   });
 
+  it("bounds 1000 large callbacks and preserves live output and sequence", () => {
+    const { service, term, broadcast } = setup({ id: "g1", runtimeMode: "app-server", type: "windows", shell: "pwsh.exe" });
+    const first = service.open("g1", "owner");
+    const chunk = "x".repeat(32 * 1024);
+    for (let i = 0; i < 1000; i++) term.listeners.data[0](chunk);
+    expect(Buffer.byteLength(service.open("g1", "reader").history)).toBe(2 * 1024 * 1024);
+    term.listeners.data[0]("LATEST");
+    const result = service.open("g1", "reader");
+    expect(Buffer.byteLength(result.history)).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(result.history.endsWith("LATEST")).toBe(true);
+    expect(result.seq).toBe(1001);
+    expect(result.generation).toBe(first.generation);
+    expect(broadcast).toHaveBeenCalledTimes(1001);
+    expect(broadcast).toHaveBeenLastCalledWith("session-shell:data", expect.objectContaining({ seq: 1001, data: "LATEST" }));
+  });
+
+  it("retains a Unicode-safe suffix of a single oversized callback", () => {
+    const { service, term, broadcast } = setup({ id: "g1", runtimeMode: "app-server", type: "windows" });
+    service.open("g1", "owner");
+    const data = "😀界".repeat(400000) + "LATEST";
+    term.listeners.data[0](data);
+    const { history } = service.open("g1", "reader");
+    expect(Buffer.byteLength(history)).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(data.endsWith(history)).toBe(true);
+    expect(history).toMatch(/^(😀|界)/u);
+    expect(history.endsWith("LATEST")).toBe(true);
+    expect(broadcast).toHaveBeenLastCalledWith("session-shell:data", expect.objectContaining({ data }));
+  });
+
+  it.each(["\x1b[" + "1;".repeat(1100000) + "m", "\x1b]0;" + "x".repeat(2200000) + "\x1b\\", "\x1bP" + "x".repeat(2200000) + "\x1b\\"])("does not replay a partial oversized ANSI sequence", sequence => {
+    const { service, term } = setup({ id: "g1", runtimeMode: "app-server", type: "windows" });
+    service.open("g1", "owner");
+    term.listeners.data[0](sequence + "LATEST");
+    expect(service.open("g1", "reader").history).toBe("LATEST");
+  });
+
+  it("drops cross-callback control payloads after eviction and keeps the block limit", () => {
+    const { service, term } = setup({ id: "g1", runtimeMode: "app-server", type: "windows" });
+    service.open("g1", "owner");
+    term.listeners.data[0]("\x1b]0;");
+    term.listeners.data[0]("x".repeat(2200000));
+    expect(service.open("g1", "reader").history).toBe("");
+    term.listeners.data[0]("payload\x07LATEST");
+    expect(service.open("g1", "reader").history).toBe("LATEST");
+    for (let i = 0; i < 1001; i++) term.listeners.data[0]("a");
+    expect(service.open("g1", "reader").history).toBe("a".repeat(1000));
+  });
+
   it("uses the selected WSL distribution and working directory without an Agent command", () => {
     const { service, pty } = setup({ id: "w1", runtimeMode: "app-server", type: "wsl",
       shell: "unused", wslDistro: "Ubuntu", cwd: "/home/me/project", initialCommand: "codex" });
