@@ -106,8 +106,10 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     if (next.enabled && (!next.host || !next.database || !next.user || !next.password || !next.passphrase)) {
       throw new Error("Connection and backup passphrase must be configured before enabling backup.");
     }
+    const previous = state;
     state = next;
-    saveFile();
+    try { saveFile(); }
+    catch (error) { state = previous; throw error; }
     if (pool) { await pool.end(); pool = null; }
     onChanged(publicState());
     if (state.enabled) schedule(0);

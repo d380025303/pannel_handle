@@ -76,6 +76,66 @@ describe("remote statistics", () => {
 });
 
 describe("PostgreSQL backup service", () => {
+  it("keeps configuration, credentials and pool unchanged when persistence fails, then allows retry", async () => {
+    vi.useFakeTimers();
+    let persisted;
+    let writeError;
+    const dataStore = {
+      read: () => structuredClone(persisted || {}),
+      write: (_file, value) => {
+        if (writeError) throw writeError;
+        persisted = structuredClone(value);
+      }
+    };
+    const pools = [];
+    class FakePool {
+      constructor(options) { this.options = options; this.end = vi.fn(); pools.push(this); }
+      async query() { return { rows: [] }; }
+    }
+    const onChanged = vi.fn();
+    const service = createPostgresBackupService({ userData: "unused", dataStore, PoolClass: FakePool, onChanged,
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value),
+        decryptString: value => value.toString("utf8") } });
+    const original = { enabled: false, host: "old-db", database: "old-backup", user: "old-user",
+      password: "old-password", passphrase: "old-passphrase", deviceName: "old-device", port: 5433, ssl: false };
+    const updated = { enabled: true, host: "new-db", database: "new-backup", user: "new-user",
+      password: "new-password", passphrase: "new-passphrase", deviceName: "new-device", port: 5434, ssl: true };
+    try {
+      service.load();
+      await service.saveConfig(original);
+      const previousPublic = service.publicState();
+      const previousPersisted = structuredClone(persisted);
+      const previousPool = await service.getPool();
+      onChanged.mockClear();
+      writeError = Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+      await expect(service.saveConfig(updated)).rejects.toBe(writeError);
+      expect(service.publicState()).toEqual(previousPublic);
+      expect(persisted).toEqual(previousPersisted);
+      expect(await service.getPool()).toBe(previousPool);
+      expect(previousPool.end).not.toHaveBeenCalled();
+      expect(onChanged).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      await service.backupNow();
+      await service.testConnection();
+      expect(pools.at(-1).options).toMatchObject({ host: "old-db", password: "old-password" });
+
+      writeError = null;
+      await service.saveConfig({ ...original, password: "", passphrase: "" });
+      expect(persisted).toEqual(previousPersisted);
+      await service.saveConfig(updated);
+      expect(service.publicState()).toMatchObject({ enabled: true, host: "new-db" });
+      expect(persisted.password).toBe(Buffer.from("new-password").toString("base64"));
+      expect(persisted.passphrase).toBe(Buffer.from("new-passphrase").toString("base64"));
+      expect(persisted.snapshotKeyVersion).toBe(previousPersisted.snapshotKeyVersion + 1);
+      expect(onChanged).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(1);
+      expect((await service.getPool()).options).toMatchObject({ host: "new-db", password: "new-password" });
+    } finally {
+      await service.shutdown();
+      vi.useRealTimers();
+    }
+  });
+
   it("stores only encrypted session snapshots and restores SSH credentials as new templates", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "pg-backup-test-"));
     const snapshots = [];
