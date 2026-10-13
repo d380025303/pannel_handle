@@ -824,6 +824,35 @@ describe("terminal-manager", () => {
     expect(manager.getHistory(session.id)).toContain(AGENT_EXIT_MARKER);
   });
 
+  it("preserves Unicode and failed prefixes across every marker split", () => {
+    for (let split = 1; split < AGENT_EXIT_MARKER.length; split += 1) {
+      const { manager, term, broadcast } = createManager();
+      const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
+      const prefix = AGENT_EXIT_MARKER.slice(0, split);
+      const visible = `中文😀\r\n${prefix}错误😀\nembedded ${AGENT_EXIT_MARKER}\r`;
+      term.emitData(`中文😀\r\n${prefix}`);
+      term.emitData(`错误😀\nembedded ${AGENT_EXIT_MARKER}\r${prefix}`);
+      term.emitData(`${AGENT_EXIT_MARKER.slice(split)}尾部🌍\n`);
+
+      expect(manager.getHistory(session.id)).toBe(`${visible}尾部🌍\n`);
+      expect(broadcast.mock.calls.filter(([channel, payload]) => (
+        channel === "agent:status" && payload.eventName === "AgentExit"
+      ))).toHaveLength(1);
+    }
+  });
+
+  it("preserves large ordinary output and line boundaries between chunks", () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
+    const ordinary = "中文😀plain output ".repeat(2048);
+    term.emitData(ordinary);
+    term.emitData(AGENT_EXIT_MARKER);
+    term.emitData("\n");
+    term.emitData(AGENT_EXIT_MARKER);
+    term.emitData("\r\n");
+    expect(manager.getHistory(session.id)).toBe(`${ordinary}${AGENT_EXIT_MARKER}\n\r\n`);
+  });
+
   it("uses a generated runtime command without replacing the saved Agent pre-command", () => {
     const { manager, term, sessionStore } = createManager();
 

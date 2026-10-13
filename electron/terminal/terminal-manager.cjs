@@ -563,12 +563,15 @@ function createTerminalManager({
   }
 
   function consumeAgentExitMarker(session, data) {
-    let text = "";
+    const input = String(data || "");
+    const parts = [];
+    let textStart = 0;
     let candidate = session.agentMarkerRemainder || "";
     let atLineStart = session.agentMarkerAtLineStart !== false;
     let detected = false;
 
-    for (const character of String(data || "")) {
+    for (let index = 0; index < input.length; index += 1) {
+      const character = input[index];
       if (candidate) {
         if (character === AGENT_EXIT_MARKER[candidate.length]) {
           candidate += character;
@@ -577,20 +580,29 @@ function createTerminalManager({
             detected = true;
             atLineStart = false;
           }
+          textStart = index + 1;
           continue;
         }
-        text += candidate;
+        parts.push(candidate);
         candidate = "";
         atLineStart = false;
       }
 
       if (atLineStart && character === AGENT_EXIT_MARKER[0]) {
+        if (index > textStart) parts.push(input.slice(textStart, index));
         candidate = character;
+        textStart = index + 1;
         continue;
       }
 
-      text += character;
-      atLineStart = character === "\r" || character === "\n";
+      // Skip ordinary text in one span; only a marker at a line start needs
+      // the character-by-character state machine above.
+      let next = input.indexOf(AGENT_EXIT_MARKER[0], index + 1);
+      while (next !== -1 && input[next - 1] !== "\r" && input[next - 1] !== "\n") {
+        next = input.indexOf(AGENT_EXIT_MARKER[0], next + 1);
+      }
+      index = next === -1 ? input.length - 1 : next - 1;
+      atLineStart = input[index] === "\r" || input[index] === "\n";
     }
 
     session.agentMarkerRemainder = candidate;
@@ -606,7 +618,9 @@ function createTerminalManager({
       });
     }
 
-    return text;
+    if (textStart === 0 && parts.length === 0) return input;
+    if (textStart < input.length) parts.push(input.slice(textStart));
+    return parts.join("");
   }
 
   function attachTerminal(session, term, options = {}) {
