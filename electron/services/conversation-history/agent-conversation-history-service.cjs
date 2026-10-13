@@ -140,13 +140,13 @@ function createAgentConversationHistoryService({
     const messages = reference.provider === "codex"
       ? await getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database, messageCache: codexMessageCache })
       : reference.provider === "opencode"
-        ? getLocalOpenCodeMessages({ homeDir, id: reference.id, fsApi, Database })
+        ? await getLocalOpenCodeMessages({ homeDir, id: reference.id })
       : reference.provider === "gemini"
         ? await getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi, messageCache: geminiMessageCache })
         : reference.provider === "grok"
           ? await getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
           : await getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi, messageCache: codeBuddyMessageCache });
-    if (reference.provider !== "codebuddy" && reference.provider !== "gemini") messages.sort((left, right) => right.timestamp - left.timestamp);
+    if (reference.provider !== "codebuddy" && reference.provider !== "gemini" && reference.provider !== "opencode") messages.sort((left, right) => right.timestamp - left.timestamp);
     messageCache.set(cacheKey, { messages, createdAt: now });
     if (messageCache.size > MAX_MESSAGE_CACHE_ENTRIES) messageCache.delete(messageCache.keys().next().value);
     return {

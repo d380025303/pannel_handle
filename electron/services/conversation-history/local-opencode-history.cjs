@@ -45,7 +45,7 @@ function listLocalOpenCode({ homeDir, cwd, scope, includeArchived, fsApi, Databa
   }
 }
 
-function getLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
+function readLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
   const database = openDatabase({ homeDir, fsApi, Database, env });
   if (!database) throw new Error("OpenCode conversation is unavailable.");
   try {
@@ -53,18 +53,20 @@ function getLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
       throw new Error("OpenCode conversation is unavailable.");
     const rows = database.prepare(`SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role,
       json_extract(m.data, '$.summary') AS summary,
-      p.id AS part_id, p.data AS part_data
+      json_extract(p.data, '$.text') AS text
       FROM message m JOIN part p ON p.message_id = m.id
-      WHERE m.session_id = ? ORDER BY m.time_created, m.id, p.time_created, p.id`).all(id);
+      WHERE m.session_id = ?
+        AND json_valid(p.data)
+        AND CASE WHEN json_valid(p.data) THEN json_extract(p.data, '$.type') = 'text'
+          AND json_type(p.data, '$.text') = 'text' ELSE 0 END
+      ORDER BY m.time_created, m.id, p.time_created, p.id`).all(id);
     const messages = new Map();
     for (const row of rows) {
       if (row.role !== "user" && row.role !== "assistant") continue;
-      let part;
-      try { part = JSON.parse(row.part_data); } catch { continue; }
-      if (part?.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;
+      if (typeof row.text !== "string" || !row.text.trim()) continue;
       const message = messages.get(row.id) || { id: row.id, provider: "opencode",
         kind: row.role === "user" ? "user" : row.summary === 1 ? "summary" : "reply", text: "", timestamp: timestampMs(row.time_created) };
-      message.text += `${message.text ? "\n\n" : ""}${part.text.trim()}`;
+      message.text += `${message.text ? "\n\n" : ""}${row.text.trim()}`;
       messages.set(row.id, message);
     }
     return [...messages.values()];
@@ -73,4 +75,9 @@ function getLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
   }
 }
 
-module.exports = { databaseFile, listLocalOpenCode, getLocalOpenCodeMessages };
+function getLocalOpenCodeMessages({ homeDir, id, env = process.env }) {
+  const { readOpenCodeHistory } = require("./opencode-history-worker-client.cjs");
+  return readOpenCodeHistory({ homeDir, id, env: { XDG_DATA_HOME: env.XDG_DATA_HOME } });
+}
+
+module.exports = { databaseFile, listLocalOpenCode, getLocalOpenCodeMessages, readLocalOpenCodeMessages };

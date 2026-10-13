@@ -2,6 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import historyModule from "./agent-conversation-history-service.cjs";
@@ -59,7 +60,14 @@ it("lists OpenCode sessions with directory, archive, search, and pagination filt
 });
 
 it("returns only visible user and assistant text", async () => {
-  const history = service(fixture());
+  const homeDir = fixture();
+  const db = new DatabaseSync(path.join(homeDir, ".local", "share", "opencode", "opencode.db"));
+  const insert = db.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?)");
+  for (const [index, data] of ["{broken", '{"type":"text","text":123}', '{"type":"text","text":" \t "}', '{"type":"text","text":null}'].entries()) {
+    insert.run(`invalid_${index}`, "m_reply", "ses_one", 2600 + index, data);
+  }
+  db.close();
+  const history = service(homeDir);
   const detail = await history.getHistoryMessages({ panelSessionId: "panel", conversationRef: "opencode:ses_one" });
   expect(detail.messages.map(message => [message.kind, message.text])).toEqual([
     ["reply", "Answer\n\ncontinued"], ["user", "Question"]
@@ -110,3 +118,82 @@ it("reads the same OpenCode history through the remote Python parser", () => {
     ["reply", "Answer\n\ncontinued"], ["user", "Question"]
   ]);
 });
+
+
+it("keeps timers responsive for 10,000 messages and preserves the paging snapshot", async () => {
+  const homeDir = fixture();
+  const file = path.join(homeDir, ".local", "share", "opencode", "opencode.db");
+  const db = new DatabaseSync(file);
+  db.exec(`CREATE INDEX message_session ON message(session_id);
+    CREATE INDEX part_message ON part(message_id); BEGIN`);
+  const insertMessage = db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)");
+  const insertPart = db.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?)");
+  const tool = JSON.stringify({ type: "tool", state: { output: "x".repeat(16 * 1024) } });
+  const expected = [];
+  for (let index = 0; index < 10000; index += 1) {
+    const id = `large_${String(index).padStart(5, "0")}`;
+    const time = 10000 + Math.floor(index / 2);
+    const summary = index % 7 === 0;
+    insertMessage.run(id, "ses_one", time, JSON.stringify({ role: "assistant", summary }));
+    insertPart.run(`${id}_tool`, id, "ses_one", time, tool);
+    insertPart.run(`${id}_text`, id, "ses_one", time + 1, JSON.stringify({ type: "text", text: ` Body ${index} ` }));
+    expected.push({ id, provider: "opencode", kind: summary ? "summary" : "reply", text: `Body ${index}`, timestamp: time * 1000 });
+  }
+  db.exec("COMMIT");
+  expected.push({ id: "m_user", provider: "opencode", kind: "user", text: "Question", timestamp: 1200000 },
+    { id: "m_reply", provider: "opencode", kind: "reply", text: "Answer\n\ncontinued", timestamp: 2500000 });
+  expected.sort((a, b) => b.timestamp - a.timestamp);
+  // Compare with the original full-part query and assembly, including stable ties.
+  const before = performance.now();
+  const legacy = new Map();
+  for (const row of db.prepare(`SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role,
+    json_extract(m.data, '$.summary') AS summary, p.data AS part_data
+    FROM message m JOIN part p ON p.message_id = m.id
+    WHERE m.session_id = ? ORDER BY m.time_created, m.id, p.time_created, p.id`).all("ses_one")) {
+    if (row.role !== "user" && row.role !== "assistant") continue;
+    const part = JSON.parse(row.part_data);
+    if (part.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;
+    const message = legacy.get(row.id) || { id: row.id, provider: "opencode",
+      kind: row.role === "user" ? "user" : row.summary === 1 ? "summary" : "reply",
+      text: "", timestamp: row.time_created * 1000 };
+    message.text += `${message.text ? "\n\n" : ""}${part.text.trim()}`;
+    legacy.set(row.id, message);
+  }
+  process.stdout.write(`OpenCode legacy synchronous read: ${(performance.now() - before).toFixed(1)} ms\n`);
+  expect([...legacy.values()].sort((a, b) => b.timestamp - a.timestamp)).toEqual(expected);
+  const history = service(homeDir);
+  const request = { panelSessionId: "panel", conversationRef: "opencode:ses_one", limit: 100 };
+  for (let trial = 0; trial < 3; trial += 1) {
+    let ticks = 0;
+    let completed = false;
+    const start = performance.now();
+    const timer = setInterval(() => { if (!completed) ticks += 1; }, 5);
+    const zero = new Promise(resolve => setTimeout(() => resolve({ elapsed: performance.now() - start, completed }), 0));
+    let page;
+    try {
+      page = await history.getHistoryMessages(request);
+      completed = true;
+    } finally {
+      clearInterval(timer);
+    }
+    const firstTick = await zero;
+    process.stdout.write(`OpenCode trial ${trial + 1}: ${(performance.now() - start).toFixed(1)} ms, zero timer ${firstTick.elapsed.toFixed(1)} ms, ${ticks} ticks\n`);
+    expect(firstTick.completed).toBe(false);
+    expect(ticks).toBeGreaterThan(0);
+    expect(page.messages).toEqual(expected.slice(0, 100));
+    expect(page.nextCursor).toBe("100");
+  }
+  // Later pages must use the first-page snapshot even after the database changes.
+  db.prepare("UPDATE part SET data = ? WHERE id = ?").run(JSON.stringify({ type: "text", text: "changed" }), "large_09800_text");
+  db.close();
+  const second = await history.getHistoryMessages({ ...request, cursor: "100" });
+  expect(second.messages).toEqual(expected.slice(100, 200));
+  const all = [...expected.slice(0, 100), ...second.messages];
+  for (let offset = 200; offset < expected.length; offset += 100) {
+    const page = await history.getHistoryMessages({ ...request, cursor: String(offset) });
+    all.push(...page.messages);
+  }
+  expect(all).toEqual(expected);
+  const refreshed = await history.getHistoryMessages({ ...request, limit: 300 });
+  expect(refreshed.messages.find(message => message.id === "large_09800").text).toBe("changed");
+}, 30000);
