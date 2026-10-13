@@ -9,6 +9,7 @@ function buildEnvironmentCommand(environment) {
 }
 
 const MAX_PENDING_INPUT_BYTES = 4 * 1024 * 1024;
+const MAX_WRITES_PER_TURN = 256;
 
 function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, rows = 30, clientFactory = () => new Client() }) {
   const emitter = new EventEmitter();
@@ -22,21 +23,40 @@ function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, ro
   let killed = false;
   let shellExited = false;
   const pendingWrites = [];
+  let pendingHead = 0;
   let pendingBytes = 0;
   let waitingForDrain = false;
+  let flushImmediate = null;
 
   function clearPendingWrites() {
     pendingWrites.length = 0;
+    pendingHead = 0;
     pendingBytes = 0;
     waitingForDrain = false;
+    if (flushImmediate !== null) clearImmediate(flushImmediate);
+    flushImmediate = null;
     stream?.off("drain", onDrain);
   }
 
   function flushPendingWrites() {
-    while (stream && !closed && !killed && !waitingForDrain && pendingWrites.length) {
-      const data = pendingWrites.shift();
+    // New input must not bypass the yield scheduled for an existing backlog.
+    if (flushImmediate !== null) return;
+    let writes = 0;
+    while (stream && !closed && !killed && !waitingForDrain && pendingHead < pendingWrites.length && writes < MAX_WRITES_PER_TURN) {
+      const data = pendingWrites[pendingHead];
+      pendingWrites[pendingHead++] = undefined;
       pendingBytes -= Buffer.byteLength(data);
+      writes++;
       waitingForDrain = stream.write(data) === false;
+    }
+    if (pendingHead === pendingWrites.length) {
+      pendingWrites.length = 0;
+      pendingHead = 0;
+    } else if (stream && !closed && !killed && !waitingForDrain) {
+      flushImmediate = setImmediate(() => {
+        flushImmediate = null;
+        flushPendingWrites();
+      });
     }
   }
 

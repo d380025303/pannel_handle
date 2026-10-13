@@ -34,6 +34,76 @@ function createFakeClient(stream = createFakeStream()) {
 }
 
 describe("ssh2 terminal", () => {
+  it.each([32768, 65536])("yields while draining %i small chunks and preserves input order", async count => {
+    const { client, stream } = createFakeClient();
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    client.emit("ready");
+    stream.write.mockImplementation(data => { stream.writes.push(data); return false; });
+    term.write("blocked");
+    const inputs = Array.from({ length: count }, (_, i) => String(i).padStart(31, "0"));
+    for (const input of inputs) {
+      if (!term.write(input).ok) throw new Error("unexpected input rejection");
+    }
+    expect(stream.writes).toEqual(["blocked"]);
+    stream.write.mockImplementation(data => { stream.writes.push(data); return true; });
+    stream.emit("drain");
+    expect(stream.writes.length).toBeGreaterThan(1);
+    expect(stream.writes.length).toBeLessThan(count + 1);
+    const sentBeforeNewInput = stream.writes.length;
+    term.write("tail");
+    expect(stream.writes.length).toBe(sentBeforeNewInput);
+    let responsiveTurns = 0;
+    while (stream.writes.length < count + 2 && responsiveTurns < count) {
+      await new Promise(resolve => setImmediate(resolve));
+      responsiveTurns++;
+    }
+    expect(responsiveTurns).toBeGreaterThan(1);
+    expect(stream.writes).toEqual(["blocked", ...inputs, "tail"]);
+    // A fully consumed queue must release its byte budget and reset its head.
+    expect(term.write(Buffer.alloc(MAX_PENDING_INPUT_BYTES))).toEqual({ ok: true });
+    term.kill();
+  });
+
+  it("waits for another drain when a deferred batch encounters backpressure", async () => {
+    const { client, stream } = createFakeClient();
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    for (let i = 0; i < 1024; i++) term.write(String(i));
+    client.emit("ready");
+    const firstBatchLength = stream.writes.length;
+    expect(firstBatchLength).toBeLessThan(1024);
+    stream.write.mockImplementation(data => { stream.writes.push(data); return false; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(stream.writes.length).toBe(firstBatchLength + 1);
+    await new Promise(resolve => setImmediate(resolve));
+    term.write("tail");
+    expect(stream.writes.length).toBe(firstBatchLength + 1);
+    stream.write.mockImplementation(data => { stream.writes.push(data); return true; });
+    stream.emit("drain");
+    for (let turn = 0; turn < 10 && stream.writes.length < 1025; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    expect(stream.writes).toEqual([...Array.from({ length: 1024 }, (_, i) => String(i)), "tail"]);
+    term.kill();
+  });
+
+  it.each(["kill", "client-close", "stream-close", "error"])("cancels deferred input on %s", async reason => {
+    const { client, stream } = createFakeClient();
+    const term = createSsh2Terminal({ connectionConfig: {}, clientFactory: () => client });
+    for (let i = 0; i < 1024; i++) term.write("queued");
+    client.emit("ready");
+    const sent = stream.writes.length;
+    expect(sent).toBeLessThan(1024);
+    if (reason === "kill") term.kill();
+    else if (reason === "client-close") client.emit("close");
+    else if (reason === "stream-close") stream.emit("close");
+    else stream.emit("error", new Error("connection lost"));
+    await new Promise(resolve => setImmediate(resolve));
+    stream.emit("drain");
+    expect(stream.writes.length).toBe(sent);
+    expect(stream.listenerCount("drain")).toBe(0);
+    expect(term.write("late").code).toBe("SSH_INPUT_CLOSED");
+  });
+
   it("bounds the real ssh2 Channel and flushes accepted input in order after drain", async () => {
     const { Channel, MAX_WINDOW, PACKET_SIZE } = require("ssh2/lib/Channel.js");
     const sent = [];
