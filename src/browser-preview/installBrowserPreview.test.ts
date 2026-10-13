@@ -14,7 +14,7 @@ describe("installBrowserPreview", () => {
       "agentConversationApi", "codexAppServerApi", "codexPluginApi", "codexWorkspaceTrustApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
       "dingTalkApi", "clipboardApi", "externalLinkApi", "remoteFileApi", "remoteSystemApi", "skillsApi",
       "mcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
-      "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi"
+      "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi", "projectToolsApi"
     ]));
   });
 

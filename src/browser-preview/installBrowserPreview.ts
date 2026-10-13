@@ -14,6 +14,7 @@ import type {
   TerminalSession
 } from "../vite-env";
 import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "../components/app/titleBarActions";
+import { previewProjectTools } from "./projectTools";
 
 type Listener<T> = (value: T) => void;
 
@@ -774,13 +775,14 @@ export function installBrowserPreview() {
       onCloseRequested: closeRequested.subscribe,
       isMaximized: async () => isMaximized,
       onMaximizedChanged: maximizedChanged.subscribe
-    } satisfies Window["windowApi"]
+    } satisfies Window["windowApi"],
+    projectToolsApi: { list: async () => copy(previewProjectTools) } satisfies Window["projectToolsApi"]
   } satisfies Pick<Window,
     "sessionApi" | "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
     "agentConversationApi" | "codexAppServerApi" | "codexPluginApi" | "codeBuddyPluginApi" | "codeBuddyMcpApi" | "codeBuddyVersionApi" | "openCodeAuthApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
-    "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"
+    "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi" | "projectToolsApi"
   >;
 
   const workItemChanges = createChannel<void>();

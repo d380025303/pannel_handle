@@ -4,11 +4,28 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { ProjectTool } from "../../vite-env";
 import { ProjectToolsSettings } from "./ProjectToolsSettings";
+import { installBrowserPreview } from "../../browser-preview/installBrowserPreview";
 const tool: ProjectTool = { name: "list_module_owners", group: "owners", description: "List owners", summary: { "zh-CN": "查询模块负责人", "en-US": "List module owners" }, readOnly: true,
   resultExample: [{ id: "example-owner", version: 1, directories: ["src"] }], inputSchema: { type: "object", properties: {} }, example: {}, conditions: { "zh-CN": "需要临时授权", "en-US": "Requires a temporary grant" }, result: { "zh-CN": "返回最新版本", "en-US": "Returns latest versions" } };
 afterEach(cleanup);
 function show(locale: "zh-CN" | "en-US" = "zh-CN") { return render(<I18nProvider locale={locale}><ProjectToolsSettings /></I18nProvider>); }
 describe("ProjectToolsSettings", () => {
+  it("loads the browser preview catalog and searches and opens its examples", async () => {
+    installBrowserPreview();
+    show();
+    await screen.findByRole("button", { name: "详情 list_module_owners" });
+    expect(screen.getByRole("button", { name: "详情 get_session_instance_status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "详情 remote_apply_patch" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "远程文本" } });
+    expect(screen.queryByRole("button", { name: "详情 list_module_owners" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "详情 remote_apply_patch" }));
+    const dialog = screen.getByRole("dialog", { name: "remote_apply_patch" });
+    expect(dialog.textContent).toContain("expectedVersion");
+    expect(dialog.textContent).toContain("preview-content-version");
+    fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
   it("searches names and summaries, shows details and restores focus", async () => {
     window.projectToolsApi = { list: vi.fn().mockResolvedValue([tool]) };
     show();
