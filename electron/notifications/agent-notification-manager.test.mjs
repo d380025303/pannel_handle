@@ -113,34 +113,21 @@ describe("agent-notification-manager", () => {
     });
   });
 
-  it("uses the OpenCode provider name", () => {
+  it.each([
+    ["codex", "Codex"],
+    ["codebuddy", "CodeBuddy"],
+    ["opencode", "OpenCode"],
+    ["qoder", "Qoder"],
+    ["copilot", "GitHub Copilot"],
+    ["gemini", "Gemini CLI"],
+    ["grok", "Grok CLI"],
+    ["claude", "Claude"],
+    ["unknown", "Claude"]
+  ])("uses the provider name for %s", (provider, providerName) => {
     const { manager, notifications } = createHarness();
-
-    manager.handleStatus(status("completed", "opencode"));
-
-    expect(notifications[0].options.title).toBe("OpenCode 已完成");
-  });
-
-  it("uses the Qoder provider name", () => {
-    const { manager, notifications } = createHarness();
-
-    manager.handleStatus(status("completed", "qoder"));
-
-    expect(notifications[0].options.title).toMatch(/^Qoder /);
-  });
-
-  it("uses the Gemini CLI provider name", () => {
-    const { manager, notifications } = createHarness();
-    manager.handleStatus(status("completed", "gemini"));
-    expect(notifications[0].options.title).toMatch(/^Gemini CLI /);
-  });
-
-  it("uses the CodeBuddy provider name", () => {
-    const { manager, notifications } = createHarness();
-
-    manager.handleStatus(status("completed", "codebuddy"));
-
-    expect(notifications[0].options.title).toMatch(/^CodeBuddy /);
+    manager.handleStatus(status("completed", provider));
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].options.title).toBe(`${providerName} 已完成`);
   });
 
   it("does not notify for other statuses or while the window is focused", () => {

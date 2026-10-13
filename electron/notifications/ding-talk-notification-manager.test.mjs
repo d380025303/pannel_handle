@@ -73,14 +73,18 @@ describe("DingTalk webhook", () => {
     ["codebuddy", "CodeBuddy"],
     ["opencode", "OpenCode"],
     ["qoder", "Qoder"],
-    ["gemini", "Gemini CLI"]
+    ["copilot", "GitHub Copilot"],
+    ["gemini", "Gemini CLI"],
+    ["grok", "Grok CLI"],
+    ["unknown", "Claude"]
   ])("builds minimal markdown for %s", (provider, providerName) => {
     const message = buildDingTalkMessage(status("waiting_for_permission", provider, {
       toolName: "shell_command",
       toolInput: { command: "secret" },
       lastAssistantMessage: "private"
     }), { title: "Main", cwd: "C:\\private" });
-    expect(message.markdown.title).toContain(`[Pannel Handle] ${providerName} 等待授权`);
+    expect(message.markdown.title).toBe(`[Pannel Handle] ${providerName} 等待授权`);
+    expect(message.markdown.text).toContain(`- Agent：${providerName}\n`);
     expect(message.markdown.text).toContain("会话：Main");
     expect(message.markdown.text).toContain("工具：shell_command");
     expect(message.markdown.text).not.toContain("secret");

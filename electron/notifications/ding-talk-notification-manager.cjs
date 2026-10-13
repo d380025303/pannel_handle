@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const { isAgentPlanPending } = require("../core/agent-status.cjs");
+const { getProviderName } = require("./agent-provider-name.cjs");
 
 const PUSH_STATUSES = new Set(["waiting_for_permission", "e_prompt", "failed", "plan_pending"]);
 const STATUS_LABELS = {
@@ -8,17 +9,6 @@ const STATUS_LABELS = {
   e_prompt: "等待用户输入",
   failed: "执行失败"
 };
-
-function getProviderName(provider) {
-  if (provider === "codex") return "Codex";
-  if (provider === "codebuddy") return "CodeBuddy";
-  if (provider === "opencode") return "OpenCode";
-  if (provider === "qoder") return "Qoder";
-  if (provider === "copilot") return "GitHub Copilot";
-  if (provider === "gemini") return "Gemini CLI";
-  if (provider === "grok") return "Grok CLI";
-  return "Claude";
-}
 
 function validateDingTalkWebhook(value) {
   let url;

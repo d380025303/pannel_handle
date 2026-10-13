@@ -1,4 +1,5 @@
 const { isAgentPlanPending } = require("../core/agent-status.cjs");
+const { getProviderName } = require("./agent-provider-name.cjs");
 
 const NOTIFY_STATUSES = new Set([
   "waiting_for_permission",
@@ -22,17 +23,6 @@ function createAgentNotificationManager({
 }) {
   const lastStatusBySessionId = new Map();
   const notificationsBySessionId = new Map();
-
-  function getProviderName(provider) {
-    if (provider === "codex") return "Codex";
-    if (provider === "codebuddy") return "CodeBuddy";
-    if (provider === "opencode") return "OpenCode";
-    if (provider === "qoder") return "Qoder";
-    if (provider === "copilot") return "GitHub Copilot";
-    if (provider === "gemini") return "Gemini CLI";
-    if (provider === "grok") return "Grok CLI";
-    return "Claude";
-  }
 
   function buildBody(session, payload) {
     const toolSuffix = payload.status === "waiting_for_permission" && payload.toolName
