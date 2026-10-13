@@ -190,6 +190,30 @@ describe("file-transfer-manager", () => {
     );
   });
 
+  it("completes a same-file overwrite without truncating the original", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "panel-same-file-upload-"));
+    const source = path.join(dir, "a.txt");
+    const content = Buffer.alloc(29, 65);
+    const remoteFileService = createRemoteFileService({
+      terminalManager: { getSession: () => ({ id: "s1", type: "windows", cwd: dir }) }
+    });
+    const manager = createFileTransferManager({ remoteFileService, broadcast: vi.fn() });
+    try {
+      await fs.writeFile(source, content);
+      const [task] = manager.enqueueUploads("s1", [source], dir);
+      await vi.waitFor(() => expect(manager.list()[0].status).toBe("conflict"));
+      expect(manager.resolveConflict(task.id, "overwrite")).toBe(true);
+      await vi.waitFor(() => expect(manager.list()[0]).toMatchObject({
+        status: "completed", transferredBytes: 29, totalBytes: 29, percent: 100
+      }));
+      expect(await fs.readFile(source)).toEqual(content);
+      expect((await fs.stat(source)).size).toBe(29);
+    } finally {
+      await manager.shutdown();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("finishes skipped upload conflicts without overwriting the target and allows cleanup", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "panel-skipped-upload-"));
     const source = path.join(dir, "a.txt");

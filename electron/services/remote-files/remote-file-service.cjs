@@ -617,12 +617,27 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
     const reportProgress = createTransferProgressReporter(options.onProgress, totalBytes);
     reportProgress?.(0, totalBytes, true);
     if (session.type !== "ssh") {
+      const targetHostPath = toLocalHostPath(session, target.path);
+      if (target.status === "overwrite") {
+        // stat follows links; bigint preserves Windows file IDs without rounding.
+        const sourceStat = await fsApi.promises.stat(localPath, { bigint: true });
+        let targetStat;
+        try {
+          targetStat = await fsApi.promises.stat(targetHostPath, { bigint: true });
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (sourceStat.ino > 0 && sourceStat.dev === targetStat?.dev && sourceStat.ino === targetStat?.ino) {
+          reportProgress?.(totalBytes, totalBytes, true);
+          return { status: "completed", remotePath: target.path };
+        }
+      }
       if (!reportProgress) {
-        await fsApi.promises.copyFile(localPath, toLocalHostPath(session, target.path));
+        await fsApi.promises.copyFile(localPath, targetHostPath);
         return { status: "completed", remotePath: target.path };
       }
       const source = fsApi.createReadStream(localPath);
-      const destination = fsApi.createWriteStream(toLocalHostPath(session, target.path));
+      const destination = fsApi.createWriteStream(targetHostPath);
       let transferredBytes = 0;
       source.on("data", (chunk) => {
         transferredBytes += chunk.length;

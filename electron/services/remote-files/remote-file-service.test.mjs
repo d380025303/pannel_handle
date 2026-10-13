@@ -917,6 +917,52 @@ describe("remote-file-service", () => {
     }
   });
 
+  it.each(["same path", "case alias", "hard link", "directory link", "different file"])(
+    "preserves upload contents when overwriting a Windows %s",
+    async (kind) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-overwrite-"));
+      const sourceDir = path.join(root, "source");
+      fs.mkdirSync(sourceDir);
+      const sourceFile = path.join(sourceDir, "sample.txt");
+      const content = Buffer.from("original file has 29 bytes!!!!");
+      fs.writeFileSync(sourceFile, content);
+      let targetDir = sourceDir;
+      try {
+        if (kind === "case alias") {
+          if (process.platform !== "win32") return;
+          targetDir = path.join(root, "SOURCE");
+        } else if (kind === "directory link") {
+          targetDir = path.join(root, "alias");
+          fs.symlinkSync(sourceDir, targetDir, "junction");
+        } else if (kind === "hard link" || kind === "different file") {
+          targetDir = path.join(root, "target");
+          fs.mkdirSync(targetDir);
+          const targetFile = path.join(targetDir, "sample.txt");
+          if (kind === "hard link") fs.linkSync(sourceFile, targetFile);
+          else fs.writeFileSync(targetFile, "old target content");
+        }
+        const service = createRemoteFileService({
+          terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: sourceDir })
+        });
+        for (const withProgress of [true, false]) {
+          const onProgress = vi.fn();
+          await expect(service.uploadFile("run-1", sourceFile, targetDir, "overwrite",
+            withProgress ? { onProgress } : {})).resolves.toEqual({
+            status: "completed", remotePath: path.join(targetDir, "sample.txt")
+          });
+          expect(fs.readFileSync(sourceFile)).toEqual(content);
+          expect(fs.readFileSync(path.join(targetDir, "sample.txt"))).toEqual(content);
+          expect(fs.statSync(sourceFile).size).toBe(content.length);
+          if (withProgress) expect(onProgress).toHaveBeenLastCalledWith({
+            transferredBytes: content.length, totalBytes: content.length, percent: 100
+          });
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it("reports intermediate progress while uploading a Windows file", async () => {
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-progress-src-"));
     const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-progress-dst-"));
