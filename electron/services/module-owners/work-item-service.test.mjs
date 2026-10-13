@@ -414,3 +414,14 @@ describe("work item owner availability reads", () => {
     } finally { service?.shutdown(); rmSync(userData, { recursive: true, force: true }); }
   });
 });
+
+it("decorates asynchronous keyword search results", async () => {
+  const f = await fixture();
+  await f.source();
+  const result = await f.work.list({ keyword: "" });
+  const item = f.work.get({ id: result.records[0].id });
+  const listed = await f.work.list({ keyword: item.output.slice(0, 5) });
+  expect(listed.total).toBe(1);
+  expect(listed.records[0]).toHaveProperty("unavailable", "");
+  expect(listed).toHaveProperty("storageErrors", []);
+});

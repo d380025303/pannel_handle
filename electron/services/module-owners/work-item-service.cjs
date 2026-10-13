@@ -21,16 +21,19 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     const query = z.object({ templateId: z.string().min(1).optional(), ownerId: z.string().min(1).optional(), status: statusSchema.optional(), statuses: z.array(statusSchema).max(8).optional(),
       needsFollowUp: z.boolean().optional(), keyword: z.string().trim().max(1000).optional(), page: z.number().int().min(0).max(1000000).default(0) }).strict().parse(input);
     const result = database().listWorkItems(query);
-    const ownersByTemplate = new Map();
-    const ownerIds = id => {
-      if (!ownersByTemplate.has(id)) ownersByTemplate.set(id, new Set(owners(id).map(owner => owner.id)));
-      return ownersByTemplate.get(id);
+    const decorate = result => {
+      const ownersByTemplate = new Map();
+      const ownerIds = id => {
+        if (!ownersByTemplate.has(id)) ownersByTemplate.set(id, new Set(owners(id).map(owner => owner.id)));
+        return ownersByTemplate.get(id);
+      };
+      const templates = result.templates.map(value => {
+        try { template(value.id); return value; } catch { return { ...value, name: `${value.name}（已删除）` }; }
+      });
+      const ownerOptions = result.owners.map(value => ({ ...value, name: ownerIds(value.templateId).has(value.id) ? value.name : `${value.name}（已删除）` }));
+      return { ...result, templates, owners: ownerOptions, storageErrors: storageErrors(), records: result.records.map(item => ({ ...item, unavailable: availability(item, ownerIds) })) };
     };
-    const templates = result.templates.map(value => {
-      try { template(value.id); return value; } catch { return { ...value, name: `${value.name}（已删除）` }; }
-    });
-    const ownerOptions = result.owners.map(value => ({ ...value, name: ownerIds(value.templateId).has(value.id) ? value.name : `${value.name}（已删除）` }));
-    return { ...result, templates, owners: ownerOptions, storageErrors: storageErrors(), records: result.records.map(item => ({ ...item, unavailable: availability(item, ownerIds) })) };
+    return result && typeof result.then === "function" ? result.then(decorate) : decorate(result);
   }
   function get(input) {
     const { id } = z.object({ id: z.string().min(1) }).strict().parse(input);

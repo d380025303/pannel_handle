@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createBusinessDataStore } from "./business-data-store.cjs";
-import { createWorkItemStore } from "./module-owner-work-item-store.cjs";
+import { createWorkItemStore, queryWorkItems } from "./module-owner-work-item-store.cjs";
 const fixtures = [];
 function fixture() {
   const userData = mkdtempSync(path.join(tmpdir(), "pannel-work-item-store-"));
@@ -93,7 +93,7 @@ describe("work item SQLite persistence", () => {
     expect(db.getWorkItem(item.id)).toMatchObject({ needsFollowUp: false, version: 2 });
     expect(db.listWorkItems({ needsFollowUp: false }).total).toBe(1);
   });
-  it("filters follow-up before pagination and combines other conditions", () => {
+  it("filters follow-up before pagination and combines other conditions", async () => {
     const { db } = fixture();
     for (let i = 0; i < 45; i++) {
       const item = db.insertWorkItem(source(i));
@@ -103,7 +103,7 @@ describe("work item SQLite persistence", () => {
     expect(db.listWorkItems({ needsFollowUp: true })).toMatchObject({ total: 23, records: expect.any(Array) });
     expect(db.listWorkItems({ needsFollowUp: true, page: 1 }).records).toHaveLength(3);
     expect(db.listWorkItems({ needsFollowUp: false }).total).toBe(22);
-    expect(db.listWorkItems({ needsFollowUp: false, templateId: "one", ownerId: "owner-1", statuses: ["pending"], keyword: "结果 1" }).total).toBe(6);
+    expect((await db.listWorkItems({ needsFollowUp: false, templateId: "one", ownerId: "owner-1", statuses: ["pending"], keyword: "结果 1" })).total).toBe(6);
   });
   it.each(["creating", "running", "uncertain", "failed", "stopped", "completed", "void"])("retains follow-up through %s and rejects stale versions", status => {
     const { db } = fixture(); const item = db.insertWorkItem(source(0));
@@ -139,7 +139,7 @@ describe("work item SQLite persistence", () => {
       expect(db.workItemTaskUnprocessed("two", "timer")).toBe(true);
     }
   });
-  it("excludes void items by default and filters multiple statuses before pagination", () => {
+  it("excludes void items by default and filters multiple statuses before pagination", async () => {
     const { db } = fixture();
     const pending = db.insertWorkItem(source(0));
     const removed = db.insertWorkItem(source(1));
@@ -154,17 +154,17 @@ describe("work item SQLite persistence", () => {
     expect(db.listWorkItems({ statuses: ["void"] }).records[0].id).toBe(removed.id);
     expect(db.listWorkItems({ status: "pending" }).records[0].id).toBe(pending.id);
     expect(db.listWorkItems({ statuses: [] })).toMatchObject({ records: [], total: 0 });
-    expect(db.listWorkItems({ statuses: ["completed", "void"], templateId: "two", keyword: "结果 2" }).total).toBe(1);
+    expect((await db.listWorkItems({ statuses: ["completed", "void"], templateId: "two", keyword: "结果 2" })).total).toBe(1);
   });
-  it("paginates/filter summaries, preserves full replies and deduplicates stable source IDs across reopen", () => {
+  it("paginates/filter summaries, preserves full replies and deduplicates stable source IDs across reopen", async () => {
     const { db, userData } = fixture();
     const first = db.insertWorkItem(source(0));
     for (let number = 1; number < 23; number++) db.insertWorkItem(source(number));
     expect(db.listWorkItems().records).toHaveLength(20);
     expect(db.listWorkItems({ page: 1 }).records).toHaveLength(3);
     expect(db.listWorkItems({ templateId: "one" }).total).toBe(11);
-    expect(db.listWorkItems({ ownerId: "owner-0", keyword: "结果 2" }).total).toBe(3);
-    expect(db.listWorkItems({ keyword: "%" }).total).toBe(0);
+    expect((await db.listWorkItems({ ownerId: "owner-0", keyword: "结果 2" })).total).toBe(3);
+    expect((await db.listWorkItems({ keyword: "%" })).total).toBe(0);
     expect(db.listWorkItems().records[0]).not.toHaveProperty("output");
     db.close(); db.open();
     expect(db.insertWorkItem({ ...source(0), output: "不能覆盖" }).id).toBe(first.id);
@@ -219,4 +219,71 @@ it.each(["creating", "running", "uncertain", "completed", "void"])("rejects manu
   const current = db.getWorkItem(item.id);
   expect(() => db.markWorkItemCompleted(item.id, current.version)).toThrow("仅待执行");
   expect(db.getWorkItem(item.id)).toEqual(current);
+});
+
+it("keeps substring/filter/page results identical on a read-only Worker snapshot", async () => {
+  const { db, userData } = fixture();
+  for (let i = 0; i < 45; i++) {
+    const item = db.insertWorkItem({ ...source(i), output: `MiXeD %_结果 ${i}`, createdAt: 100 });
+    if (i % 3 === 0) db.setWorkItemFollowUp(item.id, 1, false);
+    if (i % 5 === 0) db.changeWorkItem(item.id, db.getWorkItem(item.id).version, "void");
+  }
+  const reference = new DatabaseSync(path.join(userData, "agent-token-stats.sqlite3"), { readOnly: true });
+  try {
+    for (const query of [
+      { keyword: "mixed", page: 1 }, { keyword: "%_" }, { keyword: "巡检" },
+      { keyword: "负责人" }, { keyword: "工程" }, { keyword: "missing" },
+      { keyword: "结果", templateId: "one", ownerId: "owner-1", needsFollowUp: false, statuses: ["pending", "void"] },
+      { keyword: "结果", statuses: [] }, { keyword: "结果", status: "void" }
+    ]) expect(await db.listWorkItems(query)).toEqual(queryWorkItems(reference, query));
+  } finally { reference.close(); }
+  db.close(); db.open();
+  expect((await db.listWorkItems({ keyword: "mixed" })).total).toBe(36);
+});
+
+it("keeps timers responsive for five searches over 3000 replies of 33 KiB", async () => {
+  const { db, userData } = fixture();
+  const writer = new DatabaseSync(path.join(userData, "agent-token-stats.sqlite3"));
+  const store = createWorkItemStore(() => writer, callback => callback());
+  const output = "a".repeat(33 * 1024);
+  try {
+    writer.exec("BEGIN");
+    for (let i = 0; i < 3000; i++) store.insertWorkItem({ ...source(i), output });
+    writer.exec("COMMIT");
+    const timings = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      let ticks = 0;
+      let lastTick = start;
+      let maxGap = 0;
+      const timer = setInterval(() => {
+        const now = performance.now();
+        maxGap = Math.max(maxGap, now - lastTick); lastTick = now; ticks++;
+      }, 5);
+      const zeroTimer = new Promise(resolve => setTimeout(() => resolve(performance.now() - start), 0));
+      try {
+        expect(await db.listWorkItems({ keyword: "absent-needle", page: 0 })).toMatchObject({ total: 0, records: [] });
+        const elapsed = performance.now() - start;
+        const zeroDelay = await zeroTimer;
+        timings.push({ elapsed: Math.round(elapsed), zeroDelay: Math.round(zeroDelay), maxGap: Math.round(maxGap), ticks });
+        expect(ticks).toBeGreaterThan(5);
+        expect(zeroDelay).toBeLessThan(100);
+        expect(maxGap).toBeLessThan(100);
+      } finally { clearInterval(timer); }
+    }
+    console.info("work item Worker search timing (ms)", timings);
+  } finally { writer.close(); }
+}, 30000);
+
+it("rejects active searches on close and reports Worker connection failures", async () => {
+  const { db, userData } = fixture();
+  const pending = db.listWorkItems({ keyword: "missing" });
+  const rejected = expect(pending).rejects.toThrow("已关闭");
+  await db.close(); await rejected;
+  db.open();
+  expect((await db.listWorkItems({ keyword: "missing" })).total).toBe(0);
+  const { createWorkItemSearchReader } = await import("./work-item-search-reader.cjs");
+  const reader = createWorkItemSearchReader(path.join(userData, "missing.sqlite"));
+  await expect(reader.search({ keyword: "x" })).rejects.toThrow();
+  await reader.close();
 });

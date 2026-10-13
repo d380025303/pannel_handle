@@ -51,7 +51,8 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (!names.has(name)) throw new Error(`Unsupported business data file: ${name}`);
     return name;
   }
-  const workItems = require("./module-owner-work-item-store.cjs").createWorkItemStore(() => db, transaction);
+  const searchReader = require("./work-item-search-reader.cjs").createWorkItemSearchReader(databaseFile);
+  const workItems = require("./module-owner-work-item-store.cjs").createWorkItemStore(() => db, transaction, { search: searchReader.search });
   function putSetting(source, key, value) {
     db.prepare("INSERT INTO app_settings(source, key, value_json) VALUES (?, ?, ?) ON CONFLICT(source, key) DO UPDATE SET value_json=excluded.value_json")
       .run(source, key, JSON.stringify(value));
@@ -224,7 +225,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     ensureOpen();
     transaction(() => writeDocument(sourceName(filePath), value));
   }
-  function close() { if (db) { db.close(); db = null; } }
+  function close() { const stopped = searchReader.close(); if (db) { db.close(); db = null; } return stopped; }
   function writeModuleOwnerTaskMetadata(templateId, metadata) {
     ensureOpen();
     if (typeof templateId !== "string" || !metadata || !Number.isInteger(metadata.revision) || metadata.revision < 0 ||

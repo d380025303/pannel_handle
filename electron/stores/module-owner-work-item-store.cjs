@@ -1,7 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const ACTIVE = ["creating", "running", "uncertain"];
 
-function createWorkItemStore(database, transaction) {
+function createWorkItemStore(database, transaction, { search } = {}) {
   const db = () => {
     const value = database();
     if (!value) throw new Error("SQLite 任务存储不可用。");
@@ -49,27 +49,9 @@ function createWorkItemStore(database, transaction) {
       item.status, item.version, item.createdAt, item.output, item.taskName, item.owner.name, item.template.title, 1, JSON.stringify(item));
     return JSON.parse(db().prepare("SELECT value_json FROM app_module_owner_work_items WHERE source_run_id=?").get(item.sourceRunId).value_json);
   }
-  function listWorkItems({ templateId, ownerId, status, statuses, needsFollowUp, keyword, page = 0 } = {}) {
-    const conditions = []; const args = [];
-    for (const [field, value] of [["template_id", templateId], ["owner_id", ownerId]]) {
-      if (value) { conditions.push(`${field}=?`); args.push(value); }
-    }
-    if (needsFollowUp !== undefined) { conditions.push("needs_follow_up=?"); args.push(needsFollowUp ? 1 : 0); }
-    const selectedStatuses = statuses ?? (status ? [status] : undefined);
-    if (selectedStatuses) {
-      conditions.push(selectedStatuses.length ? `status IN (${selectedStatuses.map(() => "?").join(",")})` : "0");
-      args.push(...selectedStatuses);
-    } else {
-      conditions.push("status<>?"); args.push("void");
-    }
-    if (keyword) { conditions.push("(instr(lower(output),lower(?))>0 OR instr(lower(task_name),lower(?))>0 OR instr(lower(owner_name),lower(?))>0 OR instr(lower(template_name),lower(?))>0)"); args.push(keyword, keyword, keyword, keyword); }
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const total = db().prepare(`SELECT COUNT(*) AS count FROM app_module_owner_work_items ${where}`).get(...args).count;
-    const records = db().prepare(`SELECT json_remove(value_json,'$.output') AS value_json,substr(output,1,200) AS summary FROM app_module_owner_work_items ${where} ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?`)
-      .all(...args, page * 20).map(row => ({ ...JSON.parse(row.value_json), summary: row.summary }));
-    const templates = db().prepare("SELECT template_id AS id,template_name AS name FROM app_module_owner_work_items GROUP BY template_id ORDER BY template_name").all();
-    const owners = db().prepare("SELECT owner_id AS id,owner_name AS name,template_id AS templateId FROM app_module_owner_work_items GROUP BY owner_id,template_id ORDER BY owner_name").all();
-    return { records, total, templates, owners };
+  function listWorkItems(query = {}) {
+    const connection = db();
+    return query.keyword && search ? search(query) : queryWorkItems(connection, query);
   }
   function getWorkItemAttempt(workItemId, id) {
     const row = db().prepare("SELECT value_json FROM app_module_owner_work_item_attempts WHERE work_item_id=? AND id=?").get(workItemId, id);
@@ -154,4 +136,27 @@ function createWorkItemStore(database, transaction) {
   return { initializeWorkItems, insertWorkItem, getWorkItem, listWorkItems, getWorkItemAttempt, startWorkItemAttempt,
     updateWorkItemAttempt, setWorkItemFollowUp, markWorkItemCompleted, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy, workItemTaskUnprocessed };
 }
-module.exports = { createWorkItemStore };
+function queryWorkItems(database, { templateId, ownerId, status, statuses, needsFollowUp, keyword, page = 0 } = {}) {
+  const conditions = []; const args = [];
+  for (const [field, value] of [["template_id", templateId], ["owner_id", ownerId]]) {
+    if (value) { conditions.push(`${field}=?`); args.push(value); }
+  }
+  if (needsFollowUp !== undefined) { conditions.push("needs_follow_up=?"); args.push(needsFollowUp ? 1 : 0); }
+  const selectedStatuses = statuses ?? (status ? [status] : undefined);
+  if (selectedStatuses) {
+    conditions.push(selectedStatuses.length ? `status IN (${selectedStatuses.map(() => "?").join(",")})` : "0");
+    args.push(...selectedStatuses);
+  } else {
+    conditions.push("status<>?"); args.push("void");
+  }
+  if (keyword) { conditions.push("(instr(lower(output),lower(?))>0 OR instr(lower(task_name),lower(?))>0 OR instr(lower(owner_name),lower(?))>0 OR instr(lower(template_name),lower(?))>0)"); args.push(keyword, keyword, keyword, keyword); }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const total = database.prepare(`SELECT COUNT(*) AS count FROM app_module_owner_work_items ${where}`).get(...args).count;
+  const records = database.prepare(`SELECT json_remove(value_json,'$.output') AS value_json,substr(output,1,200) AS summary FROM app_module_owner_work_items ${where} ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?`)
+    .all(...args, page * 20).map(row => ({ ...JSON.parse(row.value_json), summary: row.summary }));
+  const templates = database.prepare("SELECT template_id AS id,template_name AS name FROM app_module_owner_work_items GROUP BY template_id ORDER BY template_name").all();
+  const owners = database.prepare("SELECT owner_id AS id,owner_name AS name,template_id AS templateId FROM app_module_owner_work_items GROUP BY owner_id,template_id ORDER BY owner_name").all();
+  return { records, total, templates, owners };
+}
+
+module.exports = { createWorkItemStore, queryWorkItems };
