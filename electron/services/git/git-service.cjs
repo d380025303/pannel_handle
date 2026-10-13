@@ -314,9 +314,9 @@ function parseHunkHeader(line) {
   return { oldLine: Number(match[1]), newLine: Number(match[2]) };
 }
 
-function pushChangedRows(rows, deletedRows, addedRows) {
-  const maxRows = Math.max(deletedRows.length, addedRows.length);
-  for (let index = 0; index < maxRows; index += 1) {
+function pushChangedRows(rows, deletedRows, addedRows, maxRows) {
+  const count = Math.min(Math.max(deletedRows.length, addedRows.length), maxRows - rows.length);
+  for (let index = 0; index < count; index += 1) {
     const deletedRow = deletedRows[index];
     const addedRow = addedRows[index];
     if (deletedRow && addedRow) {
@@ -345,18 +345,25 @@ function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
   let inHunk = false;
   let truncated = false;
 
-  for (const rawLine of text.split(/\r?\n/)) {
+  // Scan lazily so the row limit also bounds line-splitting allocations.
+  for (let offset = 0; offset < text.length;) {
+    const newline = text.indexOf("\n", offset);
+    const end = newline < 0 ? text.length : newline;
+    const rawLine = text.slice(offset, end > offset && text[end - 1] === "\r" ? end - 1 : end);
+    offset = newline < 0 ? text.length : end + 1;
     if (rows.length >= maxRows) {
       truncated = true;
       break;
     }
     if (rawLine.startsWith("diff --git ")) {
-      pushChangedRows(rows, deletedRows, addedRows);
+      pushChangedRows(rows, deletedRows, addedRows, maxRows);
+      if (truncated) break;
       inHunk = false;
       continue;
     }
     if (rawLine.startsWith("@@ ")) {
-      pushChangedRows(rows, deletedRows, addedRows);
+      pushChangedRows(rows, deletedRows, addedRows, maxRows);
+      if (truncated) break;
       const hunk = parseHunkHeader(rawLine);
       if (hunk) {
         oldLine = hunk.oldLine;
@@ -367,26 +374,36 @@ function parseUnifiedDiff(output, maxRows = MAX_DIFF_ROWS) {
     }
     if (!inHunk || rawLine === "" || rawLine.startsWith("\\ No newline")) continue;
     if (rawLine.startsWith("-")) {
-      deletedRows.push({ lineNumber: oldLine, text: rawLine.slice(1) });
+      if (deletedRows.length < maxRows - rows.length) {
+        deletedRows.push({ lineNumber: oldLine, text: rawLine.slice(1) });
+      } else {
+        truncated = true;
+      }
       oldLine += 1;
       continue;
     }
     if (rawLine.startsWith("+")) {
-      addedRows.push({ lineNumber: newLine, text: rawLine.slice(1) });
+      if (addedRows.length < maxRows - rows.length) {
+        addedRows.push({ lineNumber: newLine, text: rawLine.slice(1) });
+      } else {
+        truncated = true;
+        // Unified diffs list deletions before additions; all retained pairs are complete.
+        if (deletedRows.length === 0 || addedRows.length >= deletedRows.length) break;
+      }
       newLine += 1;
       continue;
     }
-    pushChangedRows(rows, deletedRows, addedRows);
+    pushChangedRows(rows, deletedRows, addedRows, maxRows);
+    if (truncated || rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
     const textValue = rawLine.startsWith(" ") ? rawLine.slice(1) : rawLine;
     rows.push({ type: "context", oldLineNumber: oldLine, newLineNumber: newLine, oldText: textValue, newText: textValue });
     oldLine += 1;
     newLine += 1;
   }
-  pushChangedRows(rows, deletedRows, addedRows);
-  if (rows.length > maxRows) {
-    rows.length = maxRows;
-    truncated = true;
-  }
+  pushChangedRows(rows, deletedRows, addedRows, maxRows);
   return { kind: "text", rows, truncated };
 }
 

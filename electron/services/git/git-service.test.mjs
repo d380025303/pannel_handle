@@ -164,6 +164,41 @@ describe("git status parsers", () => {
     expect(parseUnifiedDiff(oversized)).toMatchObject({ truncated: true });
     expect(parseUnifiedDiff(oversized).rows).toHaveLength(MAX_DIFF_ROWS);
   });
+
+  it.each(["+", "-"])("bounds a 500,000-line %s block", (prefix) => {
+    const result = parseUnifiedDiff(`@@ -1,500000 +1,500000 @@\n${`${prefix}x\n`.repeat(500000)}`);
+    expect(result.truncated).toBe(true);
+    expect(result.rows).toHaveLength(MAX_DIFF_ROWS);
+    expect(result.rows[0].type).toBe(prefix === "+" ? "add" : "delete");
+    expect(result.rows.at(-1)).toMatchObject(prefix === "+"
+      ? { newLineNumber: MAX_DIFF_ROWS, newText: "x" }
+      : { oldLineNumber: MAX_DIFF_ROWS, oldText: "x" });
+  });
+
+  it("preserves pairing after overflowing deletions and respects remaining capacity", () => {
+    const result = parseUnifiedDiff("@@ -10,6 +20,4 @@\r\n same\r\n-a\r\n-b\r\n-c\r\n-d\r\n+one\r\n+two\r\n tail", 3);
+    expect(result).toEqual({ kind: "text", truncated: true, rows: [
+      { type: "context", oldLineNumber: 10, newLineNumber: 20, oldText: "same", newText: "same" },
+      { type: "modify", oldLineNumber: 11, newLineNumber: 21, oldText: "a", newText: "one" },
+      { type: "modify", oldLineNumber: 12, newLineNumber: 22, oldText: "b", newText: "two" }
+    ] });
+  });
+
+  it.each([
+    ["-a\n-b\n+one\n+two\n+three", ["modify", "modify"]],
+    ["-a\n-b\n-c\n+one", ["modify", "delete"]],
+    ["-a\n+one\n+two\n+three", ["modify", "add"]]
+  ])("caps asymmetric changed blocks: %s", (block, types) => {
+    const result = parseUnifiedDiff(`@@ -1,3 +1,3 @@\n${block}`, 2);
+    expect(result.rows.map((row) => row.type)).toEqual(types);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("does not truncate an exact-capacity block or append context beyond the limit", () => {
+    const block = "@@ -1,2 +1,2 @@\n-a\n-b\n+one\n+two";
+    expect(parseUnifiedDiff(block, 2)).toMatchObject({ truncated: false, rows: [{ type: "modify" }, { type: "modify" }] });
+    expect(parseUnifiedDiff(`${block}\n context`, 2)).toMatchObject({ truncated: true, rows: [{ type: "modify" }, { type: "modify" }] });
+  });
 });
 
 describe("git command routing", () => {
