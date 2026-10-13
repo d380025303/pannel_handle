@@ -48,6 +48,56 @@ afterEach(async () => {
 });
 
 describe("session status MCP server", () => {
+  it("copies long histories once per session per query and refreshes subsequent queries", async () => {
+    const sessions = ["first", "second"].map(id => ({ id, title: id, type: "windows", runtimeMode: "app-server", agentStatus: "completed" }));
+    const items = Array.from({ length: 10000 }, () => ({ type: "agentMessage", text: "完成任务" }));
+    const calls = [];
+    let copiedReferences = 0;
+    const graphicalService = { snapshot(id) {
+      expect(this).toBe(graphicalService);
+      calls.push(id);
+      copiedReferences += items.length;
+      return { busy: false, items: [...items] };
+    } };
+    const { service } = setup(sessions, { graphicalService });
+    expect(await service.getInstanceStatus("first")).toMatchObject({ workState: "idle", summary: "完成任务" });
+    expect(calls).toEqual(["first"]);
+    expect(copiedReferences).toBe(10000);
+    items.at(-1).text = "最新结果";
+    expect((await service.listInstances()).sessions).toMatchObject([
+      { sessionId: "first", workState: "idle", summary: "最新结果" },
+      { sessionId: "second", workState: "idle", summary: "最新结果" }
+    ]);
+    expect(calls).toEqual(["first", "first", "second"]);
+    expect(copiedReferences).toBe(30000);
+  });
+
+  it.each([
+    [{ approvals: [{ params: { reason: "允许执行" } }] }, {}, "waiting_for_permission", "允许执行"],
+    [{ questions: [{ params: { questions: [{ question: "请选择" }] } }] }, {}, "waiting_for_input", "请选择"],
+    [{ pendingPlan: {} }, {}, "waiting_for_plan", "确认执行计划"],
+    [{}, { type: "ssh", sshConnectionState: "reconnecting" }, "reconnecting", "完成任务"]
+  ])("preserves graphical waiting and connection results for snapshot %j", async (pending, connection, workState, summary) => {
+    let calls = 0;
+    const { service } = setup([{ id: "graphical", runtimeMode: "app-server", agentStatus: "completed", ...connection }], {
+      graphicalService: { snapshot: () => { calls++; return { items: [{ type: "agentMessage", text: "完成任务" }], ...pending }; } }
+    });
+    expect(await service.getInstanceStatus("graphical")).toMatchObject({ workState, summary });
+    expect((await service.listInstances()).sessions[0]).toMatchObject({ workState, summary });
+    expect(calls).toBe(2);
+  });
+
+  it.each(["missing", "throws"])("reads a %s snapshot at most once per query", async mode => {
+    let calls = 0;
+    const { service } = setup([{ id: "graphical", runtimeMode: "app-server", agentStatus: "completed" }], {
+      graphicalService: { snapshot: () => { calls++; if (mode === "throws") throw new Error("unavailable"); } }
+    });
+    expect(await service.getInstanceStatus("graphical")).toMatchObject({ workState: "idle", summary: "暂无最近内容" });
+    expect(calls).toBe(1);
+    await service.listInstances();
+    expect(calls).toBe(2);
+  });
+
   it.each(["e_prompt", "completed", "running"])("prioritizes structured %s status while preserving connection and waiting states", status => {
     const agentStatus = { status };
     expect(workState({ status: "运行中" }, agentStatus)).toBe(status === "running" ? "running" : "idle");

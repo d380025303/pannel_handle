@@ -73,7 +73,20 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
 
   async function getInstance(session) {
     const agentStatus = agentStatuses.get(session.id) || (session.agentStatus ? { status: session.agentStatus } : null);
-    const overview = await sessionOverview(session, graphicalService, stateHub, agentStatus);
+    // Overview and completed-close checks share one snapshot for this query only.
+    let snapshotRead = false;
+    let snapshot;
+    let snapshotError;
+    const queryGraphicalService = { snapshot: () => {
+      if (!snapshotRead) {
+        snapshotRead = true;
+        try { snapshot = graphicalService?.snapshot(session.id); }
+        catch (error) { snapshotError = { error }; }
+      }
+      if (snapshotError) throw snapshotError.error;
+      return snapshot;
+    } };
+    const overview = await sessionOverview(session, queryGraphicalService, stateHub, agentStatus);
     if (!terminalManager.getSession(session.id)) return null;
     return {
       sessionId: session.id,
