@@ -33,6 +33,38 @@ async function receive(files, socket, url, remoteAddress = socket.remoteAddress)
   return { status, headers, body: Buffer.concat(chunks) };
 }
 
+it("scans drives asynchronously with bounded concurrency and keeps the event loop responsive", async () => {
+  let active = 0;
+  let maximum = 0;
+  let completed = 0;
+  const stat = vi.fn(async drive => {
+    maximum = Math.max(maximum, ++active);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      if (drive === "C:\\" || drive === "Z:\\") return { isDirectory: () => true };
+      if (drive === "D:\\") return { isDirectory: () => false };
+      throw Object.assign(new Error("Unavailable drive"), { code: "ENOENT" });
+    } finally { active--; completed++; }
+  });
+  const statSync = vi.fn(() => { throw new Error("Synchronous drive check"); });
+  const files = filesModule.createMobileFiles({ fsApi: { statSync, promises: { stat } } });
+  const timer = new Promise(resolve => setTimeout(() => resolve(completed), 0));
+  const message = new Promise(resolve => setImmediate(() => resolve(completed)));
+  const listing = files.list(null);
+  expect(await timer).toBeLessThan(26);
+  expect(await message).toBeLessThan(26);
+  expect(await listing).toEqual({ path: null, entries: ["C:\\", "Z:\\"].map(root =>
+    ({ name: root, path: root, type: "drive", size: null })) });
+  expect(stat).toHaveBeenCalledTimes(26);
+  expect(statSync).not.toHaveBeenCalled();
+  expect(maximum).toBe(4);
+  expect(active).toBe(0);
+  // Refresh each request so removed or newly mounted disks affect path validation.
+  stat.mockImplementation(async () => { throw new Error("Unavailable drive"); });
+  expect(await files.list(null)).toEqual({ path: null, entries: [] });
+  await expect(files.prepare({ authenticated: true }, "C:\\note.txt")).rejects.toThrow(/本地磁盘/);
+});
+
 it("lists local directories and excludes links and inaccessible paths", async () => {
   const { root, files } = fixture();
   fs.mkdirSync(path.join(root, "folder"));
@@ -53,7 +85,7 @@ it.each([1, 6, 12])("validates shared ancestors once per large listing at depth 
   const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
   const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 10 };
   const fsApi = {
-    statSync: vi.fn(drive => {
+    driveStat: vi.fn(drive => {
       if (drive === "C:\\") return directoryInfo;
       throw Object.assign(new Error("Unavailable drive"), { code: "ENOENT" });
     }),
@@ -61,14 +93,14 @@ it.each([1, 6, 12])("validates shared ancestors once per large listing at depth 
       readdir: vi.fn(async () => names),
       lstat: vi.fn(async () => fileInfo),
       realpath: vi.fn(async target => target),
-      stat: vi.fn(async target => target === directory ? directoryInfo : fileInfo)
+      stat: vi.fn(async target => /^[A-Z]:\\$/.test(target) ? fsApi.driveStat(target) : target === directory ? directoryInfo : fileInfo)
     }
   };
   const files = filesModule.createMobileFiles({ fsApi });
   const expected = names.map(name => ({ name, path: path.win32.join(directory, name), type: "file", size: 10 }))
     .sort((a, b) => a.name.localeCompare(b.name));
   expect(await files.list(directory)).toEqual({ path: directory, entries: expected });
-  expect(fsApi.statSync).toHaveBeenCalledTimes(26);
+  expect(fsApi.driveStat).toHaveBeenCalledTimes(26);
   expect(fsApi.promises.lstat).toHaveBeenCalledTimes(1000 + depth);
   for (const ancestor of ancestors) {
     expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === ancestor)).toHaveLength(1);
@@ -87,7 +119,7 @@ it.each([1, 6, 12])("validates shared ancestors once per large listing at depth 
   for (const ancestor of ancestors) {
     expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === ancestor)).toHaveLength(1);
   }
-  expect(fsApi.statSync).toHaveBeenCalledTimes(52);
+  expect(fsApi.driveStat).toHaveBeenCalledTimes(52);
   await expect(files.list(path.win32.join(directory, names[0]))).rejects.toThrow(/符号链接/);
   await expect(files.list(path.win32.join(directory, names[1]))).rejects.toThrow(/重定向/);
   await expect(files.list("D:\\outside")).rejects.toThrow(/本地磁盘/);
@@ -104,7 +136,7 @@ it.each([{ depth: 1, nested: false }, { depth: 1, nested: true }, { depth: 8, ne
   const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
   const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 4 };
   const fsApi = {
-    statSync: vi.fn(drive => {
+    driveStat: vi.fn(drive => {
       if (drive === "C:\\") return directoryInfo;
       throw Object.assign(new Error("Unavailable drive"), { code: "ENOENT" });
     }),
@@ -113,13 +145,13 @@ it.each([{ depth: 1, nested: false }, { depth: 1, nested: true }, { depth: 8, ne
       lstat: vi.fn(async target => ({ ...fileInfo,
         isSymbolicLink: () => ["symlink", "junction"].includes(path.win32.basename(target)) })),
       realpath: vi.fn(async target => path.win32.basename(target) === "redirected" ? "D:\\outside.txt" : target),
-      stat: vi.fn(async target => [directory, childDirectory].includes(target) ? directoryInfo : fileInfo)
+      stat: vi.fn(async target => /^[A-Z]:\\$/.test(target) ? fsApi.driveStat(target) : [directory, childDirectory].includes(target) ? directoryInfo : fileInfo)
     }
   };
   const files = filesModule.createMobileFiles({ fsApi });
   const socket = { authenticated: true, remoteAddress: "192.168.1.2" };
   const { url } = await files.prepare(socket, directory);
-  fsApi.statSync.mockClear();
+  fsApi.driveStat.mockClear();
   fsApi.promises.lstat.mockClear();
   fsApi.promises.realpath.mockClear();
   const archived = vi.spyOn(Archiver.prototype, "file").mockImplementation(function (target, options) {
@@ -128,7 +160,7 @@ it.each([{ depth: 1, nested: false }, { depth: 1, nested: true }, { depth: 8, ne
   try {
     const result = await receive(files, socket, url);
     expect(result.status).toBe(200);
-    expect(fsApi.statSync).toHaveBeenCalledTimes(26);
+    expect(fsApi.driveStat).toHaveBeenCalledTimes(26);
     expect(fsApi.promises.lstat).toHaveBeenCalledTimes(depth + (nested ? 1 : 0) + names.length + unsafeNames.length);
     expect(fsApi.promises.lstat.mock.calls.filter(([target]) => target === directory)).toHaveLength(1);
     expect(archived).toHaveBeenCalledTimes(1000);

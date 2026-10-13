@@ -5,18 +5,26 @@ const archiver = require("archiver");
 
 const TICKET_MS = 60_000;
 const LIST_CONCURRENCY = 8;
+const ROOT_CONCURRENCY = 4;
 const ARCHIVE_PENDING_LIMIT = 32;
 
 function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.now(), getRoots } = {}) {
   const tickets = new Map();
   const active = new Map();
-  const roots = getRoots || (() => {
-    const found = [];
-    for (let code = 65; code <= 90; code++) {
-      const drive = `${String.fromCharCode(code)}:\\`;
-      try { if (fsApi.statSync(drive).isDirectory()) found.push(drive); } catch { /* Drive unavailable. */ }
+  const roots = getRoots || (async () => {
+    const found = new Array(26);
+    let nextIndex = 0;
+    async function checkDrives() {
+      while (nextIndex < found.length) {
+        const index = nextIndex++;
+        const drive = `${String.fromCharCode(65 + index)}:\\`;
+        try {
+          if ((await fsApi.promises.stat(drive)).isDirectory()) found[index] = drive;
+        } catch { /* Drive unavailable. */ }
+      }
     }
-    return found;
+    await Promise.all(Array.from({ length: ROOT_CONCURRENCY }, checkDrives));
+    return found.filter(Boolean);
   });
   const key = value => process.platform === "win32" ? value.toLowerCase() : value;
 
@@ -24,7 +32,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     if (typeof value !== "string" || !value || value.includes("\0") || !pathApi.isAbsolute(value)
       || value.startsWith("\\\\") || value.startsWith("//")) throw new Error("文件路径无效。");
     const target = pathApi.resolve(value);
-    const allowed = allowedRoots || roots().map(root => pathApi.resolve(root));
+    const allowed = allowedRoots || (await roots()).map(root => pathApi.resolve(root));
     const root = allowed.find(item => key(target) === key(item) || key(target).startsWith(key(item.endsWith(pathApi.sep) ? item : `${item}${pathApi.sep}`)));
     if (!root) throw new Error("此位置不属于可访问的本地磁盘。");
     // Listing and archive traversal supply a parent validated within the same request.
@@ -44,8 +52,8 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   }
 
   async function list(directory) {
-    if (directory == null) return { path: null, entries: roots().map(root => ({ name: root, path: root, type: "drive", size: null })) };
-    const allowed = roots().map(root => pathApi.resolve(root));
+    if (directory == null) return { path: null, entries: (await roots()).map(root => ({ name: root, path: root, type: "drive", size: null })) };
+    const allowed = (await roots()).map(root => pathApi.resolve(root));
     const { target, info } = await safePath(directory, allowed);
     if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
     const names = await fsApi.promises.readdir(target);
@@ -127,7 +135,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     let info;
     let allowedRoots;
     try {
-      allowedRoots = roots().map(root => pathApi.resolve(root));
+      allowedRoots = (await roots()).map(root => pathApi.resolve(root));
       ({ target, info } = await safePath(entry.path, allowedRoots));
     }
     catch (error) {
