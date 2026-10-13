@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { runFallbackTextSearch } from "./fallback-text-search.cjs";
+import { createRipgrepInvocation, runRipgrepSearch } from "./ripgrep-search.cjs";
 
 describe("WSL fallback text search", () => {
   it("includes ignored and excluded-directory files only when requested, while excluding VCS metadata", async () => {
@@ -12,7 +13,7 @@ describe("WSL fallback text search", () => {
     try {
       execFileSync("git", ["init", "--quiet", dir]);
       fs.writeFileSync(path.join(dir, ".gitignore"), "ignored.txt\ndist/\n");
-      for (const relativePath of ["normal.txt", "ignored.txt", "dist/tracked.txt", ".git/search-marker.txt", ".hg/search-marker.txt", ".svn/search-marker.txt"]) {
+      for (const relativePath of ["normal.txt", "ignored.txt", "dist/hit.txt", "dist/tracked.txt", ".git/search-marker.txt", ".hg/search-marker.txt", ".svn/search-marker.txt"]) {
         const filePath = path.join(dir, relativePath);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, query);
@@ -40,10 +41,27 @@ describe("WSL fallback text search", () => {
 
       const inclusive = await search(true);
       expect(inclusive.results.map((entry) => entry.relativePath).sort())
-        .toEqual(["dist/tracked.txt", "ignored.txt", "normal.txt"]);
+        .toEqual(["dist/hit.txt", "dist/tracked.txt", "ignored.txt", "normal.txt"]);
       expect(inclusive.results.map((entry) => entry.path).sort())
-        .toEqual(["/project/dist/tracked.txt", "/project/ignored.txt", "/project/normal.txt"]);
+        .toEqual(["/project/dist/hit.txt", "/project/dist/tracked.txt", "/project/ignored.txt", "/project/normal.txt"]);
       expect(spawnProcess).toHaveBeenCalledTimes(1);
+
+      // Run the bundled binary against the same files to compare filtering semantics.
+      for (const [includeIgnored, fallback] of [[false, filtered], [true, inclusive]]) {
+        const session = { type: "windows" };
+        const invocation = await createRipgrepInvocation(session, query, undefined, dir, { includeIgnored });
+        const results = await runRipgrepSearch({
+          spawnProcess: spawn,
+          invocation,
+          session,
+          displayRoot: dir,
+          task: { cancelled: false, child: null }
+        });
+        const comparable = (entries) => entries.map(({ relativePath, lineNumber, line, matchStart, matchLength }) => ({
+          relativePath: relativePath.replace(/\\/g, "/"), lineNumber, line, matchStart, matchLength
+        })).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+        expect(comparable(results)).toEqual(comparable(fallback.results));
+      }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
