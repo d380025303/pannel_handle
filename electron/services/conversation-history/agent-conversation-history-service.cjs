@@ -143,7 +143,7 @@ function createAgentConversationHistoryService({
       : reference.provider === "gemini"
         ? getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi })
         : reference.provider === "grok"
-          ? getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
+          ? await getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
           : await getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi, messageCache: codeBuddyMessageCache });
     if (reference.provider !== "codebuddy") messages.sort((left, right) => right.timestamp - left.timestamp);
     messageCache.set(cacheKey, { messages, createdAt: now });

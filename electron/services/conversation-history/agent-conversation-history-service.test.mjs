@@ -234,6 +234,55 @@ describe("Agent conversation history service", () => {
     await expect(service.getHistoryMessages({ panelSessionId: "run-1", conversationRef: "codex:../../secret" })).rejects.toThrow("Invalid Agent conversation reference");
   });
 
+  it("keeps timers responsive on repeated first pages of a large Grok transcript", async () => {
+    const homeDir = createFixture();
+    const service = localService(homeDir);
+    const id = "019f877f-f9bd-7d03-bc33-9bebe6a9529f";
+    const file = path.join(homeDir, ".grok", "sessions", "C%3A%5Cwork", id, "updates.jsonl");
+    const lines = Array.from({ length: 50_000 }, (_, index) => JSON.stringify({
+      timestamp: index + 1,
+      params: { _meta: { promptId: `prompt-${Math.floor(index / 2)}` }, update: {
+        sessionUpdate: index % 2 ? "agent_message_chunk" : "user_message_chunk",
+        content: "x".repeat(1000)
+      } }
+    }));
+    fs.writeFileSync(file, lines.join("\n"));
+    const expected = historyModule.pageMessages(
+      (await import("./local-grok-history.cjs")).default.parseGrokMessages(lines.join("\n"))
+        .sort((left, right) => right.timestamp - left.timestamp), null, 1, true);
+    const input = { panelSessionId: "run-1", conversationRef: `grok:${id}`, limit: 1 };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let timerRan = false;
+      const timer = setTimeout(() => { timerRan = true; }, 0);
+      try {
+        const detail = await service.getHistoryMessages(input);
+        expect(timerRan).toBe(true);
+        expect(detail).toEqual({ conversationRef: input.conversationRef, ...expected });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    fs.appendFileSync(file, "\n" + JSON.stringify({ timestamp: 60_000, params: {
+      update: { sessionUpdate: "user_message_chunk", content: "latest" }
+    } }));
+    expect((await service.getHistoryMessages(input)).messages[0].text).toBe("latest");
+  }, 20_000);
+
+  it("isolates concurrent Grok reads and recovers after a file read failure", async () => {
+    const homeDir = createFixture();
+    const service = localService(homeDir);
+    const id = "019f877f-f9bd-7d03-bc33-9bebe6a9529f";
+    const file = path.join(homeDir, ".grok", "sessions", "C%3A%5Cwork", id, "updates.jsonl");
+    const input = { panelSessionId: "run-1", conversationRef: `grok:${id}` };
+    const results = await Promise.all([service.getHistoryMessages(input), service.getHistoryMessages(input)]);
+    expect(results[0]).toEqual(results[1]);
+    fs.rmSync(file);
+    fs.mkdirSync(file);
+    await expect(service.getHistoryMessages(input)).rejects.toThrow();
+    fs.rmdirSync(file);
+    expect((await service.getHistoryMessages(input)).messages).toEqual([]);
+  });
+
   it("uses the controlled SSH adapter and returns only its normalized response", async () => {
     const exec = vi.fn().mockResolvedValue(JSON.stringify({ items: [], nextCursor: null, errors: [] }));
     const service = createAgentConversationHistoryService({

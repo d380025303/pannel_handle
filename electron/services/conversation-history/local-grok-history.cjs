@@ -16,11 +16,9 @@ function getGrokSessionDirectories(fsApi, homeDir) {
   return directories;
 }
 
-function readGrokMessages(fsApi, sessionDirectory) {
+function parseGrokMessages(text) {
   const messages = new Map();
-  const transcriptPath = path.join(sessionDirectory, "updates.jsonl");
-  if (!fsApi.existsSync(transcriptPath)) return [];
-  readJsonLines(fsApi.readFileSync(transcriptPath, "utf-8"), item => {
+  readJsonLines(text, item => {
     const params = item?.params || {};
     const update = params.update || {};
     const isUser = update.sessionUpdate === "user_message_chunk";
@@ -46,6 +44,18 @@ function readGrokMessages(fsApi, sessionDirectory) {
     }
   });
   return [...messages.values()].filter(message => message.text.trim()).map(message => ({ ...message, text: message.text.trim() }));
+}
+
+async function readGrokMessages(fsApi, sessionDirectory) {
+  const { readGrokTranscript } = require("./grok-history-worker-client.cjs");
+  const transcriptPath = path.join(sessionDirectory, "updates.jsonl");
+  if (fsApi === require("node:fs")) return readGrokTranscript({ transcriptPath });
+  // Injected filesystems cannot cross the Worker boundary.
+  if (!fsApi.existsSync(transcriptPath)) return [];
+  const text = fsApi.promises?.readFile
+    ? await fsApi.promises.readFile(transcriptPath, "utf-8")
+    : fsApi.readFileSync(transcriptPath, "utf-8");
+  return readGrokTranscript({ text });
 }
 
 function listLocalGrok({ homeDir, cwd, scope, fsApi }) {
@@ -82,6 +92,7 @@ function getLocalGrokMessages({ homeDir, id, fsApi }) {
 module.exports = {
   getGrokSessionDirectories,
   readGrokMessages,
+  parseGrokMessages,
   listLocalGrok,
   getLocalGrokMessages
 };
