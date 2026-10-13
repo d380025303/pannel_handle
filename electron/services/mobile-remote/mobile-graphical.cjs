@@ -77,7 +77,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       let result = await (message.type.startsWith("graphical.opencode.") ? openCode : message.type.startsWith("graphical.codebuddy.") ? buddy : codex).handle(message, session, current, socket);
       if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result, result.provider === "opencode" ? visibleOpenCodeOptions(result, session, session.type === "ssh" ? undefined : getOpenCodeVerifiedModels?.()) : undefined, session);
       send(socket, { type: "graphical.result", requestId: message.requestId, sessionId, threadId: message.threadId, result: result ?? null });
-      if (socket.graphicalSessionId === sessionId && terminalManager.getSession(sessionId)) {
+      if (message.type !== "graphical.codex.workspace-search" && socket.graphicalSessionId === sessionId && terminalManager.getSession(sessionId)) {
         sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
       }
       if (["graphical.codex.model-source", "graphical.codebuddy.model-source", "graphical.opencode.reconnect"].includes(message.type) && result?.id) send(socket, { type: "session.launched", sessionId: result.id });

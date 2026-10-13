@@ -46,6 +46,38 @@ it("routes OpenCode fork/delete with capability, pending request, and stale thre
 });
 
 describe("mobile graphical session route", () => {
+  it("returns repeated workspace searches without long-session snapshots and preserves subsequent deltas", async () => {
+    const f = fixture();
+    Object.assign(f.snapshot, { streamId: "stream-1", revision: 3,
+      items: Array.from({ length: 1000 }, (_, index) => ({ id: `m${index}`, type: "agentMessage", text: "x".repeat(1024) })) });
+    const result = { entries: [{ path: "src/main.ts", kind: "file" }] };
+    const projectSearchService = { searchWorkspaceEntries: vi.fn(async () => result) };
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager,
+      graphicalService: f.graphicalService, projectSearchService, send: f.send });
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1", delta: true });
+    f.send.mockClear();
+    f.graphicalService.snapshot.mockClear();
+    for (let index = 0; index < 5; index++) {
+      await handlers.handle(f.socket, { type: "graphical.codex.workspace-search", sessionId: "graph-1",
+        threadId: "thread-1", requestId: `search-${index}`, input: { query: "main" } });
+      expect(f.send).toHaveBeenNthCalledWith(index + 1, f.socket, { type: "graphical.result",
+        sessionId: "graph-1", threadId: "thread-1", requestId: `search-${index}`, result });
+    }
+    expect(projectSearchService.searchWorkspaceEntries).toHaveBeenCalledTimes(5);
+    expect(projectSearchService.searchWorkspaceEntries).toHaveBeenCalledWith("graph-1", "main");
+    expect(f.send).toHaveBeenCalledTimes(5);
+    expect(f.graphicalService.snapshot).toHaveBeenCalledTimes(5);
+    expect(f.socket.graphicalStreamId).toBe("stream-1");
+    expect(f.socket.graphicalRevision).toBe(3);
+    f.send.mockClear();
+    handlers.handleDelta(f.socket, { id: "graph-1", streamId: "stream-1", threadId: "thread-1",
+      baseRevision: 3, revision: 4, items: [], turnDiffs: [], textDeltas: [{ itemId: "m0", delta: " next" }] });
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.delta",
+      baseRevision: 3, revision: 4, textDeltas: [{ itemId: "m0", delta: " next" }] }));
+    expect(f.socket.graphicalRevision).toBe(4);
+  });
+
   it("sends streaming deltas to capable clients and full snapshots to legacy clients", async () => {
     const f = fixture();
     f.snapshot.streamId = "stream-1";
