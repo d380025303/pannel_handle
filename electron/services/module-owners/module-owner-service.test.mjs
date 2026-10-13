@@ -262,6 +262,45 @@ it("exposes filtered owner history and validates the source template", async () 
 });
 
 describe("scheduled call history", () => {
+  it("does not serialize or write unchanged history for 100 completed disabled tasks", async () => {
+    const f = await fixture(true);
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    const output = "x".repeat(256 * 1024);
+    for (let index = 0; index < 100; index++) {
+      const task = f.owners.saveTask("one", { ...scheduled(owner.id), name: `task ${index}`, enabled: false, recordHistory: true }).at(-1);
+      await f.owners.runTask("one", { id: task.id });
+      f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output });
+      f.sessions.get("run").busy = false;
+    }
+    await f.owners.tickTasks();
+    expect(f.owners.listTasks("one")).toHaveLength(100);
+    expect(f.owners.listTasks("one").every(task => !task.enabled && task.lastRun.status === "completed")).toBe(true);
+    const stringify = vi.spyOn(JSON, "stringify");
+    const save = vi.spyOn(f.dataStore, "saveTaskRun");
+    for (let index = 0; index < 5; index++) await f.owners.tickTasks();
+    expect(stringify.mock.calls.filter(([value]) => value?.input && value?.output === output)).toHaveLength(0);
+    expect(save).not.toHaveBeenCalled();
+  }, 30000);
+
+  it("retries a failed final history save and stops writing after recovery", async () => {
+    const f = await fixture(true);
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    const task = f.owners.saveTask("one", { ...scheduled(owner.id), enabled: false, recordHistory: true })[0];
+    await f.owners.runTask("one", { id: task.id });
+    const summary = f.owners.listTaskRuns("one", { taskId: task.id }).records[0];
+    const query = { taskId: task.id, id: summary.id };
+    expect(f.owners.getTaskRun("one", query)).toMatchObject({ status: "running", sessionId: "run", threadId: "thread", turnId: "turn", output: "" });
+    const save = vi.spyOn(f.dataStore, "saveTaskRun").mockImplementationOnce(() => { throw new Error("disk full"); });
+    f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "final reply" });
+    expect(f.owners.getTaskRun("one", query).status).toBe("running");
+    await f.owners.tickTasks();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(f.owners.getTaskRun("one", query)).toMatchObject({ status: "completed", output: "final reply", endedAt: expect.any(Number) });
+    await f.owners.tickTasks();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(f.owners.listTasks("one")[0].lastRun.error).toBe("");
+  });
+
   it("defaults off and stores one sanitized record with the matching final turn only", async () => {
     const f = await fixture(true);
     const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];

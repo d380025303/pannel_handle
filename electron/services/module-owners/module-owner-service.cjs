@@ -37,11 +37,17 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       }
     }
     if (!job?.history) return;
-    Object.assign(job.history, { status: job.status, sessionId: job.sessionId, threadId: job.threadId, turnId: job.turnId, error: job.error || "" });
-    if (!["creating", "running", "uncertain"].includes(job.status)) job.history.endedAt ||= Date.now();
-    const serialized = JSON.stringify(job.history);
-    if (job.savedHistory === serialized && !job.historyError) return;
-    try { dataStore.saveTaskRun(job.history); job.savedHistory = serialized; job.historyError = ""; }
+    const fields = { status: job.status, sessionId: job.sessionId, threadId: job.threadId, turnId: job.turnId, error: job.error || "" };
+    for (const [key, value] of Object.entries(fields)) {
+      if (job.history[key] !== value) { job.history[key] = value; job.historyDirty = true; }
+    }
+    if (!["creating", "running", "uncertain"].includes(job.status) && !job.history.endedAt) {
+      job.history.endedAt = Date.now(); job.historyDirty = true;
+    }
+    // Input is immutable after creation; output changes are marked by the turn listener.
+    // Avoid serializing large replies on every idle scheduler refresh.
+    if (!job.historyDirty && !job.historyError) return;
+    try { dataStore.saveTaskRun(job.history); job.historyDirty = false; job.historyError = ""; }
     catch { job.historyError = "调用历史写入失败，请检查 SQLite 存储。"; }
   }
   function deferTaskError(job, error) {
@@ -83,7 +89,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
           owner: job.ownerSnapshot, template: job.templateSnapshot, tools: job.selectedTools, createdAt: Date.now() } });
         saveResults();
       }
-      if (job.history) job.history.output = event.output || "";
+      if (job.history && job.history.output !== job.output) { job.history.output = job.output; job.historyDirty = true; }
       grants.delete(job.token);
       persistRun(job);
       broadcast("module-owners:changed", { templateId: job.templateId });
@@ -164,6 +170,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       ownerSnapshot: task ? structuredClone(store.get(id).records.find(owner => owner.id === task.ownerId)) : null,
       templateSnapshot: { title: template(id).title, cwd: template(id).cwd } };
     if (task?.recordHistory) {
+      job.historyDirty = true;
       const input = structuredClone(body);
       if (input.toolCallback) delete input.toolCallback.bearerToken;
       job.history = { id: job.runId, templateId: id, ownerId: task.ownerId, taskId: task.id,
