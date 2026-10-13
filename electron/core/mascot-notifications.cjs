@@ -12,6 +12,7 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
   const submitting = new Set();
   const settleTimers = new Set();
   const queue = [];
+  let generation = 0;
   let serial = 0, revision = 0, timer, startedAt = 0, remaining = 60000, ready = false, paused = false, disposed = false;
   const snapshot = () => ({ revision, notification: queue[0]?.ready ? { ...queue[0].notification } : null, pendingCount: queue.length });
   const changed = () => { revision++; onChanged(snapshot()); };
@@ -156,12 +157,13 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     if (operation.type === "cancel" && !["codebuddy", "claude", "opencode"].includes(current.provider)) throw new Error("当前会话不支持取消提问。");
     if (operation.type === "answer" && (!operation.answers || typeof operation.answers !== "object" || Array.isArray(operation.answers))) throw new Error("无效的回答。");
     if (operation.type === "respond" && !["accept", "decline", "cancel"].includes(operation.action)) throw new Error("无效的处理选择。");
+    const actionGeneration = generation;
     submitting.add(notificationId); schedule();
     try {
       const args = operation.type === "approve" ? [operation.decision] : operation.type === "answer" ? [operation.answers]
         : operation.type === "respond" ? [operation.action, operation.content] : [];
       await graphicalService[method](sessionId, request.requestId, ...args);
-      syncPending(sessionId);
+      if (!disposed && actionGeneration === generation) syncPending(sessionId);
     } finally { submitting.delete(notificationId); schedule(); }
   }
   function removeSession(id) {
@@ -237,14 +239,21 @@ function createMascotNotifications({ terminalManager, graphicalService, openExte
     }, 200);
     settleTimers.add(entry.settle);
   }
-  function shutdown() {
-    disposed = true;
+  function reset() {
+    generation++;
     suspend();
     for (const timer of settleTimers) clearTimeout(timer);
     settleTimers.clear();
-    runs.clear(); queue.length = 0;
+    runs.clear(); statuses.clear(); seen.clear(); submitting.clear(); queue.length = 0;
+    remaining = 60000;
+    changed();
   }
-  return { snapshot, handleDesktopEvent, processAction, dismiss, setPresentation, suspend, shutdown };
+  function syncCurrentPending() {
+    if (disposed) return;
+    for (const session of terminalManager.listSessions?.() || []) syncPending(session.id);
+  }
+  function shutdown() { disposed = true; reset(); }
+  return { snapshot, handleDesktopEvent, processAction, dismiss, setPresentation, suspend, reset, syncCurrentPending, shutdown };
 }
 
 module.exports = { createMascotNotifications, cleanSummary, MAX_RESULT_NOTIFICATIONS };

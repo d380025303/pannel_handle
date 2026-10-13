@@ -44,7 +44,7 @@ describe("desktop mascot window", () => {
     graphical = { snapshot: () => snapshot, executePlan: vi.fn(async () => { snapshot.pendingPlan = null; }) };
     app = Object.assign(new EventEmitter(), { isPackaged: true, getPath: () => directory });
     service = createDesktopMascot({ app, BrowserWindow: Window, ipcMain: ipc, screen, random, now: () => performance.now() + clockOffset,
-      terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
+      terminalManager: { listSessions: () => [{ id: "one" }], getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
     service.open({ getBounds: () => area });
     window.emit("ready-to-show");
   });
@@ -63,6 +63,50 @@ describe("desktop mascot window", () => {
     window.emit("ready-to-show");
     return host;
   }
+  it("skips disabled snapshots, clears timers and restores requests and completion", async () => {
+    service.handleDesktopEvent("agent:status", { id: "one", status: "running", timestamp: 1 });
+    service.handleDesktopEvent("agent:status", { id: "one", status: "completed", timestamp: 2 });
+    service.setEnabled(false);
+    expect(vi.getTimerCount()).toBe(0);
+    const history = Array.from({ length: 10000 }, (_, id) => ({ id: String(id), type: "agentMessage", text: "history" }));
+    snapshot.items = history;
+    graphical.snapshot = vi.fn(() => ({ ...snapshot, items: [...snapshot.items] }));
+    for (let timestamp = 3; timestamp < 1003; timestamp++) {
+      service.handleDesktopEvent("agent:status", { id: "one", status: "running", timestamp });
+      service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
+    }
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(graphical.snapshot).not.toHaveBeenCalled();
+    snapshot.approvals = [{ requestId: 7, params: { itemId: "tool" } }];
+    snapshot.questions = [{ requestId: 8, params: { questions: [] } }];
+    service.setEnabled(true, { getBounds: () => area });
+    window.emit("ready-to-show");
+    expect(graphical.snapshot).toHaveBeenCalledTimes(1);
+    expect(hostState().notifications).toMatchObject({ pendingCount: 2, notification: { action: { kind: "approval" } } });
+    command({ type: "notification-dismiss", id: hostState().notifications.notification.id });
+    expect(hostState().notifications.notification.action.kind).toBe("question");
+    snapshot.approvals = []; snapshot.questions = [];
+    service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
+    service.handleDesktopEvent("agent:status", { id: "one", status: "running", timestamp: 4 });
+    snapshot.items = [...history, { id: "new", type: "agentMessage", text: "new result" }];
+    service.handleDesktopEvent("agent:status", { id: "one", status: "completed", timestamp: 5 });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(hostState().notifications).toMatchObject({ pendingCount: 1, notification: { summary: "new result" } });
+  });
+  it("does not resync an in-flight action after disabling", async () => {
+    pendingPlan();
+    let resolve;
+    graphical.executePlan = vi.fn(() => new Promise(done => { resolve = done; }));
+    const handler = ipc.handle.mock.calls.find(call => call[0] === "desktop-mascot:action")[1];
+    const action = handler({ sender: window.webContents, senderFrame: window.webContents.mainFrame },
+      hostState().notifications.notification.id, { type: "execute" });
+    service.setEnabled(false);
+    graphical.snapshot = vi.fn(() => snapshot);
+    resolve();
+    await action;
+    expect(graphical.snapshot).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
   function pendingPlan() {
     snapshot.pendingPlan = { itemId: "plan" };
     snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
@@ -74,7 +118,7 @@ describe("desktop mascot window", () => {
     ipc.handle.mockClear();
     ipc.removeAllListeners("desktop-mascot:command");
     service = createDesktopMascot({ app, BrowserWindow, ipcMain: ipc, screen, random,
-      terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
+      terminalManager: { listSessions: () => [{ id: "one" }], getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
     for (const id of ["one", "two"]) {
       service.handleDesktopEvent("agent:status", { id, status: "running", timestamp: 1 });
       service.handleDesktopEvent("agent:status", { id, status: "completed", timestamp: 2, activitySummary: id });

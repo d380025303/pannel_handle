@@ -24,6 +24,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   try { saved = JSON.parse(fs.readFileSync(file, "utf8")) || {}; } catch {}
   const state = { collapsed: saved.collapsed === true, animated: saved.animated !== false, moving: saved.moving !== false, migrated: saved.migrated === true, locale: getLocale() };
   let win, timer, poll, journey, drag, frameRefresh;
+  let enabled = true;
   let movementFailed = false, pollFailed = false, movementContext;
   let ignoringMouse;
   function setIgnoringMouse(value) {
@@ -332,12 +333,22 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     screen.removeListener("display-metrics-changed", correct);
     if (alive()) { persist(); win.destroy(); }
   }
-  function setEnabled(enabled, mainWindow) {
-    if (enabled) open(mainWindow);
-    else close();
+  function setEnabled(value, mainWindow) {
+    const wasEnabled = enabled;
+    enabled = Boolean(value);
+    if (enabled) {
+      if (!wasEnabled) notifications.syncCurrentPending();
+      open(mainWindow);
+    } else {
+      close();
+      notifications.reset();
+    }
   }
-  function shutdown() { close(); notifications.shutdown(); }
-  return { open, close, setEnabled, shutdown, handleDesktopEvent: notifications.handleDesktopEvent };
+  function handleDesktopEvent(channel, payload) {
+    if (enabled) notifications.handleDesktopEvent(channel, payload);
+  }
+  function shutdown() { enabled = false; close(); notifications.shutdown(); }
+  return { open, close, setEnabled, shutdown, handleDesktopEvent };
 }
 
 module.exports = { createDesktopMascot, clampPosition };
