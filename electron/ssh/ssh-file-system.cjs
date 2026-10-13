@@ -11,7 +11,7 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
   const connectionError = error => noConnection(error)
     || ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTCONN"].includes(error?.code)
     || /Unexpected (?:end|close) event/i.test(error?.message || "");
-  const readMethods = new Set(["stat", "get", "list", "cwd", "exists"]);
+  const readMethods = new Set(["stat", "get", "readBuffer", "list", "cwd", "exists"]);
   const singleRequestWrites = new Set(["put", "fastPut", "rename", "chmod", "delete"]);
 
   async function closeClient(client) {
@@ -55,11 +55,30 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
     return pending.promise;
   }
 
+  async function readBuffer(client, remotePath, maxBytes) {
+    const chunks = [];
+    let size = 0;
+    // end is inclusive: read one extra byte to detect growth after stat,
+    // while bounding both transport traffic and retained buffers.
+    const stream = client.createReadStream(remotePath, { end: maxBytes, highWaterMark: 64 * 1024 });
+    for await (const chunk of stream) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        const error = new Error("Remote file exceeds the read limit.");
+        error.code = "FILE_TOO_LARGE";
+        throw error;
+      }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, size);
+  }
+
   async function call(sessionId, method, ...args) {
     let entry = await getClient(sessionId);
     for (let attempt = 0; ; attempt++) {
       try {
-        return await entry.client[method](...args);
+        return await (method === "readBuffer"
+          ? readBuffer(entry.client, ...args) : entry.client[method](...args));
       } catch (error) {
         if (!connectionError(error)) throw error;
         invalidate(sessionId, entry);
@@ -154,7 +173,13 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
     fastPut: (sessionId, localPath, remotePath, options) => options
       ? call(sessionId, "fastPut", localPath, remotePath, options)
       : call(sessionId, "fastPut", localPath, remotePath),
-    get: (sessionId, remotePath) => call(sessionId, "get", remotePath),
+    get: (sessionId, remotePath, options) => {
+      if (options?.maxBytes === undefined) return call(sessionId, "get", remotePath);
+      if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) {
+        return Promise.reject(new Error("Invalid remote file read limit."));
+      }
+      return call(sessionId, "readBuffer", remotePath, options.maxBytes);
+    },
     list: (sessionId, remotePath) => call(sessionId, "list", remotePath),
     mkdir: (sessionId, remotePath, recursive) => call(sessionId, "mkdir", remotePath, recursive),
     put: (sessionId, input, remotePath) => call(sessionId, "put", input, remotePath),

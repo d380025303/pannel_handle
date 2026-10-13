@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
 
 const require = createRequire(import.meta.url);
 const { createSshFileSystem } = require("./ssh-file-system.cjs");
@@ -9,6 +10,34 @@ describe("ssh-file-system", () => {
   function client(overrides = {}) {
     return { client: new EventEmitter(), list: vi.fn(async () => []), end: vi.fn(), ...overrides };
   }
+
+  it("retries bounded reads with a fresh buffer after a connection failure", async () => {
+    const error = Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+    const source = Readable.from((async function* () {
+      yield Buffer.from("partial");
+      throw error;
+    })());
+    const first = client({ createReadStream: vi.fn(() => source) });
+    const next = client({ createReadStream: vi.fn(() => Readable.from([Buffer.from("complete")])),
+      get: vi.fn(async () => Buffer.from("unlimited")) });
+    const runtime = { createSftpClient: vi.fn().mockResolvedValueOnce(first).mockResolvedValue(next) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    expect(await fs.get("s", "/a", { maxBytes: 16 })).toEqual(Buffer.from("complete"));
+    expect(source.destroyed).toBe(true);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(2);
+    expect(await fs.get("s", "/a")).toEqual(Buffer.from("unlimited"));
+    expect(next.get).toHaveBeenCalledWith("/a");
+  });
+
+  it("destroys failed bounded streams and propagates file errors without retrying", async () => {
+    const error = Object.assign(new Error("Permission denied"), { code: 3 });
+    const source = new Readable({ read() { this.destroy(error); } });
+    const runtime = { createSftpClient: vi.fn(async () => client({ createReadStream: () => source })) };
+    const fs = createSshFileSystem({ sshSessionRuntime: runtime });
+    await expect(fs.get("s", "/a", { maxBytes: 16 })).rejects.toBe(error);
+    expect(source.destroyed).toBe(true);
+    expect(runtime.createSftpClient).toHaveBeenCalledTimes(1);
+  });
 
   it("shares concurrent connection attempts and reconnects after idle close", async () => {
     const first = client();

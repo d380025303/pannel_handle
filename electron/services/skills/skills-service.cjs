@@ -178,7 +178,14 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
     let buffer;
     if (provider === "codex" && session?.type === "ssh" && session.agentLocation !== "local") {
       if (!sshFileSystem) throw new Error("SSH 文件读取不可用。");
-      buffer = await sshFileSystem.get(session.id, skill.path);
+      const stat = await sshFileSystem.stat(session.id, skill.path);
+      if (stat.size > MAX_SKILL_BYTES) throw new Error("Skill 文件超过 2 MB。");
+      try {
+        buffer = await sshFileSystem.get(session.id, skill.path, { maxBytes: MAX_SKILL_BYTES });
+      } catch (error) {
+        if (error?.code === "FILE_TOO_LARGE") throw new Error("Skill 文件超过 2 MB。");
+        throw error;
+      }
     } else if (provider === "codex" && session?.type === "wsl") {
       const execFile = require("node:util").promisify(require("node:child_process").execFile);
       const result = await execFile("wsl.exe", ["-d", session.wslDistro, "--", "cat", "--", skill.path],

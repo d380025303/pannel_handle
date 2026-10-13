@@ -1,8 +1,67 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Readable } from "node:stream";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createSkillsService } from "./skills-service.cjs";
+
+const require = createRequire(import.meta.url);
+const SftpClient = require("ssh2-sftp-client");
+const { createSshFileSystem } = require("../../ssh/ssh-file-system.cjs");
+
+it.each([
+  [32 * 1024 * 1024, 32 * 1024 * 1024, false],
+  [1024, 32 * 1024 * 1024, false],
+  [0, 0, true],
+  [1024, 1024, true],
+  [2 * 1024 * 1024, 2 * 1024 * 1024, true]
+])("bounds SSH Skill reads (stat %i, actual %i)", async (reportedSize, actualSize, succeeds) => {
+  const limit = 2 * 1024 * 1024;
+  let transferred = 0;
+  let source;
+  const sftp = new SftpClient();
+  // Use the installed client's real stat/createReadStream methods with a simulated remote channel.
+  sftp.sftp = {
+    stat: vi.fn((_path, callback) => callback(null, {
+      size: reportedSize, mode: 0o100644, uid: 0, gid: 0, atime: 0, mtime: 0,
+      isDirectory: () => false, isFile: () => true, isBlockDevice: () => false,
+      isCharacterDevice: () => false, isSymbolicLink: () => false, isFIFO: () => false, isSocket: () => false
+    })),
+    createReadStream: vi.fn((_path, options) => {
+      source = new Readable({ highWaterMark: options.highWaterMark, read(size) {
+        const remaining = Math.min(actualSize, options.end + 1) - transferred;
+        if (remaining <= 0) { this.push(null); return; }
+        const length = Math.min(size, remaining);
+        transferred += length;
+        this.push(Buffer.alloc(length, 120));
+      } });
+      return source;
+    })
+  };
+  const sshFileSystem = createSshFileSystem({ sshSessionRuntime: { createSftpClient: async () => sftp } });
+  const session = { id: "ssh-1", type: "ssh", runtimeMode: "app-server", agentProvider: "codex", cwd: "/repo" };
+  const service = createSkillsService({ homeDir: createHome(), sshFileSystem,
+    terminalManager: { getSession: () => session },
+    codexAppServerSessionService: { listSkills: async () => [{ name: "remote", path: "/repo/SKILL.md" }] }
+  });
+  const { skills: [skill] } = await service.list("codex", session.id);
+  if (succeeds) {
+    expect((await service.read("codex", skill.id, session.id)).content).toBe("x".repeat(actualSize));
+    expect(transferred).toBe(actualSize);
+  } else {
+    await expect(service.read("codex", skill.id, session.id)).rejects.toThrow("Skill 文件超过 2 MB");
+  }
+  expect(sftp.sftp.stat).toHaveBeenCalledTimes(1);
+  if (reportedSize > limit) {
+    expect(sftp.sftp.createReadStream).not.toHaveBeenCalled();
+    expect(transferred).toBe(0);
+  } else {
+    expect(sftp.sftp.createReadStream).toHaveBeenCalledWith(skill.path, { end: limit, highWaterMark: 64 * 1024 });
+    expect(transferred).toBeLessThanOrEqual(limit + 1);
+    expect(source.destroyed).toBe(true);
+  }
+});
 
 const tempDirs = [];
 
