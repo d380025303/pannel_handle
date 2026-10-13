@@ -9,6 +9,7 @@ const { pipeline } = require("node:stream/promises");
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const OFFICE_PREVIEW_LIMIT = 50 * 1024 * 1024;
 const TRANSFER_PROGRESS_INTERVAL_MS = 250;
+const LOCAL_STAT_CONCURRENCY = 16;
 const MEDIA_PROTOCOL = "pannel-media";
 const IMAGE_MIME_BY_EXTENSION = new Map([
   [".png", "image/png"],
@@ -292,18 +293,23 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
       : normalizeWindowsPath(filePath, getLocalHome(session));
     const hostPath = toLocalHostPath(session, displayPath);
     const dirents = await fsApi.promises.readdir(hostPath, { withFileTypes: true });
-    const entries = await Promise.all(dirents.map(async (dirent) => {
-      const childDisplayPath = joinLocalPath(session, displayPath, dirent.name);
-      const childHostPath = toLocalHostPath(session, childDisplayPath);
-      const stat = await fsApi.promises.stat(childHostPath);
-      return {
-        name: dirent.name,
-        path: fromLocalHostPath(session, childHostPath),
-        type: dirent.isDirectory() ? "directory" : dirent.isSymbolicLink() ? "symlink" : "file",
-        size: Number(stat.size || 0),
-        modifiedAt: Number(stat.mtimeMs || 0)
-      };
-    }));
+    const entries = [];
+    for (let offset = 0; offset < dirents.length; offset += LOCAL_STAT_CONCURRENCY) {
+      if (offset > 0) await new Promise((resolve) => setImmediate(resolve));
+      const batch = await Promise.all(dirents.slice(offset, offset + LOCAL_STAT_CONCURRENCY).map(async (dirent) => {
+        const childDisplayPath = joinLocalPath(session, displayPath, dirent.name);
+        const childHostPath = toLocalHostPath(session, childDisplayPath);
+        const stat = await fsApi.promises.stat(childHostPath);
+        return {
+          name: dirent.name,
+          path: fromLocalHostPath(session, childHostPath),
+          type: dirent.isDirectory() ? "directory" : dirent.isSymbolicLink() ? "symlink" : "file",
+          size: Number(stat.size || 0),
+          modifiedAt: Number(stat.mtimeMs || 0)
+        };
+      }));
+      entries.push(...batch);
+    }
     return sortEntries(entries);
   }
 
