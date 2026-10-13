@@ -65,7 +65,8 @@ function copyBackgroundImage(sourcePath, userDataDir) {
   fs.mkdirSync(bgDir, { recursive: true });
   const originalBase = path.basename(sourcePath);
   const baseWithoutExt = originalBase.slice(0, originalBase.length - path.extname(originalBase).length);
-  const safeBase = baseWithoutExt.replace(/[^\w.-]+/g, "_").slice(0, 80) || "background";
+  // A trailing dot would form ".." when the extension is appended.
+  const safeBase = baseWithoutExt.replace(/[^\w.-]+/g, "_").slice(0, 80).replace(/\.{2,}|\.$/g, "_") || "background";
   const name = `${Date.now()}-${safeBase}${ext}`;
   fs.copyFileSync(sourcePath, path.join(bgDir, name));
   return name;

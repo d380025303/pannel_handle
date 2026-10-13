@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { createConfigStore } = require("../../stores/config-store.cjs");
 const {
   TERMINAL_BG_SCHEME,
   isValidBackgroundName,
@@ -92,6 +93,41 @@ describe("registerTerminalBackgroundProtocol", () => {
 });
 
 describe("copyBackgroundImage", () => {
+  it.each([
+    ["photo..png", "photo_"],
+    ["photo...png", "photo_"],
+    ["photo..summer.png", "photo_summer"],
+    ["photo.summer.png", "photo.summer"],
+    [`${"a".repeat(79)}.x.png`, `${"a".repeat(79)}_`]
+  ])("keeps imported %s configured and accessible after reload", (filename, safeBase) => {
+    const userDataDir = createTempDir();
+    const sourceFile = path.join(createTempDir(), filename);
+    const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64");
+    fs.writeFileSync(sourceFile, imageBytes);
+    const configFile = path.join(userDataDir, "config.json");
+    const store = createConfigStore({ configFile });
+    store.updateConfig({ terminalBackgroundImage: "existing.png" }, { throwOnSaveError: true });
+
+    const name = copyBackgroundImage(sourceFile, userDataDir);
+    expect(name.slice(name.indexOf("-") + 1)).toBe(`${safeBase}.png`);
+    expect(isValidBackgroundName(name)).toBe(true);
+    store.updateConfig({ terminalBackgroundImage: name }, { throwOnSaveError: true });
+    expect(store.getConfig().terminalBackgroundImage).toBe(name);
+
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().terminalBackgroundImage).toBe(name);
+    let handler;
+    registerTerminalBackgroundProtocol({
+      registerFileProtocol: (_scheme, callback) => { handler = callback; }
+    }, userDataDir);
+    const callback = vi.fn();
+    handler({ url: `terminal-bg://background/${reloaded.getConfig().terminalBackgroundImage}` }, callback);
+    const imagePath = path.join(userDataDir, "terminal-background", name);
+    expect(callback).toHaveBeenCalledWith({ path: imagePath });
+    expect(fs.readFileSync(imagePath)).toEqual(imageBytes);
+  });
+
   it("copies an allowed image into the background directory with a unique name", () => {
     const userDataDir = createTempDir();
     const sourceDir = createTempDir();
