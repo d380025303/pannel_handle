@@ -1,5 +1,8 @@
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -129,6 +132,53 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("strips complete OSC and CSI while preserving unfinished OSC and plain text", () => {
+    const source = readFileSync(new URL("./terminal-manager.cjs", import.meta.url), "utf8");
+    const stripAnsi = runInNewContext(source.slice(source.indexOf("function stripAnsi("), source.indexOf("function splitSshExtraArgs(")) + "stripAnsi;");
+    for (const [input, output] of [
+      ["plain text", "plain text"],
+      ["before\x1b]0;title\x07after", "beforeafter"],
+      ["before\x1b]0;title\x1b\\after", "beforeafter"],
+      ["before\x1b]one\x1b\\middle\x1b]two\x1b\\after", "beforeafter"],
+      ["before\x1b]one\x1b\\middle\x07after", "beforeafter"],
+      ["before\x1b]unfinished", "before\x1b]unfinished"],
+      ["\x1b[31mred\x1b[0m", "red"],
+      ["\x1b]title\x07\x1b[32mgreen\x1b[0m\x1b]unfinished", "green\x1b]unfinished"],
+      ["\x1b]".repeat(16384), "\x1b]".repeat(16384)]
+    ]) expect(stripAnsi(input)).toBe(output);
+  });
+
+  it("keeps running Codex data callbacks responsive with unfinished OSC output", async () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ title: "Codex" });
+    const runtimeSession = manager.getSession(session.id);
+    runtimeSession.agentProvider = "codex";
+    runtimeSession.agentStatus = "running";
+    // Warm up the callback before measuring; each sample uses a fresh history.
+    term.emitData("\x1b]".repeat(16384));
+    const timings = [];
+    for (const bytes of [8192, 16384, 32768]) {
+      const samples = [];
+      for (let sample = 0; sample < 10; sample += 1) {
+        runtimeSession.buffer.length = 0;
+        const input = "\x1b]".repeat(bytes / 2);
+        const started = performance.now();
+        term.emitData(input);
+        samples.push(performance.now() - started);
+        expect(runtimeSession.agentStatus).toBe("running");
+      }
+      timings.push({ bytes, medianMs: samples.sort((a, b) => a - b)[5] });
+    }
+    const started = performance.now();
+    const timer = new Promise(resolve => setTimeout(() => resolve(performance.now() - started), 0));
+    runtimeSession.buffer.length = 0;
+    term.emitData("\x1b]".repeat(16384));
+    const timerDelayMs = await timer;
+    process.stdout.write(`OSC callback timings: ${JSON.stringify({ timings, timerDelayMs })}\n`);
+    expect(timings[2].medianMs).toBeLessThan(20);
+    expect(timerDelayMs).toBeLessThan(100);
+  });
+
   it("keeps the event loop responsive with a delayed enumeration subprocess", async () => {
     const { manager } = createManager();
     let completed = false;

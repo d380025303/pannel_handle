@@ -235,9 +235,31 @@ function appendWslEnv(existingValue, variableNames) {
 }
 
 function stripAnsi(value) {
-  return String(value || "")
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const text = String(value || "");
+  const parts = [];
+  let keptFrom = 0;
+  for (let index = 0; index < text.length - 1; index += 1) {
+    if (text[index] !== "\x1b" || text[index + 1] !== "]") continue;
+    const start = index;
+    index += 2;
+    let end = -1;
+    while (index < text.length) {
+      if (text[index] === "\x07") {
+        end = index + 1;
+        break;
+      }
+      // Match the old greedy OSC expression: BEL wins, otherwise the last ST.
+      if (text[index] === "\x1b" && text[index + 1] === "\\") end = index + 2;
+      index += 1;
+    }
+    // An unterminated OSC leaves the remaining text intact; do not rescan it.
+    if (end === -1) break;
+    parts.push(text.slice(keptFrom, start));
+    keptFrom = end;
+    index = end - 1;
+  }
+  parts.push(text.slice(keptFrom));
+  return parts.join("").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function splitSshExtraArgs(value) {
