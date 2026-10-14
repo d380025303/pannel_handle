@@ -146,11 +146,53 @@ def codebuddy_metadata(file_name):
     }
 
 
+def cached_codebuddy_metadata(files):
+    # Requests run in separate Python processes; keep metadata outside message snapshots.
+    connection = None
+    try:
+        root = os.path.expanduser("~/.cache/pannel-handle/codebuddy-metadata-v1")
+        os.makedirs(root, mode=0o700, exist_ok=True)
+        connection = sqlite3.connect(os.path.join(root, "metadata.sqlite"), timeout=1)
+        connection.execute("CREATE TABLE IF NOT EXISTS metadata (path TEXT PRIMARY KEY, signature TEXT, data TEXT)")
+        connection.execute("BEGIN IMMEDIATE")
+        cached = {row[0]: row[1:] for row in connection.execute("SELECT path, signature, data FROM metadata")}
+        live = set()
+        items = []
+        for file_name in files:
+            name = os.path.abspath(file_name)
+            live.add(name)
+            try:
+                signature = json.dumps(source_signature([name]))
+                previous = cached.get(name)
+                if previous and previous[0] == signature:
+                    items.append(json.loads(previous[1]))
+                    continue
+                item = codebuddy_metadata(name)
+                # Never save a partial read under a stable-looking newer signature.
+                after = source_signature([name])
+                if after[0][1] is not None and json.dumps(after) == signature:
+                    connection.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+                                       (name, signature, json.dumps(item, ensure_ascii=False)))
+                else:
+                    connection.execute("DELETE FROM metadata WHERE path = ?", (name,))
+                items.append(item)
+            except OSError:
+                connection.execute("DELETE FROM metadata WHERE path = ?", (name,))
+        connection.executemany("DELETE FROM metadata WHERE path = ?", ((name,) for name in cached if name not in live))
+        connection.commit()
+        return items
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        # Read-only homes, busy or damaged caches must not make history unavailable.
+        return [codebuddy_metadata(name) for name in files]
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def list_codebuddy(payload):
     expected_cwd = str(payload.get("cwd") or "").rstrip("/")
     items = []
-    for file_name in codebuddy_files():
-        item = codebuddy_metadata(file_name)
+    for item in cached_codebuddy_metadata(codebuddy_files()):
         if payload.get("scope") != "all" and item["cwd"].rstrip("/") != expected_cwd:
             continue
         items.append(item)
