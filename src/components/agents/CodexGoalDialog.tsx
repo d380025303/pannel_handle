@@ -73,9 +73,16 @@ export function CodexGoalDialog({ sessionId, snapshot, onClose, onUpdated }: Pro
 
   return <div className="modal-overlay codex-app-server-goal-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="modal-dialog codex-app-server-goal-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-goal-title"
-      onKeyDown={event => { if (event.key === "Escape") onClose(); }}>
+      onKeyDown={event => {
+        if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+        if (event.key === "Tab") {
+          const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)"));
+          if (event.shiftKey && document.activeElement === elements[0]) { event.preventDefault(); elements.at(-1)?.focus(); }
+          else if (!event.shiftKey && document.activeElement === elements.at(-1)) { event.preventDefault(); elements[0]?.focus(); }
+        }
+      }}>
       <div className="codex-app-server-history-header"><h2 id="codex-goal-title">目标管理</h2>
-        <button type="button" aria-label="关闭目标管理" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <button type="button" autoFocus aria-label="关闭目标管理" onClick={onClose}><X aria-hidden="true" /></button></div>
       <div className="codex-app-server-goal-content">
         {snapshot.goalLoading && <p role="status">正在读取目标…</p>}
         {snapshot.goalError && <p role="alert" className="codex-app-server-goal-error">读取目标失败：{snapshot.goalError}</p>}
