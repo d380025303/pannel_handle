@@ -6,9 +6,9 @@ const path = require("node:path");
 const {
   emptyCapabilityUsage,
   mergeTranscriptResults,
-  parseTranscriptFileWithSubagents,
   parseTranscriptText
 } = require("./agent-token-transcript.cjs");
+const { parseTranscriptFileAsync } = require("./agent-token-transcript-reader.cjs");
 const { subtractTokens } = require("./token-usage-values.cjs");
 const { readOpenCodeExport } = require("./opencode-export.cjs");
 const { toWslHostPath } = require("../remote-files/index.cjs");
@@ -411,7 +411,7 @@ function createAgentTokenStatsService({
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       try {
         return session.type === "windows" || isLocalSshBridge(session)
-          ? parseTranscriptFileWithSubagents(provider, transcriptPath)
+          ? await parseTranscriptFileAsync(provider, transcriptPath)
           : await parseRemote(session, provider, transcriptPath);
       } catch (error) {
         lastError = error;
@@ -478,7 +478,7 @@ function createAgentTokenStatsService({
     if (baselinePending.has(key)) return;
     const epoch = graphicalEpoch;
     const request = (session.type === "windows" || isLocalSshBridge(session)
-      ? Promise.resolve().then(() => parseTranscriptFileWithSubagents(provider, transcriptPath))
+      ? parseTranscriptFileAsync(provider, transcriptPath)
       : parseRemote(session, provider, transcriptPath))
       .then(result => {
         if (provider !== "codebuddy" || session.runtimeMode !== "app-server" || epoch === graphicalEpoch)
