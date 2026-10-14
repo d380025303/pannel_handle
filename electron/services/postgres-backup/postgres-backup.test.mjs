@@ -387,7 +387,7 @@ describe("conversation batch synchronization", () => {
     const batches = [];
     const queries = [];
     const messages = Array.from({ length: 1000 }, (_, i) => ({
-      id: `message-${i}`, kind: "reply", text: `answer-${i}`, timestamp: i,
+      id: `message-${i}`, kind: "reply", text: "x".repeat(1024), timestamp: i,
       item: { type: "agentMessage", output: "private protocol" }
     }));
     const client = { release() {}, async query(sql, params = []) {
@@ -398,10 +398,22 @@ describe("conversation batch synchronization", () => {
       if (sql.includes("SELECT conversation_ref, updated_at, message_rule_version")) return { rows: remote.conversation ? [remote.conversation] : [] };
       if (sql.includes("INSERT INTO ph_conversations(")) remote.conversation = { conversation_ref: params[2], updated_at: params[4], message_rule_version: 0 };
       if (sql.includes("UPDATE ph_conversations SET message_rule_version")) remote.conversation.message_rule_version = params[0];
+      if (sql.includes("md5(data->>'text') AS text_hash")) {
+        expect(sql).toContain("device_id=$1 AND source_key=$2 AND conversation_ref=$3");
+        expect(params[3].length).toBeLessThanOrEqual(200);
+        return { rows: params[3].flatMap(hash => {
+          const row = remote.messages.get(JSON.stringify([...params.slice(0, 3), hash]));
+          if (!row) return [];
+          const { text, ...metadata } = row.data;
+          return [{ message_hash: hash, metadata: Object.fromEntries(Object.entries(metadata).reverse()),
+            text_hash: crypto.createHash("md5").update(text).digest("hex") }];
+        }) };
+      }
       if (sql.includes("INSERT INTO ph_messages(")) {
         expect(sql).toContain("jsonb_to_recordset($4::jsonb)");
         expect(sql).toContain("ON CONFLICT(device_id,source_key,conversation_ref,message_hash)");
         expect(sql).toContain("DO UPDATE SET message_id=excluded.message_id,data=excluded.data");
+        expect(sql).toContain("WHERE ph_messages.data IS DISTINCT FROM excluded.data");
         const batch = JSON.parse(params[3]);
         expect(new Set(batch.map(row => row.message_hash)).size).toBe(batch.length);
         batches.push(batch);
@@ -434,14 +446,23 @@ describe("conversation batch synchronization", () => {
       expect((await service.backupNow()).lastError).toBe("");
       expect(batches.map(batch => batch.length)).toEqual([200, 200, 200, 200, 200]);
       expect([...remote.messages.values()].map(row => row.data)).toEqual(messages.map(({ item, ...message }) => message));
-      const original = structuredClone(remote);
+      let original = structuredClone(remote);
       await service.backupNow();
       expect(batches).toHaveLength(5);
       expect(historyService.getHistoryMessagesForSession).toHaveBeenCalledTimes(5);
       expect(remote).toEqual(original);
 
       updatedAt = 2;
+      messages.push({ id: "new-message", kind: "user", text: "x".repeat(1024), timestamp: 1000 });
+      batches.length = 0;
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(batches.map(batch => batch.length)).toEqual([1]);
+      expect(batches[0][0].message_id).toBe("new-message");
+      original = structuredClone(remote);
+
+      updatedAt = 3;
       messages[0].text = "updated answer";
+      messages[250].text = "updated second page";
       batches.length = 0;
       failBatch = 2;
       expect((await service.backupNow()).lastError).toContain("message batch failed");
@@ -450,11 +471,19 @@ describe("conversation batch synchronization", () => {
       failBatch = 0;
       batches.length = 0;
       expect((await service.backupNow()).lastError).toBe("");
-      expect(remote.messages.size).toBe(1000);
+      expect(remote.messages.size).toBe(1001);
       expect([...remote.messages.values()][0].data.text).toBe("updated answer");
+      expect(batches.map(batch => batch.length)).toEqual([1, 1]);
+
+      updatedAt = 4;
+      messages[0].timestamp += 1;
+      batches.length = 0;
+      expect((await service.backupNow()).lastError).toBe("");
+      expect(batches.map(batch => batch.length)).toEqual([1]);
+      expect(batches[0][0].data.timestamp).toBe(1);
 
       // Last duplicate wins both inside a page and across page boundaries.
-      updatedAt = 3;
+      updatedAt = 5;
       messages.splice(0, messages.length,
         { id: "duplicate", kind: "user", text: "first" },
         { id: "duplicate", kind: "user", text: "last in page" },
@@ -465,7 +494,7 @@ describe("conversation batch synchronization", () => {
       expect(batches.map(batch => batch.length)).toEqual([1, 1]);
       expect(batches[0][0].data.text).toBe("last in page");
       expect([...remote.messages.values()].at(-1).data.text).toBe("last across pages");
-      updatedAt = 4;
+      updatedAt = 6;
       messages.splice(0, messages.length, { id: "tool", kind: "tool", text: "filtered" });
       batches.length = 0;
       await service.backupNow();

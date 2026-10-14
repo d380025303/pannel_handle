@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { isDeepStrictEqual } = require("node:util");
 const { readStatsBatches } = require("./stats-reader.cjs");
 const { Pool } = require("pg");
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
@@ -360,11 +361,27 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
                   batch.set(hash, { message_id: message.id, message_hash: hash, data: message });
                 }
                 if (batch.size) {
+                  // Compare compact remote summaries, never download historical message bodies.
+                  const existingMessages = await client.query(`SELECT message_hash, data - 'text' AS metadata,
+                    md5(data->>'text') AS text_hash FROM ph_messages
+                    WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3
+                      AND message_hash = ANY($4::text[])`,
+                  [state.deviceId, key, item.ref, [...batch.keys()]]);
+                  for (const row of existingMessages.rows) {
+                    const value = batch.get(row.message_hash);
+                    if (!value) continue;
+                    const { text, ...metadata } = JSON.parse(JSON.stringify(value.data));
+                    if (row.text_hash === crypto.createHash("md5").update(text).digest("hex") &&
+                      isDeepStrictEqual(row.metadata, metadata)) batch.delete(row.message_hash);
+                  }
+                }
+                if (batch.size) {
                   await client.query(`INSERT INTO ph_messages(device_id,source_key,conversation_ref,message_id,message_hash,data)
                     SELECT $1, $2, $3, batch.message_id, batch.message_hash, batch.data
                     FROM jsonb_to_recordset($4::jsonb) AS batch(message_id TEXT, message_hash TEXT, data JSONB)
                     ON CONFLICT(device_id,source_key,conversation_ref,message_hash)
-                    DO UPDATE SET message_id=excluded.message_id,data=excluded.data`,
+                    DO UPDATE SET message_id=excluded.message_id,data=excluded.data
+                    WHERE ph_messages.data IS DISTINCT FROM excluded.data`,
                   [state.deviceId, key, item.ref, JSON.stringify([...batch.values()])]);
                 }
                 messageCursor = messages.nextCursor;
