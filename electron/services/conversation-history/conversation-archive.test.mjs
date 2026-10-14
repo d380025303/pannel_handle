@@ -74,6 +74,49 @@ describe("local conversation archive", () => {
       "other thread", "second", "second", "updated"
     ]);
   });
+  it("resolves 501 histories once, then polls bound references and rediscovers failed targets", async () => {
+    const items = Array.from({ length: 501 }, (_, i) => ({ ref: `codex:${i}`, provider: "codex", acpSessionId: `acp-${i}` }));
+    let signature = "initial";
+    const messages = [{ id: "first", provider: "codex", kind: "reply", text: "first", timestamp: 1001 }];
+    const history = {
+      listHistoryForSession: vi.fn(async (_, { cursor }) => {
+        const offset = Number(cursor || 0);
+        return { items: items.slice(offset, offset + 200), nextCursor: offset + 200 < items.length ? String(offset + 200) : null };
+      }),
+      getHistorySignatureForSession: vi.fn(async () => signature),
+      getHistoryMessagesForSession: vi.fn(async () => ({ messages, nextCursor: null }))
+    };
+    const archive = createConversationArchiveService({ userData: fixture(), getHistoryService: () => history, now: () => 1000 });
+    closers.push(() => archive.shutdown());
+    archive.start({ ...session, runtimeMode: "terminal" });
+    archive.bindThread("panel", "codex", "acp-0");
+    await archive.flush();
+    expect(history.listHistoryForSession).toHaveBeenCalledOnce();
+    expect(history.getHistoryMessagesForSession).toHaveBeenCalledOnce();
+    history.listHistoryForSession.mockClear();
+    history.getHistoryMessagesForSession.mockClear();
+    await archive.flush();
+    expect(history.listHistoryForSession).not.toHaveBeenCalled();
+    expect(history.getHistoryMessagesForSession).not.toHaveBeenCalled();
+    messages.push({ id: "added", provider: "codex", kind: "reply", text: "added", timestamp: 1002 });
+    signature = "appended";
+    await archive.flush();
+    const ref = archive.list({ scope: "all" }).items[0].ref;
+    expect(archive.read({ conversationRef: ref }).messages.map(message => message.text)).toEqual(["added", "first"]);
+    expect(history.listHistoryForSession).not.toHaveBeenCalled();
+    archive.bindThread("panel", "codex", "500");
+    await archive.flush();
+    expect(history.listHistoryForSession).toHaveBeenCalledTimes(3);
+    history.listHistoryForSession.mockClear();
+    history.getHistorySignatureForSession.mockRejectedValueOnce(new Error("target unavailable"));
+    await archive.flush();
+    expect(archive.list({ scope: "all" }).items[0].captureStatus).toBe("error");
+    expect(history.listHistoryForSession).not.toHaveBeenCalled();
+    await archive.flush();
+    expect(history.listHistoryForSession).toHaveBeenCalledOnce();
+    expect(archive.list({ scope: "all" }).errors).toEqual([]);
+    expect(history.getHistorySignatureForSession.mock.calls.every(call => ["codex:0", "codex:500"].includes(call[1].conversationRef))).toBe(true);
+  });
   it("skips unchanged 10,000-message sources and captures additions, edits and write retries", async () => {
     const store = createConversationArchiveStore({ userData: fixture(), now: () => 1000 });
     const save = vi.spyOn(store, "save");

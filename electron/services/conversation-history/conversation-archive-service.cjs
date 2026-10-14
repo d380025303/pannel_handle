@@ -46,7 +46,7 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
     if (!session.agentProvider || active.has(session.id)) return;
     guard(session.id, () => {
       const state = { id: store.start(session), session: { ...session }, startedAt: now(),
-        threads: new Map(), activeThread: null, terminalThreads: new Set(), polling: null, closed: false };
+        threads: new Map(), activeThread: null, terminalThreads: new Set(), terminalRefs: new Map(), polling: null, closed: false };
       active.set(session.id, state);
       if (session.runtimeMode !== "app-server") void poll(state);
     });
@@ -105,17 +105,29 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
     if (!history) return;
     state.polling = (async () => {
       try {
-        let cursor = null;
-        do {
-          const page = await history.listHistoryForSession(state.session, { providers: [state.session.agentProvider], scope: "cwd", includeArchived: true, cursor, limit: 200 });
-          if (stopped) return;
-          if (page.errors?.length) throw new Error(page.errors.map(value => value.message).join("; "));
-          for (const item of page.items) {
-            if (!(state.terminalThreads.has(item.ref) || item.acpSessionId && state.terminalThreads.has(`${item.provider}:${item.acpSessionId}`))) continue;
+        const unresolved = new Set([...state.terminalThreads].filter(id => !state.terminalRefs.has(id)));
+        if (unresolved.size) {
+          let cursor = null;
+          do {
+            const page = await history.listHistoryForSession(state.session, { providers: [state.session.agentProvider], scope: "cwd", includeArchived: true, cursor, limit: 200 });
+            if (stopped) return;
+            if (page.errors?.length) throw new Error(page.errors.map(value => value.message).join("; "));
+            for (const item of page.items) {
+              for (const id of [item.ref, item.acpSessionId && `${item.provider}:${item.acpSessionId}`]) {
+                if (!unresolved.delete(id)) continue;
+                state.terminalRefs.set(id, item.ref);
+              }
+            }
+            cursor = page.nextCursor;
+          } while (cursor && unresolved.size);
+        }
+        // Resolved bindings bypass list discovery, including remote list snapshots.
+        for (const ref of new Set(state.terminalRefs.values())) {
+          try {
             let messageCursor = null;
-            let thread = state.threads.get(item.ref);
-            if (!thread) { thread = { saved: new Map() }; state.threads.set(item.ref, thread); }
-            const signature = await history.getHistorySignatureForSession?.(state.session, { conversationRef: item.ref });
+            let thread = state.threads.get(ref);
+            if (!thread) { thread = { saved: new Map() }; state.threads.set(ref, thread); }
+            const signature = await history.getHistorySignatureForSession?.(state.session, { conversationRef: ref });
             if (stopped) return;
             if (signature != null && signature === thread.signature) {
               guard(state.session.id, () => {
@@ -126,7 +138,7 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
             }
             const messages = [];
             do {
-              const detail = await history.getHistoryMessagesForSession(state.session, { conversationRef: item.ref, cursor: messageCursor, limit: 200 });
+              const detail = await history.getHistoryMessagesForSession(state.session, { conversationRef: ref, cursor: messageCursor, limit: 200 });
               if (stopped) return;
               for (const value of detail.messages) {
                 if (!(value.timestamp >= state.startedAt)) continue;
@@ -139,7 +151,7 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
             messages.sort((a, b) => a.timestamp - b.timestamp);
             guard(state.session.id, () => {
               if (messages.length) {
-                store.save(state.id, item.ref, messages);
+                store.save(state.id, ref, messages);
                 // A failed transaction must leave the cache unchanged for the next poll.
                 for (const message of messages) thread.saved.set(message.id, message);
               }
@@ -148,9 +160,12 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
               thread.signature = signature;
               failures.delete(state.session.id);
             });
+          } catch (error) {
+            // Rediscover stale references next time; preserve saved messages and signatures.
+            for (const [id, target] of state.terminalRefs) if (target === ref) state.terminalRefs.delete(id);
+            throw error;
           }
-          cursor = page.nextCursor;
-        } while (cursor);
+        }
       } catch (error) {
         if (!stopped) guard(state.session.id, () => store.captureStatus(state.id, "error", `对话采集失败：${error.message}`));
       }
