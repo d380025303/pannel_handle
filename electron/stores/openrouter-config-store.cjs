@@ -219,7 +219,9 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     const previous = config.modelVerifications[id];
     config.modelVerifications[id] = normalized;
     try {
-      save();
+      if (dataStore?.writeModelVerification) {
+        dataStore.writeModelVerification(configFile, id, normalized, verificationProfile);
+      } else save();
     } catch (error) {
       if (hadPrevious) config.modelVerifications[id] = previous;
       else delete config.modelVerifications[id];

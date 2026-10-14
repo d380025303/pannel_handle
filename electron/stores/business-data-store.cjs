@@ -246,6 +246,27 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     ensureOpen();
     transaction(() => writeDocument(sourceName(filePath), value));
   }
+  function writeModelVerification(filePath, modelId, verification, verificationProfile = "") {
+    ensureOpen();
+    const name = sourceName(filePath);
+    if (!MODEL_SOURCES.has(name)) throw new Error("Unsupported model verification source.");
+    const table = RECORD_TABLES[name];
+    transaction(() => {
+      if (!db.prepare("SELECT 1 FROM app_sources WHERE name=?").get(name)) throw new Error("Model catalog has not been saved.");
+      // Invalidate old results when the transport profile changes, matching load().
+      if (verificationProfile) {
+        const row = db.prepare("SELECT value_json FROM app_settings WHERE source=? AND key='verificationProfile'").get(name);
+        if (!row || JSON.parse(row.value_json) !== verificationProfile) {
+          db.prepare(`DELETE FROM ${table} WHERE record_group='modelVerifications'`).run();
+          putSetting(name, "verificationProfile", verificationProfile);
+        }
+      }
+      db.prepare(`INSERT INTO ${table}(record_group, record_id, position, value_json)
+        VALUES ('modelVerifications', ?, (SELECT COALESCE(MAX(position), -1)+1 FROM ${table} WHERE record_group='modelVerifications'), ?)
+        ON CONFLICT(record_group, record_id) DO UPDATE SET value_json=excluded.value_json`)
+        .run(modelId, JSON.stringify(verification));
+    });
+  }
   // Persist prepared snapshots together; callers publish their memory only after commit.
   function removeSessionTemplate(sessionsFile, sessions, removals) {
     ensureOpen();
@@ -349,7 +370,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { transaction, writeModuleOwnerChange, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, openAsync, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { transaction, writeModelVerification, writeModuleOwnerChange, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, openAsync, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };
