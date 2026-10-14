@@ -3,12 +3,8 @@ const { StringDecoder } = require("node:string_decoder");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const {
-  emptyCapabilityUsage,
-  mergeTranscriptResults,
-  parseTranscriptText
-} = require("./agent-token-transcript.cjs");
-const { parseTranscriptFileAsync } = require("./agent-token-transcript-reader.cjs");
+const { emptyCapabilityUsage } = require("./agent-token-transcript.cjs");
+const { parseTranscriptFileAsync, parseRemoteTranscriptAsync } = require("./agent-token-transcript-reader.cjs");
 const { subtractTokens } = require("./token-usage-values.cjs");
 const { readOpenCodeExport } = require("./opencode-export.cjs");
 const { toWslHostPath } = require("../remote-files/index.cjs");
@@ -397,12 +393,7 @@ function createAgentTokenStatsService({
         actionName: "Agent token statistics",
         timeoutMs: 10000
       });
-    const payload = JSON.parse(output);
-    if (provider === "codebuddy") {
-      const results = payload.files.map(lines => parseTranscriptText(provider, lines.join("\n")));
-      return results.length === 1 ? results[0] : mergeTranscriptResults(results);
-    }
-    return parseTranscriptText(provider, Array.isArray(payload) ? payload.join("\n") : "");
+    return parseRemoteTranscriptAsync(provider, output);
   }
 
   async function readWithRetry(session, provider, transcriptPath) {

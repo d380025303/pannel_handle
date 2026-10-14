@@ -1,12 +1,12 @@
 const { Worker } = require("node:worker_threads");
 const path = require("node:path");
 
-// Only the small aggregate crosses threads; file reads and subagent parsing stay
-// in the worker. Each read exits after replying, including failed reads.
-function parseTranscriptFileAsync(provider, transcriptPath) {
+// Only the small aggregate returns from the worker. Each read exits after
+// replying, including failed reads.
+function parseInWorker(workerData) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(path.join(__dirname, "agent-token-transcript-worker.cjs"), {
-      workerData: { provider, transcriptPath }
+      workerData
     });
     let replied = false;
     worker.once("message", message => {
@@ -25,4 +25,12 @@ function parseTranscriptFileAsync(provider, transcriptPath) {
   });
 }
 
-module.exports = { parseTranscriptFileAsync };
+function parseTranscriptFileAsync(provider, transcriptPath) {
+  return parseInWorker({ provider, transcriptPath });
+}
+
+function parseRemoteTranscriptAsync(provider, remoteResponse) {
+  return parseInWorker({ provider, remoteResponse });
+}
+
+module.exports = { parseTranscriptFileAsync, parseRemoteTranscriptAsync };

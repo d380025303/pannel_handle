@@ -925,11 +925,11 @@ describe("agent token live statistics", () => {
     await flush();
     await flush();
 
-    expect(service.getLive("panel-ssh")).toMatchObject({
+    await vi.waitFor(() => expect(service.getLive("panel-ssh")).toMatchObject({
       state: "completed",
       tokens: { totalTokens: 35 },
       capabilities: { mcp: { totalCalls: 1 } }
-    });
+    }));
     expect(broadcasts.some(event => event.channel === "agent-token-live:changed")).toBe(true);
   });
 });
