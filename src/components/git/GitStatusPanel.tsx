@@ -685,7 +685,10 @@ function RepositoryCard({
         </div>
       )}
 
-      {showStashes && snapshot && <StashDialog stashes={snapshot.stashes.stashes} busy={busy} onCreate={(message) => void runOperation(t("git.createStash"), (id) => window.gitApi.stashChanges(target, message, id))} onPreview={(stash) => onDiff(target, { scope: "stash", revision: stash.ref }, `${stash.ref} ${stash.message}`)} onApply={(ref) => void runOperation(t("git.apply"), (id) => window.gitApi.applyStash(target, ref, id))} onPop={(ref) => void runOperation(t("git.pop"), (id) => window.gitApi.popStash(target, ref, id))} onDrop={(stash) => onConfirm({ title: t("git.dropStashTitle"), message: t("git.dropStashConfirm", { stash: stash.ref }), confirmLabel: t("git.drop"), onConfirm: () => void runOperation(t("git.drop"), (id) => window.gitApi.dropStash(target, stash.ref, id)) })} onClose={() => setShowStashes(false)} />}
+      {showStashes && snapshot && <StashDialog stashes={snapshot.stashes.stashes} busy={busy} onCreate={(message) => void runOperation(t("git.createStash"), (id) => window.gitApi.stashChanges(target, message, id))} onPreview={(stash) => {
+        setShowStashes(false);
+        onDiff(target, { scope: "stash", revision: stash.ref }, `${stash.ref} ${stash.message}`);
+      }} onApply={(ref) => void runOperation(t("git.apply"), (id) => window.gitApi.applyStash(target, ref, id))} onPop={(ref) => void runOperation(t("git.pop"), (id) => window.gitApi.popStash(target, ref, id))} onDrop={(stash) => onConfirm({ title: t("git.dropStashTitle"), message: t("git.dropStashConfirm", { stash: stash.ref }), confirmLabel: t("git.drop"), onConfirm: () => void runOperation(t("git.drop"), (id) => window.gitApi.dropStash(target, stash.ref, id)) })} onClose={() => setShowStashes(false)} />}
     </section>
   );
 }
