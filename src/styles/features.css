@@ -6997,7 +6997,13 @@ button.agent-usage-status[aria-expanded="true"] {
 .mcp-list-item:hover { background: var(--color-bg-control); }
 .mcp-list-item.active { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-control)); }
 .mcp-list-item > span { justify-content: space-between; gap: 8px; }
-.mcp-list-item i { padding: 2px 5px; border-radius: 999px; font-size: 9px; font-style: normal; }
+.mcp-list-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-list-item i { flex-shrink: 0; padding: 2px 5px; border-radius: 999px; font-size: 9px; font-style: normal; white-space: nowrap; }
 .mcp-list-item i.enabled {
   color: var(--color-ok-text);
   background: var(--color-ok-bg);

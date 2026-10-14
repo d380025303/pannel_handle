@@ -370,7 +370,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
           <div className="mcp-list">
             {loading ? <p className="mcp-list-state">{t("common.loading")}</p> : filteredServers.length === 0 ? <div className="mcp-empty"><Cable aria-hidden="true" /><strong>{query ? t("mcp.noMatches") : t("mcp.empty")}</strong></div> : filteredServers.map((server) => (
               <button className={`mcp-list-item${selectedName === server.name ? " active" : ""}`} type="button" key={server.id} onClick={() => { if (confirmDiscard()) selectServer(server); }}>
-                <span><strong>{server.name}</strong><i className={server.enabled ? "enabled" : "disabled"}>{server.enabled ? t("mcp.enabled") : t("mcp.disabled")}</i></span>
+                <span><strong title={server.name}>{server.name}</strong><i className={server.enabled ? "enabled" : "disabled"}>{server.enabled ? t("mcp.enabled") : t("mcp.disabled")}</i></span>
                 <small>{server.transport.toUpperCase()} · {server.command || server.url || t("mcp.masked")}{runtimeStatuses.find(item => item.name === server.name) ? ` · ${runtimeStatuses.find(item => item.name === server.name)?.status}` : ""}</small>
               </button>
             ))}
