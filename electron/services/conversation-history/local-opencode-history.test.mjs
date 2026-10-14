@@ -5,6 +5,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import localOpenCode from "./local-opencode-history.cjs";
 import historyModule from "./agent-conversation-history-service.cjs";
 
 const { createAgentConversationHistoryService } = historyModule;
@@ -196,4 +197,76 @@ it("keeps timers responsive for 10,000 messages and preserves the paging snapsho
   expect(all).toEqual(expected);
   const refreshed = await history.getHistoryMessages({ ...request, limit: 300 });
   expect(refreshed.messages.find(message => message.id === "large_09800").text).toBe("changed");
+}, 30000);
+
+
+it("keeps timers responsive when repeatedly listing 10,000 sessions and preserves list semantics", async () => {
+  const homeDir = fixture();
+  const db = new DatabaseSync(path.join(homeDir, ".local", "share", "opencode", "opencode.db"));
+  try {
+    db.exec(`CREATE INDEX session_directory ON session(directory);
+      CREATE INDEX session_parent ON session(parent_id);
+      CREATE INDEX message_session ON message(session_id);
+      CREATE INDEX part_message ON part(message_id);
+      CREATE INDEX part_session ON part(session_id); BEGIN`);
+    const insertSession = db.prepare("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const insertMessage = db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)");
+    const insertPart = db.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?)");
+    const text = "x".repeat(2048);
+    for (let index = 0; index < 10000; index += 1) {
+      const id = `list_${String(index).padStart(5, "0")}`;
+      const time = 10000 + Math.floor(index / 2);
+      insertSession.run(id, null, "C:\\work", index % 9 ? `Task ${index}` : "", time, time, null);
+      for (let message = 0; message < 10; message += 1) {
+        const messageId = `${id}_${message}`;
+        insertMessage.run(messageId, id, time + message, JSON.stringify({ role: message % 2 ? "assistant" : "user" }));
+        insertPart.run(messageId, messageId, id, time + message, JSON.stringify({ type: "text", text: `${index} ${text}` }));
+      }
+    }
+    db.exec("COMMIT");
+    // The unchanged synchronous reader provides the pre-Worker behavior baseline.
+    const items = localOpenCode.readLocalOpenCodeList({ homeDir, cwd: "C:\\work", scope: "cwd",
+      fsApi: fs, Database: DatabaseSync });
+    expect(items).toHaveLength(10001);
+    const history = service(homeDir);
+    const request = { panelSessionId: "panel", providers: ["opencode"], limit: 50 };
+    const expected = historyModule.filterAndPage(items, request);
+    for (let trial = 0; trial < 3; trial += 1) {
+      let completed = false;
+      let ticks = 0;
+      const start = performance.now();
+      const zero = new Promise(resolve => setTimeout(() => resolve({ elapsed: performance.now() - start, completed }), 0));
+      const timer = setInterval(() => { if (!completed) ticks += 1; }, 5);
+      let page;
+      try {
+        page = await history.listHistory(request);
+        completed = true;
+      } finally {
+        clearInterval(timer);
+      }
+      const firstTick = await zero;
+      process.stdout.write(`OpenCode list trial ${trial + 1}: ${(performance.now() - start).toFixed(1)} ms, zero timer ${firstTick.elapsed.toFixed(1)} ms, ${ticks} ticks\n`);
+      expect(firstTick.completed).toBe(false);
+      expect(ticks).toBeGreaterThan(0);
+      expect(page).toEqual({ ...expected, errors: [] });
+    }
+    // Paging retains the snapshot; a first-page refresh sees new database contents.
+    db.prepare("UPDATE session SET title = 'Changed title' WHERE id = 'list_09900'").run();
+    const second = await history.listHistory({ ...request, cursor: "50" });
+    expect(second).toEqual({ ...historyModule.filterAndPage(items, { ...request, cursor: "50" }), errors: [] });
+    const refreshed = await history.listHistory({ ...request, query: "Changed title" });
+    expect(refreshed.items).toEqual([expect.objectContaining({ ref: "opencode:list_09900", title: "Changed title" })]);
+    for (const filters of [
+      { scope: "all", includeArchived: true },
+      { query: "Question" },
+      { query: "Task 999" }
+    ]) {
+      const baseline = localOpenCode.readLocalOpenCodeList({ homeDir, cwd: "C:\\work", scope: "cwd",
+        ...filters, fsApi: fs, Database: DatabaseSync });
+      const result = await history.listHistory({ ...request, ...filters });
+      expect(result).toEqual({ ...historyModule.filterAndPage(baseline, { ...request, ...filters }), errors: [] });
+    }
+  } finally {
+    db.close();
+  }
 }, 30000);

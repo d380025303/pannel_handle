@@ -24,7 +24,7 @@ function openDatabase({ homeDir, fsApi, Database, env }) {
   return database;
 }
 
-function listLocalOpenCode({ homeDir, cwd, scope, includeArchived, fsApi, Database, env }) {
+function readLocalOpenCodeList({ homeDir, cwd, scope, includeArchived, fsApi, Database, env }) {
   const database = openDatabase({ homeDir, fsApi, Database, env });
   if (!database) return [];
   try {
@@ -43,6 +43,12 @@ function listLocalOpenCode({ homeDir, cwd, scope, includeArchived, fsApi, Databa
   } finally {
     database.close();
   }
+}
+
+function listLocalOpenCode({ homeDir, cwd, scope, includeArchived, env = process.env }) {
+  const { readOpenCodeHistory } = require("./opencode-history-worker-client.cjs");
+  return readOpenCodeHistory({ homeDir, cwd, scope, includeArchived,
+    env: { XDG_DATA_HOME: env.XDG_DATA_HOME } }, "list");
 }
 
 function readLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
@@ -84,4 +90,4 @@ function getLocalOpenCodeMessages({ homeDir, id, fsApi, signatureOnly = false, e
   return readOpenCodeHistory({ homeDir, id, env: { XDG_DATA_HOME: env.XDG_DATA_HOME } });
 }
 
-module.exports = { databaseFile, listLocalOpenCode, getLocalOpenCodeMessages, readLocalOpenCodeMessages };
+module.exports = { databaseFile, listLocalOpenCode, readLocalOpenCodeList, getLocalOpenCodeMessages, readLocalOpenCodeMessages };

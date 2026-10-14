@@ -34,14 +34,14 @@ function getWorker() {
   return current;
 }
 
-function readOpenCodeHistory(input) {
+function readOpenCodeHistory(input, action = "messages") {
   return new Promise((resolve, reject) => {
     const current = getWorker();
     const id = ++nextId;
     pending.set(id, { resolve, reject, messages: [] });
     current.ref();
     try {
-      current.postMessage({ id, input });
+      current.postMessage({ id, input, action });
     } catch (error) {
       pending.delete(id);
       if (!pending.size) current.unref();

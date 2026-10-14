@@ -87,7 +87,7 @@ function createAgentConversationHistoryService({
         items.push(...(provider === "codex"
           ? listLocalCodex({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
           : provider === "opencode"
-            ? listLocalOpenCode({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
+            ? await listLocalOpenCode({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived })
           : provider === "gemini"
             ? await listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: geminiMetadataCache })
             : provider === "grok"
