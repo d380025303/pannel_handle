@@ -25,12 +25,14 @@ export function subscribeGraphicalSession(sessionId: string, { onSnapshot, onErr
   const reload = (initial = false) => {
     if (loading) return;
     loading = true;
+    let succeeded = false;
     void window.codexAppServerApi.snapshot(sessionId).then(snapshot => {
       if (!initial || !fullChangeSeen) accept(snapshot);
+      succeeded = true;
     })
       .catch(error => { if (active) onError(error); }).finally(() => {
         loading = false;
-        if (active && current?.streamId === missedStreamId && (current.revision ?? -1) < missedRevision) reload();
+        if (succeeded && active && current?.streamId === missedStreamId && (current.revision ?? -1) < missedRevision) reload();
       });
   };
   const off = window.codexAppServerApi.onChanged(payload => {

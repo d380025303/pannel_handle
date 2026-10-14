@@ -4,6 +4,91 @@ import type { CodexAppServerDelta, CodexAppServerSnapshot } from "../../vite-env
 import { subscribeGraphicalSession } from "./graphicalSessionSubscription";
 
 describe("graphical session subscription", () => {
+  const initial = { threadId: "thread-1", streamId: "stream-1", revision: 1, items: [],
+    approvals: [], mode: "default", executionPermission: "askApproval", busy: false,
+    error: null, pendingPlan: null } as CodexAppServerSnapshot;
+  const gap = { id: "run-1", streamId: "stream-1", threadId: "thread-1", baseRevision: 2,
+    revision: 3, items: [], textDeltas: [], turnDiffs: [] } as CodexAppServerDelta;
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+  function install(snapshot: ReturnType<typeof vi.fn>) {
+    let onDelta: ((value: CodexAppServerDelta) => void) | undefined;
+    const offChanged = vi.fn();
+    const offDelta = vi.fn(() => { onDelta = undefined; });
+    Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: { snapshot,
+      onChanged: () => offChanged,
+      onDelta: (listener: typeof onDelta) => { onDelta = listener; return offDelta; } } });
+    return { emit: (delta = gap) => onDelta?.(delta), offChanged, offDelta };
+  }
+
+  it("stops after a failed gap reload and retries only on a new event", async () => {
+    const error = new Error("Session not found");
+    const snapshot = vi.fn().mockResolvedValueOnce(initial).mockRejectedValue(error);
+    const api = install(snapshot);
+    const onError = vi.fn();
+    const onSnapshot = vi.fn();
+    const off = subscribeGraphicalSession("run-1", { onSnapshot, onError });
+    try {
+      await flush();
+      // Bound the pre-fix loop so this regression test fails without hanging.
+      onError.mockImplementation(() => { if (onError.mock.calls.length >= 10) off(); });
+      api.emit();
+      await flush();
+      expect(snapshot).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+      await flush();
+      expect(snapshot).toHaveBeenCalledTimes(2);
+      api.emit();
+      await flush();
+      expect(snapshot).toHaveBeenCalledTimes(3);
+      expect(onError).toHaveBeenCalledTimes(2);
+      snapshot.mockResolvedValue({ ...initial, revision: 3 });
+      api.emit();
+      await flush();
+      expect(snapshot).toHaveBeenCalledTimes(4);
+      expect(onSnapshot.mock.calls.at(-1)?.[0].revision).toBe(3);
+    } finally { off(); }
+  });
+
+  it("continues catching up after a successful snapshot below the missed revision", async () => {
+    const snapshot = vi.fn().mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce({ ...initial, revision: 2 }).mockResolvedValue({ ...initial, revision: 3 });
+    const api = install(snapshot);
+    const onSnapshot = vi.fn();
+    const onError = vi.fn();
+    const off = subscribeGraphicalSession("run-1", { onSnapshot, onError });
+    try {
+      await flush();
+      api.emit();
+      await flush();
+      expect(snapshot).toHaveBeenCalledTimes(3);
+      expect(onSnapshot.mock.calls.map(([value]) => value.revision)).toEqual([1, 2, 3]);
+      expect(onError).not.toHaveBeenCalled();
+    } finally { off(); }
+  });
+
+  it.each(["resolve", "reject"])("ignores a pending reload that settles with %s after unsubscribe", async outcome => {
+    let resolve!: (value: CodexAppServerSnapshot) => void;
+    let reject!: (error: unknown) => void;
+    const pending = new Promise<CodexAppServerSnapshot>((res, rej) => { resolve = res; reject = rej; });
+    const snapshot = vi.fn().mockResolvedValueOnce(initial).mockReturnValue(pending);
+    const api = install(snapshot);
+    const onSnapshot = vi.fn();
+    const onError = vi.fn();
+    const off = subscribeGraphicalSession("run-1", { onSnapshot, onError });
+    await flush();
+    api.emit();
+    off();
+    if (outcome === "resolve") resolve({ ...initial, revision: 2 });
+    else reject(new Error("Session not found"));
+    await flush();
+    api.emit();
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(api.offChanged).toHaveBeenCalledTimes(1);
+    expect(api.offDelta).toHaveBeenCalledTimes(1);
+  });
+
   it("applies ordered deltas and reloads after a gap", async () => {
     let changed: ((value: { id: string; snapshot: CodexAppServerSnapshot }) => void) | undefined;
     let onDelta: ((value: CodexAppServerDelta) => void) | undefined;
