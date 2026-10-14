@@ -1,6 +1,6 @@
 const { VALID_LOCALES, VALID_THEME_IDS, normalizeTitleBarActionOrder, normalizeTitleBarHiddenActions } = require("../../stores/config-store.cjs");
 const { normalizeScreenshotShortcut } = require("../screenshot/screenshot-shortcut.cjs");
-const { copyBackgroundImage } = require("./terminal-background.cjs");
+const { copyBackgroundImage, removeBackgroundImage } = require("./terminal-background.cjs");
 const {
   normalizeTerminalBackgroundImage,
   normalizeTerminalBackgroundOpacity,
@@ -80,6 +80,7 @@ function registerSettingsIpcHandlers({
   getWindowFromEvent,
   userDataDir
 }) {
+  const pendingBackgroundImages = new Set();
   ipcMain.handle("project-tools:list", () => require("./project-tool-catalog.cjs").listProjectTools());
   ipcMain.handle("config:get", () => configStore.getConfig());
   ipcMain.handle("config:set", (_event, partial) => {
@@ -159,8 +160,22 @@ function registerSettingsIpcHandlers({
     if (partial && typeof partial.terminalBackgroundPositionY === "number") {
       updates.terminalBackgroundPositionY = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionY);
     }
+    const previousBackground = configStore.getConfig().terminalBackgroundImage;
+    const backgroundChanged = Object.hasOwn(updates, "terminalBackgroundImage")
+      && updates.terminalBackgroundImage !== previousBackground;
     if (Object.keys(updates).length > 0) {
-      configStore.updateConfig(updates, { throwOnSaveError: true });
+      try {
+        configStore.updateConfig(updates, { throwOnSaveError: true });
+      } catch (error) {
+        const newBackground = updates.terminalBackgroundImage;
+        if (backgroundChanged && pendingBackgroundImages.delete(newBackground)) {
+          return removeBackgroundImage(newBackground, userDataDir).then(() => { throw error; });
+        }
+        throw error;
+      }
+    }
+    if (Object.hasOwn(updates, "terminalBackgroundImage")) {
+      pendingBackgroundImages.delete(updates.terminalBackgroundImage);
     }
     const config = configStore.getConfig();
     if (Object.hasOwn(updates, "desktopMascotEnabled")) {
@@ -178,6 +193,9 @@ function registerSettingsIpcHandlers({
     if (Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
       desktopBroadcast?.("config:graphical-menu-changed", config.graphicalMenuSecondaryActions);
       getMobileRemoteService?.()?.broadcastGraphicalMenuConfig?.();
+    }
+    if (backgroundChanged && userDataDir) {
+      return removeBackgroundImage(previousBackground, userDataDir).then(() => config);
     }
     return config;
   });
@@ -199,6 +217,7 @@ function registerSettingsIpcHandlers({
     }
     try {
       const name = copyBackgroundImage(result.filePaths[0], userDataDir);
+      pendingBackgroundImages.add(name);
       return { canceled: false, name };
     } catch (err) {
       return { canceled: false, error: err instanceof Error ? err.message : String(err) };

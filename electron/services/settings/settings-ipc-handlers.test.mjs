@@ -472,3 +472,57 @@ it("saves only boolean mobile preferences and broadcasts after successful persis
   expect(() => set({}, { mobileGraphicalSessionMinimalMode: false })).toThrow("disk failure");
   expect(harness.mobileRemoteService.broadcastMobilePreferences).toHaveBeenCalledOnce();
 });
+
+
+describe("terminal background file lifecycle", () => {
+  function setup() {
+    const userDataDir = createTempDir();
+    const source = path.join(createTempDir(), "image.png");
+    fs.writeFileSync(source, Buffer.alloc(10 * 1024 * 1024, 7));
+    const configFile = path.join(userDataDir, "settings", "config.json");
+    fs.mkdirSync(path.dirname(configFile));
+    const configStore = createConfigStore({ configFile });
+    const harness = createHarness({ userDataDir, configStore,
+      dialog: { showOpenDialog: async () => ({ filePaths: [source] }) } });
+    return { userDataDir, source, configFile, configStore,
+      choose: () => harness.ipcMain.handlers.get("terminal-background:choose-image")({}),
+      save: image => harness.ipcMain.handlers.get("config:set")({}, { terminalBackgroundImage: image }) };
+  }
+
+  it("keeps only the current image after ten imports and removes it on clear", async () => {
+    const test = setup();
+    const directory = path.join(test.userDataDir, "terminal-background");
+    for (let i = 0; i < 10; i++) {
+      const { name } = await test.choose();
+      await test.save(name);
+      expect(fs.readdirSync(directory)).toEqual([name]);
+      expect(fs.statSync(path.join(directory, name)).size).toBe(10 * 1024 * 1024);
+    }
+    await test.save("");
+    expect(fs.readdirSync(directory)).toEqual([]);
+    expect(fs.existsSync(test.source)).toBe(true);
+  });
+
+  it("retains the saved image and removes the new import when disk saving fails", async () => {
+    const test = setup();
+    const original = await test.choose();
+    await test.save(original.name);
+    const next = await test.choose();
+    // Make the config path unwritable without mocking filesystem operations.
+    fs.rmSync(path.dirname(test.configFile), { recursive: true });
+    fs.writeFileSync(path.dirname(test.configFile), "blocks config directory");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(test.save(next.name)).rejects.toThrow();
+      expect(test.configStore.getConfig().terminalBackgroundImage).toBe(original.name);
+      const directory = path.join(test.userDataDir, "terminal-background");
+      expect(fs.readdirSync(directory)).toEqual([original.name]);
+      expect(fs.readFileSync(path.join(directory, original.name))).toEqual(fs.readFileSync(test.source));
+      expect(() => test.save("")).toThrow();
+      expect(fs.readdirSync(directory)).toEqual([original.name]);
+      expect(log).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  }, 120_000);
+});

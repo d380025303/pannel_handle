@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 
 const TERMINAL_BG_SCHEME = "terminal-bg";
 const TERMINAL_BG_DIR = "terminal-background";
@@ -67,9 +68,23 @@ function copyBackgroundImage(sourcePath, userDataDir) {
   const baseWithoutExt = originalBase.slice(0, originalBase.length - path.extname(originalBase).length);
   // A trailing dot would form ".." when the extension is appended.
   const safeBase = baseWithoutExt.replace(/[^\w.-]+/g, "_").slice(0, 80).replace(/\.{2,}|\.$/g, "_") || "background";
-  const name = `${Date.now()}-${safeBase}${ext}`;
-  fs.copyFileSync(sourcePath, path.join(bgDir, name));
+  const name = `${Date.now()}-${safeBase}-${randomUUID()}${ext}`;
+  fs.copyFileSync(sourcePath, path.join(bgDir, name), fs.constants.COPYFILE_EXCL);
   return name;
+}
+
+async function removeBackgroundImage(name, userDataDir) {
+  if (!userDataDir || !isValidBackgroundName(name)
+    || !ALLOWED_EXTENSIONS.has(path.extname(name).toLowerCase())
+    || /[<>:"|?*\x00-\x1f]/.test(name)) return;
+  const bgDir = path.resolve(userDataDir, TERMINAL_BG_DIR);
+  const filePath = path.resolve(bgDir, name);
+  if (path.dirname(filePath) !== bgDir) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") console.warn("Failed to remove terminal background image", error);
+  }
 }
 
 module.exports = {
@@ -80,5 +95,6 @@ module.exports = {
   isValidBackgroundName,
   registerTerminalBackgroundScheme,
   registerTerminalBackgroundProtocol,
-  copyBackgroundImage
+  copyBackgroundImage,
+  removeBackgroundImage
 };

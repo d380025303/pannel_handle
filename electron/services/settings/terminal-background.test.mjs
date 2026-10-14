@@ -109,7 +109,7 @@ describe("copyBackgroundImage", () => {
     store.updateConfig({ terminalBackgroundImage: "existing.png" }, { throwOnSaveError: true });
 
     const name = copyBackgroundImage(sourceFile, userDataDir);
-    expect(name.slice(name.indexOf("-") + 1)).toBe(`${safeBase}.png`);
+    expect(name.slice(name.indexOf("-") + 1)).toMatch(new RegExp(`^${safeBase.replaceAll(".", "\\.")}-[0-9a-f-]+\\.png$`));
     expect(isValidBackgroundName(name)).toBe(true);
     store.updateConfig({ terminalBackgroundImage: name }, { throwOnSaveError: true });
     expect(store.getConfig().terminalBackgroundImage).toBe(name);
@@ -136,7 +136,7 @@ describe("copyBackgroundImage", () => {
 
     const name = copyBackgroundImage(sourceFile, userDataDir);
 
-    expect(name).toMatch(/^\d+-My_Photo\.png$/);
+    expect(name).toMatch(/^\d+-My_Photo-[0-9a-f-]+\.png$/);
     expect(fs.readFileSync(path.join(userDataDir, "terminal-background", name), "utf-8")).toBe("image-bytes");
   });
 
@@ -153,4 +153,30 @@ describe("copyBackgroundImage", () => {
 
     expect(() => copyBackgroundImage("", userDataDir)).toThrow(/Invalid source path/);
   });
+});
+
+
+it("uses distinct filenames even for imports in the same millisecond", () => {
+  const dir = createTempDir();
+  const source = path.join(createTempDir(), "image.png");
+  fs.writeFileSync(source, "image");
+  const clock = vi.spyOn(Date, "now").mockReturnValue(123);
+  try {
+    expect(copyBackgroundImage(source, dir)).not.toBe(copyBackgroundImage(source, dir));
+    expect(fs.readdirSync(path.join(dir, "terminal-background"))).toHaveLength(2);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it("limits deletion to image basenames within the managed directory", async () => {
+  const { removeBackgroundImage } = require("./terminal-background.cjs");
+  const dir = createTempDir();
+  const outside = path.join(dir, "keep.png");
+  fs.writeFileSync(outside, "keep");
+  for (const name of ["../keep.png", outside, "a:b.png", "..", "config.json"]) {
+    await removeBackgroundImage(name, dir);
+  }
+  expect(fs.readFileSync(outside, "utf8")).toBe("keep");
+  await removeBackgroundImage("missing.png", dir);
 });
