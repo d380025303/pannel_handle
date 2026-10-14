@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createEnvironmentService, normalizeEntries, mergeEnvironment } = require("./index.cjs");
 const { createSessionStore } = require("../../stores/session-store.cjs");
+const { createTemplateUsageStore } = require("../../stores/template-usage-store.cjs");
 const { createTerminalManager } = require("../../terminal/terminal-manager.cjs");
 const dirs = [];
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
@@ -20,6 +21,37 @@ function harness() {
 }
 
 describe("environment profiles", () => {
+  it("fetches references once per list with 500 templates and 100 launches each", () => {
+    const profiles = Array.from({ length: 50 }, (_, i) => ({ id: `profile-${i}`, name: `group-${i}`, entries: [{ name: "FOO", value: String(i) }] }));
+    const templates = Array.from({ length: 500 }, (_, i) => ({ id: String(i + 1), type: "windows", title: `terminal-${i % 7}`, environmentProfileId: profiles[i % 49].id }));
+    const now = 1_800_000_000_000;
+    const values = new Map([
+      ["env.json", profiles],
+      ["sessions.json", templates],
+      ["usage.json", Object.fromEntries(templates.map(t => [t.id, Array.from({ length: 100 }, (_, i) => now - i)]))]
+    ]);
+    const dataStore = { read: file => structuredClone(values.get(file)), write: (file, value) => values.set(file, structuredClone(value)) };
+    const usageStore = createTemplateUsageStore({ usageFile: "usage.json", dataStore, now: () => now });
+    usageStore.load();
+    const store = createSessionStore({ sessionsFile: "sessions.json", dataStore, templateUsageStore: usageStore, getDefaultShell: () => "cmd.exe", getWslShell: () => "wsl.exe" });
+    store.loadLibrary();
+    let activeSessions = [templates[0], { title: "unknown", environmentProfileId: "missing" }, { title: "unassigned" }];
+    const getReferences = vi.fn(() => [...store.getLibrary(), ...activeSessions]);
+    const service = createEnvironmentService({ configFile: "env.json", dataStore, getReferences });
+    expect(store.getLibrary()[0].recentLaunchCount).toBe(100);
+    const references = [...store.getLibrary(), ...activeSessions];
+    const expected = profiles.map(p => ({ ...p, references: references.filter(s => s.environmentProfileId === p.id).map(s => s.title) }));
+    const result = service.list();
+    expect(getReferences).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(expected);
+    result[0].references.push("mutated");
+    result[0].entries[0].value = "mutated";
+    expect(service.list()).toEqual(expected);
+    expect(getReferences).toHaveBeenCalledTimes(2);
+    activeSessions = [{ title: "new session", environmentProfileId: profiles[49].id }];
+    expect(service.list()[49].references).toEqual(["new session"]);
+    expect(getReferences).toHaveBeenCalledTimes(3);
+  });
   it("persists groups, overrides without leaking into other sessions, and exports portable snapshots", () => {
     const { service, store, configFile } = harness();
     const [profile] = service.save({ name: "dev", entries: [{ name: "FOO", value: "group" }] });

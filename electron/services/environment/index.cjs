@@ -42,7 +42,13 @@ function createEnvironmentService({ configFile, dataStore, getReferences = () =>
     profiles = next;
   }
   function list() {
-    return profiles.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e })), references: getReferences().filter(s => s.environmentProfileId === p.id).map(s => s.title) }));
+    const referencesByProfileId = new Map();
+    for (const session of getReferences()) {
+      const titles = referencesByProfileId.get(session.environmentProfileId) || [];
+      titles.push(session.title);
+      referencesByProfileId.set(session.environmentProfileId, titles);
+    }
+    return profiles.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e })), references: [...(referencesByProfileId.get(p.id) || [])] }));
   }
   function save(input) {
     const name = String(input?.name || "").trim();
