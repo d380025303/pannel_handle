@@ -97,7 +97,7 @@ export function ComputerFiles({ connectionEpoch, send, onFileMessage, onClose }:
       {!busy && entries.map(entry => <div className="computer-file-row" key={entry.path}>
         <button type="button" className="computer-file-name" disabled={entry.type === "file"}
           onClick={() => setHistory(current => [...current, entry.path])}>
-          <span>{entry.type === "file" ? <FileText aria-hidden="true" /> : entry.type === "drive" ? <HardDrive aria-hidden="true" /> : <Folder aria-hidden="true" />}{entry.name}</span>
+          <span className="computer-file-label">{entry.type === "file" ? <FileText aria-hidden="true" /> : entry.type === "drive" ? <HardDrive aria-hidden="true" /> : <Folder aria-hidden="true" />}<span className="computer-file-text">{entry.name}</span></span>
           <small>{entry.type === "file" ? `${(entry.size ?? 0).toLocaleString()} 字节` : entry.type === "drive" ? "磁盘" : "文件夹"}</small>
         </button>
         {entry.type !== "drive" && <button type="button" className="computer-file-download" disabled={Boolean(downloading)}

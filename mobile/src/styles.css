@@ -521,7 +521,17 @@ button.danger { color: #fda4af; }
 .computer-files-list > p { color: #91a4bc; }
 .computer-file-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; border: 1px solid #29384c; border-radius: 9px; background: #141f30; }
 .computer-file-name { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px; border: 0; background: transparent; text-align: left; }
-.computer-file-name span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.computer-file-label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+}
+.computer-file-text {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .computer-file-name svg { flex: none; width: 16px; height: 16px; }
 .computer-file-name small { color: #91a4bc; }
 .computer-file-name:disabled { color: inherit; opacity: 1; }
