@@ -6929,7 +6929,17 @@ button.agent-usage-status[aria-expanded="true"] {
 .mcp-copy { display: flex; align-items: center; }
 
 .mcp-header { justify-content: space-between; gap: 16px; padding: 17px 24px 12px; }
-.session-status-mcp { margin: 0 24px 12px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-panel); font-size: 12px; }
+.session-status-mcp {
+  min-height: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0 24px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-panel);
+  font-size: 12px;
+}
 .session-status-mcp-heading, .session-status-mcp-details { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .session-status-mcp-heading { justify-content: space-between; }
 .session-status-mcp-heading div { display: grid; gap: 3px; }
