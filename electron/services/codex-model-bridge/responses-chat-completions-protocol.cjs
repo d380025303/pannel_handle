@@ -301,6 +301,7 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
 
   function push(chunk) {
     if (!failure) consumeText(decoder.write(chunk));
+    return failure;
   }
 
   function responseUsage() {

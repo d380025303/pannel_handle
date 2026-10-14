@@ -26,6 +26,60 @@ function createService(fetchImpl, options = {}) {
 }
 
 describe("Responses Chat Completions bridge", () => {
+  it.each(["iterator", "web stream", "reader", "reader cancellation error"])("ends the HTTP response and cancels immediately after invalid JSON (%s)", async api => {
+    let reads = 0;
+    let upstreamSignal;
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const cancel = vi.fn(async () => {
+      if (api === "reader cancellation error") throw new Error("Cancellation failed");
+    });
+    const releaseLock = vi.fn();
+    const read = async () => {
+      reads++;
+      if (reads === 1) return { value: Buffer.from("data: {invalid JSON}\n\n"), done: false };
+      if (reads <= 1001) return { value: Buffer.from('data: {"choices":[{"delta":{"content":"discarded"}}]}\n\n'), done: false };
+      await gate;
+      return { done: true };
+    };
+    const stream = api === "iterator" ? {
+      async *[Symbol.asyncIterator]() {
+        try {
+          for (;;) { const next = await read(); if (next.done) return; yield next.value; }
+        } finally { await cancel(); }
+      }
+    } : api === "web stream" ? new ReadableStream({
+      async pull(controller) {
+        const next = await read();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      },
+      cancel
+    }, { highWaterMark: 0 }) : { getReader: () => ({ read, cancel, releaseLock }) };
+    const service = createService(async (_url, { signal }) => {
+      upstreamSignal = signal;
+      return { ok: true, body: stream };
+    });
+    try {
+      const response = await service.fetchResponses({
+        apiKey: "secret", body: { model: "model-a", input: "hello" }, signal: AbortSignal.timeout(2000)
+      });
+      const events = (await response.text()).split("\n").filter(line => line.startsWith("data:")).map(line => JSON.parse(line.slice(5)));
+      expect(reads).toBe(1);
+      expect(upstreamSignal.aborted).toBe(true);
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+      if (api.startsWith("reader")) expect(releaseLock).toHaveBeenCalledOnce();
+      expect(events.filter(event => event.type === "response.failed")).toHaveLength(1);
+      expect(events.filter(event => event.type === "error")).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "response.failed", response: { status: "failed", error: {
+          code: "invalid_stream", message: "Chat Completions upstream returned invalid JSON in its stream."
+        } }
+      });
+      expect(events.some(event => event.type === "response.completed" || event.type === "response.output_text.delta")).toBe(false);
+    } finally { release(); }
+  });
+
   it.each(["iterator", "reader"])("awaits asynchronous chunk processing for the %s stream API", async api => {
     let reads = 0;
     let release;

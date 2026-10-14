@@ -78,6 +78,9 @@ async function pipeWebStream(stream, onChunk) {
       if (done) break;
       await onChunk(Buffer.from(value));
     }
+  } catch (error) {
+    try { await reader.cancel(error); } catch { /* Preserve the original stream error. */ }
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -172,7 +175,14 @@ function createResponsesChatCompletionsBridgeService({
         await waitForResponseDrain(response, controller.signal);
         await pipeWebStream(upstream.body, async chunk => {
           controller.signal.throwIfAborted();
-          accumulator.push(chunk);
+          const failure = accumulator.push(chunk);
+          if (failure) {
+            // Finish before cancellation, which can reject or wait on upstream cleanup.
+            accumulator.finish();
+            response.end();
+            controller.abort();
+            throw Object.assign(new Error(failure.message), { code: failure.code });
+          }
           await waitForResponseDrain(response, controller.signal);
         });
       } catch (error) {
