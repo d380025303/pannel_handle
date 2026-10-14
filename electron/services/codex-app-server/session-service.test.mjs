@@ -1501,6 +1501,38 @@ describe("Codex App Server session", () => {
     } finally { service.close("run-1"); }
   });
 
+  it("uses database-only history and avoids duplicate pages when an older CLI ignores pin filters", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method !== "thread/list") return undefined;
+      if (request.params.ancestorThreadId) return { data: [], nextCursor: null };
+      return request.params.cursor
+        ? { data: [{ id: "old-2", name: "Older" }], nextCursor: null }
+        : { data: [{ id: "old-1", name: "Recent" }], nextCursor: "legacy-next" };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const first = await service.listHistory("run-1");
+      expect(first.data.map(item => item.id)).toEqual(["old-1"]);
+      const before = received.length;
+      const second = await service.listHistory("run-1", first.nextCursor);
+      expect(second.data.map(item => item.id)).toEqual(["old-2"]);
+      expect(second.nextCursor).toBeNull();
+      const calls = received.slice(before).filter(item => item.method === "thread/list");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].params).toMatchObject({ useStateDbOnly: true, cursor: "legacy-next" });
+      expect(calls[0].params).not.toHaveProperty("isPinned");
+      const refreshStart = received.length;
+      expect((await service.listHistory("run-1")).data.map(item => item.id)).toEqual(["old-1"]);
+      expect(received.slice(refreshStart).filter(item => item.method === "thread/list")).toHaveLength(1);
+      await expect(service.listHistory("run-1", first.nextCursor, true)).rejects.toThrow("无效的历史会话游标");
+      expect(received.filter(item => item.method === "thread/list" && !item.params.ancestorThreadId)
+        .every(item => item.params.useStateDbOnly === true)).toBe(true);
+    } finally { service.close("run-1"); }
+  });
+
   it("requests pinned and ordinary history together on the first page", async () => {
     const received = [];
     let releasePinned;

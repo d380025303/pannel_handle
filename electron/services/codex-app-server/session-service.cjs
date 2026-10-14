@@ -1105,7 +1105,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     if (typeof archived !== "boolean" || (isPinned !== null && typeof isPinned !== "boolean")) throw new Error("无效的会话筛选条件。");
     const list = (pinned, pageCursor) => request(entry, "thread/list", { cwd: projectCwd(entry), sourceKinds: ["cli", "vscode", "appServer"],
-      archived, isPinned: pinned, sortKey: "updated_at", sortDirection: "desc", limit: 25,
+      archived, useStateDbOnly: true, ...(entry.historyPinFilterSupported === false ? {} : { isPinned: pinned }), sortKey: "updated_at", sortDirection: "desc", limit: 25,
       ...(pageCursor ? { cursor: pageCursor } : {}) });
     let phase = "pinned";
     let pageCursor = null;
@@ -1114,7 +1114,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       try {
         if (!cursor.startsWith(HISTORY_CURSOR_PREFIX)) throw new Error();
         const value = JSON.parse(Buffer.from(cursor.slice(HISTORY_CURSOR_PREFIX.length), "base64url").toString("utf8"));
-        if (!(["pinned", "ordinary"].includes(value.phase) && typeof value.cursor === "string" && value.cursor && value.archived === archived)) throw new Error();
+        if (!(["pinned", "ordinary", "legacy"].includes(value.phase) && typeof value.cursor === "string" && value.cursor && value.archived === archived)) throw new Error();
         phase = value.phase; pageCursor = value.cursor;
       } catch { throw new Error("无效的历史会话游标。"); }
     }
@@ -1123,12 +1123,25 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const mapThread = thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
       updatedAt: thread.updatedAt, source: typeof thread.source === "string" ? thread.source : "unknown",
       status: thread.status?.type || "notLoaded", archived, isPinned: thread.isPinned === true });
+    // Older CLIs silently ignore isPinned and omit it from thread summaries.
+    // Keep their native cursor separate from the two-phase pinned pagination.
+    if (entry.historyPinFilterSupported === false || phase === "legacy") {
+      const page = await list(null, pageCursor);
+      if (page.nextCursor && page.nextCursor === pageCursor) throw new Error("历史会话分页游标重复。");
+      return { data: isPinned === true ? [] : (page.data || []).map(mapThread),
+        nextCursor: isPinned === true ? null : isPinned !== null ? page.nextCursor || null : encodeCursor("legacy", page.nextCursor) };
+    }
     let pinnedPage = null;
     let ordinaryPage = null;
     if (phase === "pinned" && isPinned === null && !cursor) {
       [pinnedPage, ordinaryPage] = await Promise.all([list(true, null), list(false, null)]);
     } else if (phase === "pinned") {
       pinnedPage = await list(true, pageCursor);
+    }
+    if (pinnedPage?.data?.some(thread => typeof thread.isPinned !== "boolean")) {
+      entry.historyPinFilterSupported = false;
+      return { data: isPinned === true ? [] : pinnedPage.data.map(mapThread),
+        nextCursor: isPinned === true ? null : isPinned !== null ? pinnedPage.nextCursor || null : encodeCursor("legacy", pinnedPage.nextCursor) };
     }
     if (pinnedPage?.nextCursor) {
       if (pinnedPage.nextCursor === pageCursor) throw new Error("历史会话分页游标重复。");
