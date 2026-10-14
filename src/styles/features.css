@@ -1404,7 +1404,9 @@
   bottom: calc(100% + 7px);
   left: 0;
   max-height: min(330px, 45vh);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 6px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-dialog);
@@ -1412,8 +1414,38 @@
   box-shadow: var(--shadow-dialog);
 }
 
+.workspace-mention-results {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.workspace-mention-filter {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 4px 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.workspace-mention-filter-item {
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+}
+
+.workspace-mention-filter-item[data-active="true"] {
+  background: var(--color-bg-selection);
+  color: var(--color-text);
+}
+
+.workspace-mention-filter kbd {
+  font: inherit;
+}
+
 .terminal-composer-mentions-heading {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   min-height: 30px;
@@ -1427,9 +1459,9 @@
   height: 14px;
 }
 
-.terminal-composer-mentions > button {
+.terminal-composer-mentions .workspace-mention-results > button {
   display: grid;
-  grid-template-columns: 20px minmax(100px, 0.65fr) minmax(120px, 1fr);
+  grid-template-columns: 20px minmax(0, 0.65fr) minmax(0, 1fr);
   align-items: center;
   width: 100%;
   min-height: 34px;
@@ -1442,12 +1474,12 @@
   cursor: pointer;
 }
 
-.terminal-composer-mentions > button:hover,
-.terminal-composer-mentions > button.selected {
+.terminal-composer-mentions .workspace-mention-results > button:hover,
+.terminal-composer-mentions .workspace-mention-results > button.selected {
   background: var(--color-bg-selection);
 }
 
-.terminal-composer-mentions > button > svg {
+.terminal-composer-mentions .workspace-mention-results > button > svg {
   width: 15px;
   height: 15px;
   color: var(--color-text-muted);
@@ -8357,23 +8389,23 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-error > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .codex-app-server-error > button svg { width: 14px; height: 14px; }
 .codex-app-server-composer { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--color-border); background: var(--color-bg-panel); }
-.codex-app-server-file-mentions { position: absolute; z-index: 24; right: 12px; bottom: calc(100% + 7px); left: 12px; max-height: min(330px, 45vh); overflow-y: auto; padding: 6px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-dialog); background: var(--color-bg-panel); box-shadow: var(--shadow-dialog); }
+.codex-app-server-file-mentions { display: flex; flex-direction: column; position: absolute; z-index: 24; right: 12px; bottom: calc(100% + 7px); left: 12px; max-height: min(330px, 45vh); overflow: hidden; padding: 6px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-dialog); background: var(--color-bg-panel); box-shadow: var(--shadow-dialog); }
 .codex-app-server-slash-commands { position: absolute; z-index: 24; right: 12px; bottom: calc(100% + 7px); left: 12px; max-height: min(330px, 45vh); overflow-y: auto; padding: 6px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-dialog); background: var(--color-bg-panel); box-shadow: var(--shadow-dialog); }
 .codex-app-server-slash-commands > button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; padding: 5px 8px; border: 0; border-radius: var(--radius-md); color: var(--color-text); background: transparent; text-align: left; cursor: pointer; }
 .codex-app-server-slash-commands > button:hover:not(:disabled), .codex-app-server-slash-commands > button.selected:not(:disabled) { background: var(--color-bg-selection); }
 .codex-app-server-slash-commands > button:disabled { opacity: .5; cursor: default; }
 .codex-app-server-slash-commands > button > span { min-width: 105px; font-size: 12px; }
 .codex-app-server-slash-commands > button > small { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.codex-app-server-file-mentions-heading { min-height: 30px; padding: 6px 8px; color: var(--color-text-muted); font-size: 11px; }
+.codex-app-server-file-mentions-heading { flex-shrink: 0; min-height: 30px; padding: 6px 8px; color: var(--color-text-muted); font-size: 11px; }
 .codex-app-server-file-mentions-empty { padding: 18px 10px; color: var(--color-text-muted); font-size: 12px; text-align: center; }
 .codex-app-server-file-mentions-empty[role="alert"] { color: var(--color-danger-text); }
-.codex-app-server-file-mentions > button { display: grid; grid-template-columns: 20px minmax(100px, .65fr) minmax(120px, 1fr); align-items: center; width: 100%; min-height: 34px; padding: 5px 8px; border: 0; border-radius: var(--radius-md); color: var(--color-text); background: transparent; text-align: left; cursor: pointer; }
-.codex-app-server-file-mentions > button:hover, .codex-app-server-file-mentions > button.selected { background: var(--color-bg-selection); }
-.codex-app-server-file-mentions > button > svg { width: 15px; height: 15px; color: var(--color-text-muted); }
-.codex-app-server-file-mentions > button > span, .codex-app-server-file-mentions > button > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.codex-app-server-file-mentions > button > span { font-size: 12px; }
-.codex-app-server-file-mentions > button > small { color: var(--color-text-muted); font-size: 11px; }
-@media (max-width: 640px) { .codex-app-server-file-mentions > button { grid-template-columns: 20px minmax(0, 1fr); } .codex-app-server-file-mentions > button > small { display: none; } }
+.codex-app-server-file-mentions .workspace-mention-results > button { display: grid; grid-template-columns: 20px minmax(0, .65fr) minmax(0, 1fr); align-items: center; width: 100%; min-height: 34px; padding: 5px 8px; border: 0; border-radius: var(--radius-md); color: var(--color-text); background: transparent; text-align: left; cursor: pointer; }
+.codex-app-server-file-mentions .workspace-mention-results > button:hover, .codex-app-server-file-mentions .workspace-mention-results > button.selected { background: var(--color-bg-selection); }
+.codex-app-server-file-mentions .workspace-mention-results > button > svg { width: 15px; height: 15px; color: var(--color-text-muted); }
+.codex-app-server-file-mentions .workspace-mention-results > button > span, .codex-app-server-file-mentions .workspace-mention-results > button > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codex-app-server-file-mentions .workspace-mention-results > button > span { font-size: 12px; }
+.codex-app-server-file-mentions .workspace-mention-results > button > small { color: var(--color-text-muted); font-size: 11px; }
+@media (max-width: 640px) { .codex-app-server-file-mentions .workspace-mention-results > button { grid-template-columns: 20px minmax(0, 1fr); } .codex-app-server-file-mentions .workspace-mention-results > button > small { display: none; } }
 @property --codex-app-server-border-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 @keyframes codex-app-server-border-run { to { --codex-app-server-border-angle: 360deg; } }
 .codex-app-server-input-border { --codex-mode-border: var(--color-info-text); --codex-mode-trail: var(--color-accent); --codex-mode-highlight: var(--color-text); min-width: 0; padding: 2px; border-radius: 10px; background: var(--codex-mode-border); }

@@ -523,7 +523,10 @@ export type ProjectTextSearchResponse = {
   engine: "ripgrep" | "fallback";
 };
 
+export type WorkspaceEntryTypeFilter = "all" | "directory" | "file";
+
 export type ProjectSearchOptions = {
+  entryType?: WorkspaceEntryTypeFilter;
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regex?: boolean;

@@ -94,6 +94,13 @@ function installation(probe, platform) {
   return "unknown";
 }
 
+function sameInstallation(before, after, platform) {
+  if (before.method !== after.method) return false;
+  // fnm creates a new command symlink for every login shell.
+  if (platform === "linux" && before.method === "npm") return before.resolvedPath === after.resolvedPath;
+  return before.commandPath === after.commandPath;
+}
+
 function createCodexVersionService({ terminalManager, sshAgentTransport, spawnProcess = spawn, fetchLatest = globalThis.fetch, executeCommand = null }) {
   const cache = new Map();
   const updating = new Set();
@@ -119,7 +126,7 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
     const lines = parseProbe(output);
     const current = parseVersion(lines[0]);
     if (!current) throw new Error("无法识别 Codex CLI 版本。");
-    return { currentVersion: current.text, commandPath: lines[1], method: installation(lines, targetValue.platform) };
+    return { currentVersion: current.text, commandPath: lines[1], resolvedPath: lines[2], method: installation(lines, targetValue.platform) };
   }
   async function latestVersion() {
     const response = await fetchLatest(REGISTRY_URL, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS), headers: { accept: "application/json" } });
@@ -165,7 +172,7 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
     revisions.set(value.key, (revisions.get(value.key) || 0) + 1);
     try {
       const before = await probe(value);
-      if (before.commandPath !== cached.state.commandPath || before.currentVersion !== cached.state.currentVersion || before.method !== cached.state.method) {
+      if (!sameInstallation(before, cached.state, value.platform) || before.currentVersion !== cached.state.currentVersion) {
         const state = versionState(value, before, cached.state.latestVersion);
         cache.set(value.key, { at: Date.now(), state });
         return state;
@@ -179,7 +186,7 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
       await run(value, script, UPDATE_TIMEOUT_MS, updateProgress.append);
       updateProgress.setStage("verifying");
       const after = await probe(value);
-      if (after.commandPath !== before.commandPath || !isNewer(parseVersion(before.currentVersion), parseVersion(after.currentVersion)))
+      if (!sameInstallation(before, after, value.platform) || !isNewer(parseVersion(before.currentVersion), parseVersion(after.currentVersion)))
         throw new Error("安装命令已完成，但当前 Codex 命令未切换到新版本。");
       const state = { status: isNewer(parseVersion(after.currentVersion), parseVersion(cached.state.latestVersion)) ? "available" : "current",
         ...after, latestVersion: cached.state.latestVersion, environment: value.key, restartRequired: true };

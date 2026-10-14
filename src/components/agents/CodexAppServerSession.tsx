@@ -1,3 +1,4 @@
+import { WorkspaceMentionFilter, workspaceMentionFilterKey } from "../shared/WorkspaceMentionFilter";
 import { GraphicalMessageCopy, graphicalMessageText } from "./GraphicalMessageCopy";
 import { GraphicalMenuSettingsDialog } from "../settings/GraphicalMenuSettingsDialog";
 import { GraphicalActionMenu } from "../shared/GraphicalActionMenu";
@@ -10,8 +11,8 @@ import { CodeBuddyMcpDialog } from "./CodeBuddyMcpDialog";
 import { CodeBuddyMcpAppContext } from "./CodeBuddyMcpApp";
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
-import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
+import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Folder, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
+import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult, WorkspaceEntryTypeFilter } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexSubAgentPanel } from "./CodexSubAgentPanel";
 import { CodexAccountPanel } from "./CodexAccountPanel";
@@ -216,6 +217,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const skillWriteRef = useRef<object | null>(null);
   const [capabilityError, setCapabilityError] = useState("");
   const [capabilityDetail, setCapabilityDetail] = useState<CapabilityDetailTarget | null>(null);
+  const [entryType, setEntryType] = useState<WorkspaceEntryTypeFilter>("all");
   const [fileMention, setFileMention] = useState<FileMention | null>(null);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
@@ -379,6 +381,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setMainAgentLoading(false);
     setSelectionError("");
     setSelectionPending(false);
+    setEntryType("all");
     setCapabilityOpen(false);
     setFileMention(null);
     setSlashDismissed(false);
@@ -439,9 +442,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setFileResults([]);
     setSelectedFileIndex(0);
     const timer = window.setTimeout(() => {
-      window.projectSearchApi.searchWorkspaceEntries(sessionId, fileMention.query).then(response => {
+      window.projectSearchApi.searchWorkspaceEntries(sessionId, fileMention.query, undefined, { entryType }).then(response => {
         if (fileSearchRequestRef.current !== requestId) return;
-        setFileResults(response.results.filter(entry => entry.type === "file"));
+        setFileResults(response.results);
         setFileSearchStatus("ready");
       }).catch(cause => {
         if (fileSearchRequestRef.current !== requestId) return;
@@ -451,7 +454,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       });
     }, 180);
     return () => { window.clearTimeout(timer); fileSearchRequestRef.current += 1; };
-  }, [sessionId, fileMention?.query, fileMention?.start, fileMention?.end]);
+  }, [sessionId, fileMention?.query, fileMention?.start, fileMention?.end, entryType]);
   useEffect(() => {
     if (fileMention && fileResults[selectedFileIndex]) fileResultRefs.current[selectedFileIndex]?.scrollIntoView?.({ block: "nearest" });
   }, [fileMention, fileResults, selectedFileIndex]);
@@ -675,7 +678,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function selectFile(entry: WorkspaceEntrySearchResult) {
     if (!fileMention) return;
-    const token = `@${entry.relativePath} `;
+    const suffix = entry.type === "directory" ? (sessionType === "windows" ? "\\" : "/") : "";
+    const token = `@${entry.relativePath}${suffix} `;
     const next = draft.slice(0, fileMention.start) + token + draft.slice(fileMention.end);
     const caret = fileMention.start + token.length;
     setDraft(next);
@@ -1546,16 +1550,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <span>/{command.id}</span><small>{command.label}</small>
             </button>)}
       </div>}
-      {fileMention && slashQuery === null && <div id={fileListId} className="codex-app-server-file-mentions" role="listbox" aria-label="搜索工作区文件">
-        <div className="codex-app-server-file-mentions-heading">搜索工作区文件{fileSearchStatus === "loading" ? " · 搜索中..." : ""}</div>
-        {fileSearchStatus === "error" ? <div className="codex-app-server-file-mentions-empty" role="alert">搜索失败：{fileSearchError}</div>
-          : fileSearchStatus === "ready" && fileResults.length === 0 ? <div className="codex-app-server-file-mentions-empty">没有匹配文件</div>
-          : fileResults.map((entry, index) => <button key={entry.path} ref={element => { fileResultRefs.current[index] = element; }}
-              id={`${fileListId}-option-${index}`} type="button" role="option" aria-selected={index === selectedFileIndex}
-              className={index === selectedFileIndex ? "selected" : ""} onMouseDown={event => event.preventDefault()}
-              onMouseEnter={() => setSelectedFileIndex(index)} onClick={() => selectFile(entry)}>
-              <FileIcon aria-hidden="true" /><span>{entry.name}</span><small>{entry.relativePath}</small>
-            </button>)}
+      {fileMention && slashQuery === null && <div className="codex-app-server-file-mentions">
+        <div className="codex-app-server-file-mentions-heading">搜索工作区文件与文件夹{fileSearchStatus === "loading" ? " · 搜索中..." : ""}</div>
+        <WorkspaceMentionFilter value={entryType} />
+        <div id={fileListId} role="listbox" aria-label="搜索工作区文件与文件夹" className="workspace-mention-results">
+          {fileSearchStatus === "error" ? <div className="codex-app-server-file-mentions-empty" role="alert">搜索失败：{fileSearchError}</div>
+            : fileSearchStatus === "ready" && fileResults.length === 0 ? <div className="codex-app-server-file-mentions-empty">没有匹配的文件或文件夹</div>
+            : fileResults.map((entry, index) => <button key={entry.path} ref={element => { fileResultRefs.current[index] = element; }}
+                id={`${fileListId}-option-${index}`} title={entry.relativePath} type="button" role="option" aria-selected={index === selectedFileIndex}
+                className={index === selectedFileIndex ? "selected" : ""} onMouseDown={event => event.preventDefault()}
+                onMouseEnter={() => setSelectedFileIndex(index)} onClick={() => selectFile(entry)}>
+                {entry.type === "directory" ? <Folder aria-hidden="true" /> : <FileIcon aria-hidden="true" />}<span>{entry.name}</span><small>{entry.relativePath}</small>
+              </button>)}
+        </div>
       </div>}
       <div className={`codex-app-server-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={snapshot.mode}><textarea ref={textareaRef} value={draft} onChange={event => {
         const next = event.target.value;
@@ -1585,6 +1592,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         void pasteImage(files);
       }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
+        const filter = fileMention && slashQuery === null ? workspaceMentionFilterKey(event) : null;
+        if (filter) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (filter !== entryType) {
+            fileSearchRequestRef.current += 1;
+            setFileResults([]);
+            setSelectedFileIndex(0);
+            setFileSearchStatus("loading");
+            setEntryType(filter);
+          }
+          return;
+        }
         if (slashQuery !== null && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
@@ -1605,7 +1625,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             setSelectedFileIndex(current => fileResults.length ? (current + (event.key === "ArrowDown" ? 1 : -1) + fileResults.length) % fileResults.length : 0);
             return;
           }
-          if (event.key === "Enter" || event.key === "Tab" && fileResults.length > 0) {
+          if (event.key === "Enter" || event.key === "Tab") {
             event.preventDefault();
             if (fileResults[selectedFileIndex]) selectFile(fileResults[selectedFileIndex]);
             return;

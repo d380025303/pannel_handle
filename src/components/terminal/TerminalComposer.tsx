@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowUp, File, Folder, ImagePlus, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
+import type { TerminalSession, WorkspaceEntrySearchResult, WorkspaceEntryTypeFilter } from "../../vite-env";
+import { WorkspaceMentionFilter, workspaceMentionFilterKey } from "../shared/WorkspaceMentionFilter";
 import { submitTerminalInput } from "./terminalComposerInput";
 
 type TerminalComposerProps = {
@@ -45,6 +46,7 @@ function getErrorMessage(error: unknown) {
 export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerProps) {
   const { t } = useI18n();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [entryType, setEntryType] = useState<WorkspaceEntryTypeFilter>("all");
   const [mention, setMention] = useState<Mention | null>(null);
   const [results, setResults] = useState<WorkspaceEntrySearchResult[]>([]);
   const [searchStatus, setSearchStatus] = useState<SearchStatus>("idle");
@@ -91,6 +93,7 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
     setSelectedIndex(0);
     setImageStatus("idle");
     setImageMessage("");
+    setEntryType("all");
     setIsFocused(false);
     setIsComposing(false);
   }, [session?.id]);
@@ -105,7 +108,7 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
     setSelectedIndex(0);
 
     const timer = window.setTimeout(() => {
-      window.projectSearchApi.searchWorkspaceEntries(session.id, currentMentionQuery)
+      window.projectSearchApi.searchWorkspaceEntries(session.id, currentMentionQuery, undefined, { entryType })
         .then((response) => {
           if (searchRequestRef.current !== requestId) return;
           setResults(response.results);
@@ -120,8 +123,8 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
         });
     }, 180);
 
-    return () => window.clearTimeout(timer);
-  }, [currentMentionQuery, mention, session, t]);
+    return () => { window.clearTimeout(timer); searchRequestRef.current += 1; };
+  }, [currentMentionQuery, mention, session, t, entryType]);
 
   useEffect(() => {
     if (!mentionVisible || !selectedResult) return;
@@ -227,42 +230,41 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
   return (
     <div className="terminal-composer-wrap">
       {mentionVisible && (
-        <div
-          id={listboxId}
-          className="terminal-composer-mentions"
-          role="listbox"
-          aria-label={t("composer.searchWorkspace")}
-        >
+        <div className="terminal-composer-mentions">
           <div className="terminal-composer-mentions-heading">
             <span>{t("composer.searchWorkspace")}</span>
             {searchStatus === "loading" && (
               <LoaderCircle className="spin" aria-label={t("composer.searching")} />
             )}
           </div>
-          {searchStatus === "idle" || searchStatus === "loading" ? (
-            <div className="terminal-composer-empty">{t("composer.searching")}</div>
-          ) : searchStatus === "error" ? (
-            <div className="terminal-composer-empty error">{t("composer.searchUnavailable")}</div>
-          ) : results.length === 0 ? (
-            <div className="terminal-composer-empty">{t("composer.noMatches")}</div>
-          ) : results.map((entry, index) => (
-            <button
-              ref={(element) => { resultRefs.current[index] = element; }}
-              id={`${listboxId}-option-${index}`}
-              className={index === selectedIndex ? "selected" : ""}
-              type="button"
-              role="option"
-              aria-selected={index === selectedIndex}
-              key={`${entry.type}:${entry.path}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setSelectedIndex(index)}
-              onClick={() => selectEntry(entry)}
-            >
-              {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
-              <span className="terminal-composer-entry-name">{entry.name}</span>
-              <span className="terminal-composer-entry-path">{entry.relativePath}</span>
-            </button>
-          ))}
+          <WorkspaceMentionFilter value={entryType} />
+          <div id={listboxId} role="listbox" aria-label={t("composer.searchWorkspace")} className="workspace-mention-results">
+            {searchStatus === "idle" || searchStatus === "loading" ? (
+              <div className="terminal-composer-empty">{t("composer.searching")}</div>
+            ) : searchStatus === "error" ? (
+              <div className="terminal-composer-empty error">{t("composer.searchUnavailable")}</div>
+            ) : results.length === 0 ? (
+              <div className="terminal-composer-empty">{t("composer.noMatches")}</div>
+            ) : results.map((entry, index) => (
+              <button
+                ref={(element) => { resultRefs.current[index] = element; }}
+                id={`${listboxId}-option-${index}`}
+                className={index === selectedIndex ? "selected" : ""}
+                type="button"
+                role="option"
+                aria-selected={index === selectedIndex}
+                key={`${entry.type}:${entry.path}`}
+                title={entry.relativePath}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onClick={() => selectEntry(entry)}
+              >
+                {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
+                <span className="terminal-composer-entry-name">{entry.name}</span>
+                <span className="terminal-composer-entry-path">{entry.relativePath}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
       <div className={`terminal-composer ${hasError ? "has-error" : ""}`}>
@@ -294,6 +296,19 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
             }}
             onKeyDown={(event) => {
               if (isComposing || event.nativeEvent.isComposing) return;
+              const filter = mention ? workspaceMentionFilterKey(event) : null;
+              if (filter) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (filter !== entryType) {
+                  searchRequestRef.current += 1;
+                  setResults([]);
+                  setSelectedIndex(0);
+                  setSearchStatus("loading");
+                  setEntryType(filter);
+                }
+                return;
+              }
               const hasPrimaryModifier = event.ctrlKey || event.altKey || event.metaKey;
               const isPlainKey = !event.shiftKey && !hasPrimaryModifier;
 
@@ -315,9 +330,9 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
                 setSelectedIndex((current) => results.length ? (current + direction + results.length) % results.length : 0);
                 return;
               }
-              if (mention && isPlainKey && (event.key === "Enter" || event.key === "Tab") && selectedResult) {
+              if (mention && isPlainKey && (event.key === "Enter" || event.key === "Tab")) {
                 event.preventDefault();
-                selectEntry(selectedResult);
+                if (selectedResult) selectEntry(selectedResult);
                 return;
               }
               if (session && event.key === "Tab" && event.shiftKey && !hasPrimaryModifier) {

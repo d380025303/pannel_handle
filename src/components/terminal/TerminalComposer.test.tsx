@@ -74,6 +74,47 @@ describe("TerminalComposer", () => {
     delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   });
 
+  it("switches mention types without moving the caret and ignores stale responses", async () => {
+    const old = deferred<WorkspaceEntrySearchResponse>();
+    const folder = { path: "C:\\workspace\\src", relativePath: "src", name: "src", type: "directory" as const };
+    searchWorkspaceEntries.mockImplementationOnce(() => old.promise).mockResolvedValue({ root: firstSession.cwd, results: [folder] });
+    const { rerender } = renderComposer();
+    const input = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    fireEvent.keyDown(input, { key: "2", ctrlKey: true });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(write).not.toHaveBeenCalled();
+    expect(input.value).toBe("@");
+    expect(input.selectionStart).toBe(1);
+    expect(document.activeElement).toBe(input);
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-1", "", undefined, { entryType: "directory" });
+    await act(async () => old.resolve({ root: firstSession.cwd, results: [{ path: "old.txt", relativePath: "old.txt", name: "old.txt", type: "file" }] }));
+    expect(screen.queryByRole("option", { name: /old.txt/ })).toBeNull();
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input.value).toBe("@src\\ ");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-1", "", undefined, { entryType: "directory" });
+    fireEvent.keyDown(input, { key: "3", ctrlKey: true, isComposing: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-1", "", undefined, { entryType: "directory" });
+    fireEvent.keyDown(input, { key: "3", ctrlKey: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-1", "", undefined, { entryType: "file" });
+    fireEvent.keyDown(input, { key: "1", ctrlKey: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-1", "", undefined, { entryType: "all" });
+    fireEvent.keyDown(input, { key: "2", ctrlKey: true });
+    rerender(<I18nProvider locale="zh-CN"><TerminalComposer session={secondSession} onFocusTerminal={focusTerminal} /></I18nProvider>);
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("session-2", "", undefined, { entryType: "all" });
+  });
+
   it("sends with plain Enter and restores focus after clicking send", () => {
     renderComposer();
     const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;

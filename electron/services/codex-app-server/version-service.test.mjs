@@ -166,20 +166,37 @@ describe("Codex version updates", () => {
     expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0", restartRequired: true });
   });
 
-  it("requires another confirmation when the SSH command path changes", async () => {
+  it("requires another confirmation when the SSH resolved installation changes", async () => {
     const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
     let commandPath = "/usr/local/bin/codex";
     let version = "0.156.0";
-    const { service, executeCommand } = harness(session, () => linuxProbe(version).replace("/usr/local/bin/codex", commandPath));
+    const output = () => linuxProbe(version).replace("/usr/local/bin/codex", commandPath)
+      .replaceAll("/usr/local/lib/node_modules", `${commandPath.slice(0, -"/bin/codex".length)}/lib/node_modules`);
+    const { service, executeCommand } = harness(session, output);
     executeCommand.mockImplementation(async (_target, script) => {
       if (script.includes("npm install -g")) { version = "0.157.0"; return "updated"; }
-      return linuxProbe(version).replace("/usr/local/bin/codex", commandPath);
+      return output();
     });
     await service.check("ssh-1");
     commandPath = "/opt/node/bin/codex";
     expect(await service.update("ssh-1")).toMatchObject({ status: "available", commandPath });
     expect(executeCommand.mock.calls.some(([, script]) => script.includes("npm install -g"))).toBe(false);
     expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0", restartRequired: true });
+  });
+
+  it("updates SSH npm installations when fnm changes the command symlink on every probe", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let version = "0.156.0";
+    let shell = 0;
+    const { service, executeCommand } = harness(session, () => "");
+    executeCommand.mockImplementation(async (_target, script) => {
+      if (script === "npm install -g @openai/codex@latest") { version = "0.157.0"; return "updated"; }
+      return linuxProbe(version).replace("/usr/local/bin/codex", `/run/user/0/fnm_multishells/${++shell}/bin/codex`);
+    });
+    expect(await service.check("ssh-1")).toMatchObject({ status: "available", method: "npm" });
+    expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0", restartRequired: true });
+    expect(executeCommand.mock.calls.filter(([, script]) => script === "npm install -g @openai/codex@latest")).toHaveLength(1);
+    expect(shell).toBe(3);
   });
 
   it("shows manual guidance when the SSH installation source changes", async () => {

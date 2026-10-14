@@ -39,7 +39,7 @@
     font-size: 10px;
   }
 
-  .terminal-composer-mentions > button {
+  .terminal-composer-mentions .workspace-mention-results > button {
     grid-template-columns: 20px minmax(0, 1fr);
   }
 

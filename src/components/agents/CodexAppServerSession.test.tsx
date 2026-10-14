@@ -2619,14 +2619,64 @@ describe("CodexAppServerSession", () => {
     const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
     fireEvent.change(input, { target: { value: "查看 @be 后续", selectionStart: 6 } });
-    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "be"));
-    const list = await screen.findByRole("listbox", { name: "搜索工作区文件" });
-    await waitFor(() => expect(list.querySelectorAll('[role="option"]')).toHaveLength(2));
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "be", undefined, { entryType: "all" }));
+    const list = await screen.findByRole("listbox", { name: "搜索工作区文件与文件夹" });
+    await waitFor(() => expect(list.querySelectorAll('[role="option"]')).toHaveLength(3));
+    fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(input.value).toBe("查看 @src\\beta.ts  后续");
-    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件与文件夹" })).toBeNull();
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("switches mention types by keyboard, retains focus and resets on session change", async () => {
+    const folder = { name: "src", path: "C:\\work\\src", relativePath: "src", type: "directory" };
+    const file = { name: "a.ts", path: "C:\\work\\src\\a.ts", relativePath: "src\\a.ts", type: "file" };
+    searchWorkspaceEntries.mockImplementation(async (_id, _query, _root, options) => ({ root: "C:\\work", results: options?.entryType === "directory" ? [folder] : options?.entryType === "file" ? [file] : [folder, file] }));
+    const { rerender } = render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    input.focus();
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    fireEvent.keyDown(input, { key: "2", ctrlKey: true });
+    expect(await screen.findByRole("option", { name: /src/ })).toBeTruthy();
+    expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("run-1", "", undefined, { entryType: "directory" });
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(1);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("@src\\ ");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("run-1", "", undefined, { entryType: "directory" }));
+    fireEvent.keyDown(input, { key: "3", ctrlKey: true, isComposing: true });
+    expect(screen.queryByRole("option", { name: /a.ts/ })).toBeNull();
+    fireEvent.keyDown(input, { key: "3", ctrlKey: true });
+    expect(await screen.findByRole("option", { name: /a.ts/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /^src\s*src$/ })).toBeNull();
+    fireEvent.keyDown(input, { key: "1", ctrlKey: true });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+    fireEvent.keyDown(input, { key: "2", ctrlKey: true });
+    rerender(<CodexAppServerSession sessionId="run-2" />);
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenLastCalledWith("run-2", "", undefined, { entryType: "all" }));
+  });
+
+  it("ignores an old response when the mention type changes", async () => {
+    let resolveOld!: (value: { root: string; results: Array<{ name: string; path: string; relativePath: string; type: "file" }> }) => void;
+    searchWorkspaceEntries.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ root: "C:\\work", results: [{ name: "src", path: "C:\\work\\src", relativePath: "src", type: "directory" }] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" });
+    await waitFor(() => expect(input).toHaveProperty("disabled", false));
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "", undefined, { entryType: "all" }));
+    fireEvent.keyDown(input, { key: "2", ctrlKey: true });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(submit).not.toHaveBeenCalled();
+    expect(await screen.findByRole("option", { name: /^src\s*src$/ })).toBeTruthy();
+    await act(async () => resolveOld({ root: "C:\\work", results: [{ name: "old.ts", path: "old.ts", relativePath: "old.ts", type: "file" }] }));
+    expect(screen.queryByRole("option", { name: /old.ts/ })).toBeNull();
   });
 
   it("supports mouse selection, Escape, and prevents Enter from sending while searching", async () => {
@@ -2643,7 +2693,7 @@ describe("CodexAppServerSession", () => {
     expect(input.value).toBe("@note.txt ");
     fireEvent.change(input, { target: { value: "@note", selectionStart: 5 } });
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件与文件夹" })).toBeNull();
   });
 
   it("shows file search errors and clears results when the session changes", async () => {
@@ -2654,7 +2704,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.change(input, { target: { value: "@a", selectionStart: 2 } });
     expect(await screen.findByRole("alert", { name: "" })).toHaveProperty("textContent", "搜索失败：offline");
     rerender(<CodexAppServerSession sessionId="run-2" />);
-    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件与文件夹" })).toBeNull();
   });
 
   it("ignores an older file search response after the query changes", async () => {
@@ -2665,7 +2715,7 @@ describe("CodexAppServerSession", () => {
     const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
     fireEvent.change(input, { target: { value: "@old", selectionStart: 4 } });
-    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "old"));
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "old", undefined, { entryType: "all" }));
     fireEvent.change(input, { target: { value: "@new", selectionStart: 4 } });
     expect(await screen.findByRole("option", { name: /new.ts/ })).toBeTruthy();
     await act(async () => { resolveOld({ root: "C:\\work", results: [{ name: "old.ts", path: "C:\\work\\old.ts", relativePath: "old.ts", type: "file" }] }); });

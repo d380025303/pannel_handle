@@ -766,7 +766,16 @@ export function installBrowserPreview() {
     } satisfies Window["fileTransferApi"],
     gitApi,
     projectSearchApi: {
-      searchWorkspaceEntries: async (_sessionId, query, rootPath = "C:\\workspace\\pannel-handle") => ({ root: rootPath, results: [{ path: `${rootPath}\\src`, relativePath: "src", name: "src", type: "directory" as const }, { path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx", type: "file" as const }].filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) || !query) }),
+      searchWorkspaceEntries: async (_sessionId, query, rootPath = "C:\\workspace\\pannel-handle", options = {}) => ({
+        root: rootPath,
+        results: [
+          { path: `${rootPath}\\src`, relativePath: "src", name: "src", type: "directory" as const },
+          { path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx", type: "file" as const },
+          { path: `${rootPath}\\src\\components\\agents`, relativePath: "src/components/agents", name: "agents", type: "directory" as const },
+          { path: `${rootPath}\\src\\components\\agents\\CodexAppServerSession.tsx`, relativePath: "src/components/agents/CodexAppServerSession.tsx", name: "CodexAppServerSession.tsx", type: "file" as const }
+        ].filter((item) => (!options.entryType || options.entryType === "all" || options.entryType === item.type)
+          && (!query || item.relativePath.toLowerCase().includes(query.toLowerCase())))
+      }),
       listDirectories: async (_sessionId, rootPath) => ({ workspaceRoot: "C:\\workspace\\pannel-handle", path: rootPath, directories: [{ name: "src", path: `${rootPath}\\src` }, { name: "electron", path: `${rootPath}\\electron` }] }),
       searchFiles: async (_sessionId, query, rootPath) => ({ root: rootPath, results: [{ path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx" }, { path: `${rootPath}\\package.json`, relativePath: "package.json", name: "package.json" }].filter((item) => item.name.toLowerCase().includes(query.toLowerCase())) }),
       searchText: async (_sessionId, query, _requestId, rootPath) => ({ root: rootPath, results: [{ path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx", lineNumber: 42, line: `const preview = "${query}";`, matchStart: 17, matchLength: query.length }], engine: "ripgrep" }),

@@ -751,6 +751,11 @@ export type TranslationKey =
   | "composer.send"
   | "composer.pasteImage"
   | "composer.uploadImage"
+  | "composer.filterType"
+  | "composer.filterAll"
+  | "composer.filterDirectories"
+  | "composer.filterFiles"
+  | "composer.filterCurrent"
   | "composer.searchWorkspace"
   | "composer.searching"
   | "composer.searchUnavailable"
@@ -1854,6 +1859,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.send": "发送到终端",
     "composer.pasteImage": "上传剪贴板图片",
     "composer.uploadImage": "上传图片",
+    "composer.filterType": "搜索类型",
+    "composer.filterAll": "全部",
+    "composer.filterDirectories": "文件夹",
+    "composer.filterFiles": "文件",
+    "composer.filterCurrent": "当前",
     "composer.searchWorkspace": "工作区文件与文件夹",
     "composer.searching": "正在搜索工作区...",
     "composer.searchUnavailable": "搜索暂时不可用",
@@ -2949,6 +2959,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.send": "Send to terminal",
     "composer.pasteImage": "Upload clipboard image",
     "composer.uploadImage": "Upload image",
+    "composer.filterType": "Search type",
+    "composer.filterAll": "All",
+    "composer.filterDirectories": "Folders",
+    "composer.filterFiles": "Files",
+    "composer.filterCurrent": "Selected",
     "composer.searchWorkspace": "Workspace files and folders",
     "composer.searching": "Searching the workspace...",
     "composer.searchUnavailable": "Search is temporarily unavailable",

@@ -184,6 +184,39 @@ describe("project-search-service", () => {
     }
   });
 
+  it("filters local entry types before applying the result limit and still traverses nested directories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-entry-filter-"));
+    try {
+      for (let index = 0; index < 220; index++) writeFile(path.join(dir, `a-${index}.txt`), "file");
+      writeFile(path.join(dir, "z-folder", "nested", "target.txt"), "target");
+      const service = createProjectSearchService({ terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }) });
+      const folders = await service.searchWorkspaceEntries("run-1", "", undefined, { entryType: "directory" });
+      expect(folders.results.map(entry => entry.relativePath)).toEqual(["z-folder", "z-folder\\nested"]);
+      const files = await service.searchWorkspaceEntries("run-1", "target", undefined, { entryType: "file" });
+      expect(files.results).toEqual([expect.objectContaining({ type: "file", name: "target.txt" })]);
+      const mixed = await service.searchWorkspaceEntries("run-1", "z-folder", undefined, { entryType: "all" });
+      expect(mixed.results.some(entry => entry.type === "file")).toBe(true);
+      expect(mixed.results.some(entry => entry.type === "directory")).toBe(true);
+      expect((await service.searchWorkspaceEntries("run-1", "missing", undefined, { entryType: "directory" })).results).toEqual([]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("filters SSH entries before truncation without skipping directory traversal", async () => {
+    const remoteFileService = {
+      getHome: vi.fn(async () => "/home/me"),
+      list: vi.fn(async (_id, root) => root === "/app" ? [
+        ...Array.from({ length: 220 }, (_, index) => ({ name: `file-${index}`, path: `/app/file-${index}`, type: "file" })),
+        { name: "src", path: "/app/src", type: "directory" }
+      ] : root === "/app/src" ? [
+        { name: "nested", path: "/app/src/nested", type: "directory" },
+        { name: "target.txt", path: "/app/src/target.txt", type: "file" }
+      ] : [])
+    };
+    const service = createProjectSearchService({ terminalManager: createTerminalManager({ id: "ssh", type: "ssh", cwd: "/app" }), remoteFileService });
+    expect((await service.searchWorkspaceEntries("ssh", "", undefined, { entryType: "directory" })).results.map(entry => entry.relativePath)).toEqual(["src", "src/nested"]);
+    expect((await service.searchWorkspaceEntries("ssh", "target", undefined, { entryType: "file" })).results).toEqual([expect.objectContaining({ type: "file", relativePath: "src/target.txt" })]);
+  });
+
   it("searches SSH workspace entries through SFTP without following symlinks", async () => {
     const remoteFileService = {
       getHome: vi.fn(async () => "/home/deploy"),
@@ -370,6 +403,20 @@ describe("project-search-service", () => {
     });
     expect(readdir).toHaveBeenNthCalledWith(1, "\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project", { withFileTypes: true });
     expect(readdir).toHaveBeenNthCalledWith(2, "\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\src", { withFileTypes: true });
+  });
+
+  it.each(["directory", "file", "all"])("filters WSL entries with %s while keeping Linux paths", async (entryType) => {
+    const readdir = vi.fn(async root => root.endsWith("src") ? [
+      { name: "main.rs", isDirectory: () => false, isFile: () => true }
+    ] : [{ name: "src", isDirectory: () => true, isFile: () => false }]);
+    const service = createProjectSearchService({
+      terminalManager: createTerminalManager({ id: "wsl", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      fsApi: createDirectoryFsApi({ readdir })
+    });
+    const response = await service.searchWorkspaceEntries("wsl", "", undefined, { entryType });
+    expect(response.root).toBe("/home/me/project");
+    expect(response.results.map(entry => entry.relativePath)).toEqual(entryType === "directory" ? ["src"] : entryType === "file" ? ["src/main.rs"] : ["src", "src/main.rs"]);
+    expect(response.results.every(entry => entry.path.startsWith("/home/me/project/"))).toBe(true);
   });
 
   it("builds native Windows and WSL ripgrep invocations with ignore-aware literal search", async () => {

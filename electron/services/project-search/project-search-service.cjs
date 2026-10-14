@@ -120,6 +120,7 @@ function createProjectSearchService({
 
   async function searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matchesQuery, task) {
     throwIfCancelled(task);
+    const acceptsType = (type) => !options.entryType || options.entryType === "all" || options.entryType === type;
     const session = terminalManager.getSession(sessionId);
     if (!session) {
       throw new Error("Session is not running.");
@@ -141,6 +142,7 @@ function createProjectSearchService({
       }
       const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, localSession, configuredRoot);
       const addResult = (type) => async ({ relativePath, name }) => {
+        if (!acceptsType(type)) return;
         const displayRelativePath = toDisplayRelativePath(localSession, relativePath);
         await collector.add({
           path: toDisplayPath(localSession, displayRoot, relativePath),
@@ -198,10 +200,10 @@ function createProjectSearchService({
           ? path.posix.join(current.relativePath, entry.name)
           : entry.name;
         if (entry.type === "directory" && (!isExcludedDirectory(entry.name) || (options.includeIgnored && ![".git", ".hg", ".svn"].includes(entry.name)))) {
-          await collector.add({ path: entry.path, relativePath, name: entry.name, type: "directory" });
+          if (acceptsType("directory")) await collector.add({ path: entry.path, relativePath, name: entry.name, type: "directory" });
           queue.push({ path: entry.path, relativePath });
         } else if (entry.type === "file") {
-          await collector.add({ path: entry.path, relativePath, name: entry.name, type: "file" });
+          if (acceptsType("file")) await collector.add({ path: entry.path, relativePath, name: entry.name, type: "file" });
         }
       }
     }
