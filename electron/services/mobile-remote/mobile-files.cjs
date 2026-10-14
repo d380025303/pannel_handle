@@ -11,6 +11,7 @@ const ARCHIVE_PENDING_LIMIT = 32;
 function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.now(), getRoots } = {}) {
   const tickets = new Map();
   const active = new Map();
+  const currentListings = new Map();
   const roots = getRoots || (async () => {
     const found = new Array(26);
     let nextIndex = 0;
@@ -62,6 +63,8 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     const operation = { cancel() { cancelled = true; } };
     let operations;
     if (socket) {
+      currentListings.get(socket)?.cancel();
+      currentListings.set(socket, operation);
       operations = active.get(socket);
       if (!operations) { operations = new Set(); active.set(socket, operations); }
       operations.add(operation);
@@ -69,10 +72,12 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     const isCancelled = () => cancelled || (socket && !socket.authenticated);
     try {
       if (isCancelled()) return;
-      return await scanDirectory(directory, isCancelled);
+      const result = await scanDirectory(directory, isCancelled);
+      if (!isCancelled()) return result;
     } catch (error) {
       if (!isCancelled()) throw error;
     } finally {
+      if (currentListings.get(socket) === operation) currentListings.delete(socket);
       operations?.delete(operation);
       if (operations && !operations.size && active.get(socket) === operations) active.delete(socket);
     }
@@ -224,6 +229,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   function releaseSocket(socket) {
     for (const [id, entry] of tickets) if (entry.socket === socket) tickets.delete(id);
     for (const transfer of active.get(socket) || []) transfer.cancel();
+    currentListings.delete(socket);
     active.delete(socket);
   }
   function stop() { tickets.clear(); for (const socket of active.keys()) releaseSocket(socket); }

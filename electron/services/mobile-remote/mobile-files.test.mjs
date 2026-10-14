@@ -220,6 +220,123 @@ it.each([0, 3, 25])("bounds concurrent path checks and filters failed entries wi
   expect(active).toBe(0);
 });
 
+it("supersedes only the same connection's listing and stops pending entry checks", async () => {
+  const directory = "C:\\";
+  const names = Array.from({ length: 100 }, (_, index) => `file-${index}.txt`);
+  const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
+  const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 10 };
+  let resume;
+  let entered;
+  let blocked = true;
+  const gate = new Promise(resolve => { resume = resolve; });
+  const paused = new Promise(resolve => { entered = resolve; });
+  const fsApi = { promises: {
+    readdir: vi.fn(async () => names),
+    lstat: vi.fn(async () => {
+      if (blocked) {
+        if (fsApi.promises.lstat.mock.calls.length === 8) entered();
+        await gate;
+      }
+      return fileInfo;
+    }),
+    realpath: vi.fn(async target => target),
+    stat: vi.fn(async target => target === directory ? directoryInfo : fileInfo)
+  } };
+  const files = filesModule.createMobileFiles({ fsApi, getRoots: () => [directory] });
+  const socket = { authenticated: true };
+  const old = files.list(directory, socket);
+  await paused;
+  const latest = files.list(directory, socket);
+  blocked = false;
+  resume();
+  expect(await old).toBeUndefined();
+  expect((await latest).entries).toHaveLength(100);
+  // Eight issued lstat calls finish, but the old scan does no further validation.
+  expect(fsApi.promises.lstat).toHaveBeenCalledTimes(108);
+  expect(fsApi.promises.realpath).toHaveBeenCalledTimes(102);
+  expect(fsApi.promises.stat).toHaveBeenCalledTimes(102);
+  expect(fsApi.promises.readdir).toHaveBeenCalledTimes(2);
+
+  const other = { authenticated: true };
+  const results = await Promise.all([files.list(directory, socket), files.list(directory, other)]);
+  expect(results.map(result => result.entries.length)).toEqual([100, 100]);
+  files.stop();
+});
+
+it("reduces ten concurrent delayed listings to one complete scan", async () => {
+  vi.useFakeTimers();
+  try {
+    const directory = "C:\\";
+    const names = Array.from({ length: 100 }, (_, index) => `file-${index}.txt`);
+    const info = target => ({ isDirectory: () => target === directory, isFile: () => target !== directory,
+      isSymbolicLink: () => false, size: 10 });
+    let operations = 0;
+    let active = 0;
+    let maximum = 0;
+    const delayed = operation => async target => {
+      operations++;
+      maximum = Math.max(maximum, ++active);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return operation(target);
+      } finally { active--; }
+    };
+    const files = filesModule.createMobileFiles({ getRoots: () => [directory], fsApi: { promises: {
+      readdir: delayed(() => names), lstat: delayed(info), realpath: delayed(target => target), stat: delayed(info)
+    } } });
+    const socket = { authenticated: true };
+    const baseline = files.list(directory, socket);
+    await vi.runAllTimersAsync();
+    expect((await baseline).entries).toHaveLength(100);
+    expect(operations).toBe(303);
+    expect(maximum).toBe(8);
+    operations = 0;
+    maximum = 0;
+    const requests = Array.from({ length: 10 }, () => files.list(directory, socket));
+    await vi.runAllTimersAsync();
+    const results = await Promise.all(requests);
+    expect(results.slice(0, 9)).toEqual(Array(9).fill(undefined));
+    expect(results[9].entries).toHaveLength(100);
+    expect(operations).toBe(303);
+    expect(maximum).toBe(8);
+    expect(active).toBe(0);
+    operations = 0;
+    maximum = 0;
+    const staggered = [];
+    for (let index = 0; index < 10; index++) {
+      staggered.push(files.list(directory, socket));
+      // Supersede each request after it has issued its first eight entry checks.
+      await vi.advanceTimersByTimeAsync(15);
+    }
+    await vi.runAllTimersAsync();
+    const staggeredResults = await Promise.all(staggered);
+    expect(staggeredResults.slice(0, 9)).toEqual(Array(9).fill(undefined));
+    expect(staggeredResults[9].entries).toHaveLength(100);
+    expect(operations).toBe(9 * 11 + 303);
+    expect(maximum).toBe(9);
+    expect(active).toBe(0);
+    files.stop();
+  } finally { vi.useRealTimers(); }
+});
+
+it("keeps an active download independent of replacement listings", async () => {
+  const source = new PassThrough();
+  const fsApi = { ...fs, createReadStream: () => source };
+  const { root, files, socket } = fixture(undefined, fsApi);
+  const target = path.join(root, "note.txt");
+  fs.writeFileSync(target, "hello phone");
+  const { url } = await files.prepare(socket, target);
+  const downloading = receive(files, socket, url);
+  await vi.waitFor(() => expect(source.listenerCount("data")).toBeGreaterThan(0));
+  const listings = await Promise.all([files.list(null, socket), files.list(null, socket)]);
+  expect(listings[0]).toBeUndefined();
+  expect(listings[1].entries).toHaveLength(1);
+  expect(source.destroyed).toBe(false);
+  source.end("hello phone");
+  expect((await downloading).body.toString()).toBe("hello phone");
+  files.stop();
+});
+
 it("streams a file once to the authenticated phone", async () => {
   const { root, files, socket } = fixture();
   const target = path.join(root, "note.txt");
