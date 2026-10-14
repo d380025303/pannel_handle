@@ -339,7 +339,7 @@ function RemoteFilePanelComponent({
   const expandedPathsRef = useRef<Set<string>>(new Set());
   const searchQueryRef = useRef("");
   const directoryRequestRef = useRef(new Map<string, number>());
-  const directoryPendingRef = useRef(new Map<string, { sessionId: string; requestId: number; promise: Promise<RemoteFileEntry[] | undefined> }>());
+  const directoryPendingRef = useRef(new Map<string, { sessionId: string; requestId: number; refreshNeeded: boolean; promise: Promise<RemoteFileEntry[] | undefined> }>());
   const directoryRequestSequenceRef = useRef(0);
   const virtualTreeRef = useRef<VirtualFileTreeHandle | null>(null);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -720,7 +720,8 @@ function RemoteFilePanelComponent({
   const loadTreeDirectory = useCallback((path: string, force = false): Promise<RemoteFileEntry[] | undefined> => {
     if (!sessionId) return Promise.resolve(undefined);
     const pending = directoryPendingRef.current.get(path);
-    if (!force && pending?.sessionId === sessionId && directoryRequestRef.current.get(path) === pending.requestId) {
+    if (pending?.sessionId === sessionId && directoryRequestRef.current.get(path) === pending.requestId) {
+      if (force) pending.refreshNeeded = true;
       return pending.promise;
     }
     const requestId = directoryRequestSequenceRef.current + 1;
@@ -730,27 +731,39 @@ function RemoteFilePanelComponent({
       ...current,
       [path]: { status: "loading", entries: current[path]?.entries ?? [] }
     }));
+    const request = { sessionId, requestId, refreshNeeded: false, promise: Promise.resolve<RemoteFileEntry[] | undefined>(undefined) };
     const promise = (async () => {
       try {
-        const nextEntries = await window.remoteFileApi.list(sessionId, path);
-        if (directoryRequestRef.current.get(path) !== requestId) return undefined;
-        updateDirectories((current) => ({
-          ...current,
-          [path]: { status: "ready", entries: nextEntries }
-        }));
-        return nextEntries;
-      } catch (err) {
-        if (directoryRequestRef.current.get(path) !== requestId) return undefined;
-        updateDirectories((current) => ({
-          ...current,
-          [path]: { status: "error", entries: current[path]?.entries ?? [], error: getErrorMessage(err) }
-        }));
-        throw err;
+        while (true) {
+          request.refreshNeeded = false;
+          let nextEntries: RemoteFileEntry[];
+          try {
+            nextEntries = await window.remoteFileApi.list(sessionId, path);
+          } catch (err) {
+            if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+            // A queued refresh must still run if the current scan fails.
+            if (request.refreshNeeded) continue;
+            updateDirectories((current) => ({
+              ...current,
+              [path]: { status: "error", entries: current[path]?.entries ?? [], error: getErrorMessage(err) }
+            }));
+            throw err;
+          }
+          if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+          // Changes received during this scan are covered by one sequential rescan.
+          if (request.refreshNeeded) continue;
+          updateDirectories((current) => ({
+            ...current,
+            [path]: { status: "ready", entries: nextEntries }
+          }));
+          return nextEntries;
+        }
       } finally {
         if (directoryPendingRef.current.get(path)?.requestId === requestId) directoryPendingRef.current.delete(path);
       }
     })();
-    directoryPendingRef.current.set(path, { sessionId, requestId, promise });
+    request.promise = promise;
+    directoryPendingRef.current.set(path, request);
     return promise;
   }, [sessionId, updateDirectories]);
 

@@ -461,14 +461,15 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(remoteFileApi.list).toHaveBeenCalledTimes(2);
   });
 
-  it("lets a forced refresh replace an older in-flight directory result", async () => {
+  it.each([false, true])("coalesces change notifications into sequential scans after an initial failure: %s", async (failFirstScan) => {
     const remoteFileApi = createRemoteFileApi();
     const childRequests: Array<(entries: RemoteFileEntry[]) => void> = [];
+    const childFailures: Array<(error: Error) => void> = [];
     let onChanged!: Parameters<RemoteFileApi["onChanged"]>[0];
     remoteFileApi.onChanged = vi.fn((callback) => { onChanged = callback; return () => undefined; });
     remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
       if (path === rootPath) return [directory("patches", childPath)];
-      if (path === childPath) return new Promise<RemoteFileEntry[]>((resolve) => { childRequests.push(resolve); });
+      if (path === childPath) return new Promise<RemoteFileEntry[]>((resolve, reject) => { childRequests.push(resolve); childFailures.push(reject); });
       return [];
     });
     window.remoteFileApi = remoteFileApi;
@@ -478,10 +479,29 @@ describe("RemoteFilePanel directory navigation", () => {
     fireEvent.doubleClick(patches.closest("button")!);
     expect(childRequests).toHaveLength(1);
 
-    act(() => { onChanged({ sessionId: session.id, paths: [childPath], changedFiles: [`${childPath}\\latest`] }); });
-    await waitFor(() => expect(childRequests).toHaveLength(2));
-    await act(async () => { childRequests[1]([directory("latest", `${childPath}\\latest`)]); });
-    await act(async () => { childRequests[0]([directory("stale", `${childPath}\\stale`)]); });
+    act(() => {
+      for (let index = 0; index < 4; index += 1) {
+        onChanged({ sessionId: session.id, paths: [childPath], changedFiles: [] });
+      }
+    });
+    expect(childRequests).toHaveLength(1);
+    await act(async () => {
+      if (failFirstScan) childFailures[0](new Error("Temporary scan failure"));
+      else childRequests[0]([directory("stale", `${childPath}\\stale`)]);
+    });
+    expect(childRequests).toHaveLength(2);
+    expect(screen.queryByTitle(`${childPath}\\stale`)).toBeNull();
+    // Changes during the follow-up scan also wait for it to finish.
+    act(() => {
+      for (let index = 0; index < 4; index += 1) {
+        onChanged({ sessionId: session.id, paths: [childPath], changedFiles: [] });
+      }
+    });
+    expect(childRequests).toHaveLength(2);
+    await act(async () => { childRequests[1]([]); });
+    expect(childRequests).toHaveLength(3);
+    await act(async () => { childRequests[2]([directory("latest", `${childPath}\\latest`)]); });
+    expect(childRequests).toHaveLength(3);
     expect(await screen.findByTitle(`${childPath}\\latest`)).toBeTruthy();
     expect(screen.queryByTitle(`${childPath}\\stale`)).toBeNull();
   });
