@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { CodexAppDetail, CodexMcpResourceResult, CodexPluginDetail, CodexSessionCapabilities } from "../../vite-env";
 
@@ -10,6 +10,12 @@ export type CapabilityDetailTarget =
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export function CodexCapabilityDetail({ sessionId, target, onClose }: { sessionId: string; target: CapabilityDetailTarget; onClose: () => void }) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButton.current?.focus();
+    return () => { if (trigger?.isConnected) trigger.focus(); };
+  }, []);
   const [plugin, setPlugin] = useState<CodexPluginDetail | null>(null);
   const [app, setApp] = useState<CodexAppDetail | null>(null);
   const [loading, setLoading] = useState(target.kind !== "mcp");
@@ -50,8 +56,21 @@ export function CodexCapabilityDetail({ sessionId, target, onClose }: { sessionI
   }
   const title = target.kind === "plugin" ? target.name : target.kind === "app" ? app?.name || target.id : target.server.name;
   return <div className="codex-capability-detail-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="codex-capability-detail" role="dialog" aria-modal="true" aria-label={`${title} 详情`} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
-      <header><strong>{title} 详情</strong><button type="button" aria-label="关闭详情" onClick={onClose}><X aria-hidden="true" /></button></header>
+    <section className="codex-capability-detail" role="dialog" aria-modal="true" aria-label={`${title} 详情`} onKeyDown={event => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+      if (event.key === "Tab") {
+        event.stopPropagation();
+        const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+          "button, input, textarea, select, a[href], [tabindex]"
+        )).filter(element => element.tabIndex >= 0 && !element.matches(":disabled")
+          && !element.closest('[hidden], [inert], [aria-hidden="true"]')
+          && element.getClientRects().length > 0 && getComputedStyle(element).visibility === "visible");
+        if (!elements.length) { event.preventDefault(); return; }
+        if (event.shiftKey && document.activeElement === elements[0]) { event.preventDefault(); elements.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === elements.at(-1)) { event.preventDefault(); elements[0]?.focus(); }
+      }
+    }}>
+      <header><strong>{title} 详情</strong><button ref={closeButton} type="button" aria-label="关闭详情" onClick={onClose}><X aria-hidden="true" /></button></header>
       <div className="codex-capability-detail-body">
         {loading && <p>正在读取详情…</p>}{error && <p role="alert">读取详情失败：{error}</p>}
         {plugin && <>

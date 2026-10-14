@@ -51,16 +51,40 @@ it("wraps keyboard focus in both tabs while skipping unavailable controls", asyn
 it("opens an installed plugin detail from its existing list", async () => {
   const readPluginDetail = vi.fn().mockResolvedValue({ name: "design", marketplaceName: "official",
     description: "Design tools", version: "1.0", source: { type: "remote" }, installed: true, enabled: true,
-    shareUrl: null, remotePluginId: null, skills: [], apps: [], mcpServers: ["files"] });
+    shareUrl: "https://example.com/design", remotePluginId: null,
+    skills: [{ name: "disabled-skill", enabled: true }], apps: [], mcpServers: ["files"] });
   Object.assign(window, {
     codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [
       { name: "design", marketplaceName: "official", enabled: true }], available: [], marketplaces: [] }),
       readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
     codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [], errors: {} }), readPluginDetail }
   });
-  render(<CodexPluginDialog sessionId="run-1" onClose={vi.fn()} onChanged={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "详情" }));
-  expect(await screen.findByRole("dialog", { name: "design 详情" })).toBeTruthy();
+  const onClose = vi.fn();
+  render(<CodexPluginDialog sessionId="run-1" onClose={onClose} onChanged={vi.fn()} />);
+  const trigger = await screen.findByRole("button", { name: "详情" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const detail = await screen.findByRole("dialog", { name: "design 详情" });
+  const close = screen.getByRole("button", { name: "关闭详情" });
+  expect(document.activeElement).toBe(close);
+  const last = await screen.findByRole("button", { name: "查看插件页面" });
+  detail.querySelectorAll<HTMLElement>("button").forEach(element => {
+    vi.spyOn(element, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  });
+  fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(last);
+  fireEvent.keyDown(last, { key: "Tab" });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "design 详情" })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Codex 插件管理" })).toBeTruthy();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledOnce();
   expect(readPluginDetail).toHaveBeenCalledWith("run-1", "design", "official");
 });
 
