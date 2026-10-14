@@ -140,8 +140,8 @@ describe("PostgreSQL backup service", () => {
     const root = mkdtempSync(path.join(tmpdir(), "pg-backup-test-"));
     const snapshots = [];
     const client = { release() {}, async query(sql, parameters) {
-      if (sql.includes("SELECT data FROM ph_session_snapshots WHERE device_id")) {
-        return { rows: snapshots.length ? [{ data: snapshots.at(-1).data }] : [] };
+      if (sql.includes("SELECT data->>'hash' AS hash FROM ph_session_snapshots WHERE device_id")) {
+        return { rows: snapshots.length ? [{ hash: snapshots.at(-1).data.hash }] : [] };
       }
       if (sql.includes("INSERT INTO ph_session_snapshots")) {
         snapshots.push({ id: parameters[0], data: parameters[2] });
@@ -188,6 +188,52 @@ describe("PostgreSQL backup service", () => {
         rmSync(root, { recursive: true, force: true });
       }
     }
+  });
+
+  it("reads only a fixed-size hash when checking large session snapshots", async () => {
+    const snapshots = [];
+    const reads = [];
+    const sessions = Array.from({ length: 200 }, (_, index) => ({
+      id: String(index), title: `Session ${index}`, type: "windows", env: { CONFIG: "x".repeat(4096) }
+    }));
+    const client = { release() {}, async query(sql, parameters) {
+      if (sql.includes("FROM ph_session_snapshots WHERE device_id")) {
+        expect(sql).toBe("SELECT data->>'hash' AS hash FROM ph_session_snapshots WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1");
+        const rows = snapshots.length ? [{ hash: snapshots.at(-1).hash }] : [];
+        reads.push(rows);
+        return { rows };
+      }
+      if (sql.includes("INSERT INTO ph_session_snapshots")) snapshots.push(parameters[2]);
+      return { rows: [] };
+    } };
+    class FakePool { async connect() { return client; } async end() {} }
+    const service = createPostgresBackupService({ userData: "unused", PoolClass: FakePool,
+      dataStore: { read: () => ({}), write() {} },
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value),
+        decryptString: value => value.toString("utf8") },
+      sessionStore: { exportLibrary: () => sessions }, terminalManager: { listSessions: () => [] },
+      fsApi: { existsSync: () => false } });
+    try {
+      service.load();
+      await service.saveConfig({ enabled: true, host: "db", database: "backup", user: "user",
+        password: "password", passphrase: "passphrase" });
+      await service.backupNow();
+      expect(snapshots).toHaveLength(1);
+      expect(Buffer.byteLength(JSON.stringify(snapshots[0]))).toBeGreaterThan(1000000);
+      await service.backupNow();
+      expect(snapshots).toHaveLength(1);
+      expect(Object.keys(reads[1][0])).toEqual(["hash"]);
+      expect(Buffer.byteLength(reads[1][0].hash)).toBe(66);
+      const readBytes = Buffer.byteLength(JSON.stringify(reads[1]));
+      sessions[0].env.CONFIG = "y".repeat(8192);
+      await service.backupNow();
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[1].hash).not.toBe(snapshots[0].hash);
+      await service.backupNow();
+      expect(snapshots).toHaveLength(2);
+      expect(Object.keys(reads[3][0])).toEqual(["hash"]);
+      expect(Buffer.byteLength(JSON.stringify(reads[3]))).toBe(readBytes);
+    } finally { await service.shutdown(); }
   });
 
   it("migrates existing messages and retries a conversation with a long message ID", async () => {

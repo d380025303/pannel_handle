@@ -266,8 +266,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     const data = sessionPayload();
     const hash = `${state.snapshotKeyVersion || 0}:${crypto.createHmac("sha256", decryptLocal(state.snapshotHashKey))
       .update(JSON.stringify(data)).digest("hex")}`;
-    const previous = await client.query("SELECT data FROM ph_session_snapshots WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1", [state.deviceId]);
-    if (previous.rows[0]?.data?.hash === hash) return;
+    const previous = await client.query("SELECT data->>'hash' AS hash FROM ph_session_snapshots WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1", [state.deviceId]);
+    if (previous.rows[0]?.hash === hash) return;
     const archive = await encryptPortable(JSON.stringify(data), decryptLocal(state.passphrase));
     await client.query("INSERT INTO ph_session_snapshots(id,device_id,data) VALUES($1,$2,$3)",
       [crypto.randomUUID(), state.deviceId, { hash, sessionCount: data.length, archive }]);

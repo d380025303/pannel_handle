@@ -67,7 +67,7 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
   let deletes = 0;
   let snapshot;
   const client = { release() {}, async query(sql, params = []) {
-    if (sql.includes("SELECT data FROM ph_session_snapshots")) return { rows: snapshot ? [{ data: snapshot }] : [] };
+    if (sql.includes("SELECT data->>'hash' AS hash FROM ph_session_snapshots")) return { rows: snapshot ? [{ hash: snapshot.hash }] : [] };
     if (sql.includes("INSERT INTO ph_session_snapshots")) snapshot = params[2];
     if (sql.includes("INSERT INTO ph_stat_rows")) {
       upserts++;
