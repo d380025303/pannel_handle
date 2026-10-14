@@ -20,7 +20,7 @@ const developmentTemplate: SavedTemplate = {
   id: "development", title: "开发环境", type: "wsl", runtimeMode: "terminal",
   wslDistro: "Ubuntu-24.04", runningCount: 1
 };
-const finishDialogExit = () => waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+const finishDialogExit = () => waitFor(() => expect(screen.queryByRole("dialog", { name: /改名会话|关闭会话/ })).toBeNull());
 let remote: ReturnType<typeof useRemoteConnection>;
 
 beforeEach(() => {
@@ -155,7 +155,7 @@ it("keeps rename and close icon actions in the home card header without opening 
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   await finishDialogExit();
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(document.activeElement).toBe(close);
+  await waitFor(() => expect(document.activeElement).toBe(close));
   fireEvent.click(close);
   fireEvent.click(screen.getByRole("button", { name: "确认关闭" }));
   expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.close", sessionId: "first" }));
@@ -177,7 +177,8 @@ it("handles rename and close from the session drawer without browser dialogs", a
   expect(remote.send).not.toHaveBeenCalled();
   fireEvent.keyDown(document, { key: "Escape" });
   await finishDialogExit();
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "关闭会话" })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "会话列表" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "会话" })).toBeTruthy();
   fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0]);
   expect(screen.getByText("关闭“第一个会话”会终止正在运行的会话，是否继续？")).toBeTruthy();

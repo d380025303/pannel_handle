@@ -1,5 +1,5 @@
 import { CloseCompletedAction, type useCloseCompleted } from "./useCloseCompleted";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pencil, X } from "lucide-react";
 import { createRequestId } from "./protocol";
 import { PROTOCOL_VERSION, type ClientMessage, type RuntimeSession, type SavedTemplate, type SessionOverview } from "./types";
@@ -54,6 +54,24 @@ export function SessionDrawer({ closeCompleted, sessions, templates, activeId, t
   send: (message: ClientMessage) => boolean; onOpen: (id: string) => void; onAction: SessionAction; onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const drawerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const drawer = drawerRef.current;
+    const backdrop = drawer?.parentElement;
+    if (!drawer || !backdrop?.parentElement) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const background = Array.from(backdrop.parentElement.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== backdrop
+        && !element.classList.contains("session-dialog-backdrop"))
+      .map(element => ({ element, inert: element.inert }));
+    drawer.querySelector<HTMLButtonElement>("button")?.focus();
+    background.forEach(({ element }) => { element.inert = true; });
+    return () => {
+      background.forEach(({ element, inert }) => { element.inert = inert; });
+      const target = opener?.isConnected ? opener : backdrop.parentElement?.querySelector<HTMLElement>(".menu-button");
+      target?.focus();
+    };
+  }, []);
   const filteredTemplates = useMemo(() => templates.filter(template => matchesTemplateSearch(template, query)), [templates, query]);
   useEffect(() => { if (tab !== "templates") setQuery(""); }, [tab]);
   const launchTemplate = (templateId: string) => {
@@ -63,7 +81,20 @@ export function SessionDrawer({ closeCompleted, sessions, templates, activeId, t
     onTabChange("running");
   };
   return <div className="drawer-backdrop" onClick={onClose}>
-    <aside className="session-drawer" onClick={event => event.stopPropagation()}>
+    <aside ref={drawerRef} className="session-drawer" role="dialog" aria-modal="true" aria-label="会话列表" tabIndex={-1}
+      onClick={event => event.stopPropagation()} onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); return; }
+        if (event.key !== "Tab") return;
+        const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)"))
+          .filter(element => element.tabIndex >= 0 && !element.closest("[inert]"));
+        const first = elements[0], last = elements.at(-1);
+        if (!first || !last) { event.preventDefault(); event.currentTarget.focus(); return; }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) {
+          event.preventDefault(); first.focus();
+        }
+      }}>
       <header><h2>会话</h2><button type="button" aria-label="关闭会话列表" onClick={onClose}><X aria-hidden="true" /></button></header>
       <nav>
         <button className={tab === "running" ? "active" : ""} type="button" onClick={() => onTabChange("running")}>运行中 ({sessions.length})</button>
