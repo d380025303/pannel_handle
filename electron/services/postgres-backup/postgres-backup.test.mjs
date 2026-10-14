@@ -76,6 +76,52 @@ describe("remote statistics", () => {
 });
 
 describe("PostgreSQL backup service", () => {
+  it("rolls back sources after a failed write and persists the same source on retry and reload", async () => {
+    vi.useFakeTimers();
+    let persisted = { enabled: true, sources: [{ type: "windows", cwd: "C:\\existing" }] };
+    const writeError = Object.assign(new Error("disk is full"), { code: "ENOSPC" });
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn((_file, value) => { persisted = structuredClone(value); })
+    };
+    const service = createPostgresBackupService({ userData: "unused", dataStore });
+    const reloaded = createPostgresBackupService({ userData: "unused", dataStore });
+    const source = { type: "windows", cwd: "C:\\new-directory" };
+    try {
+      service.load();
+      const previous = structuredClone(persisted);
+      dataStore.write.mockClear();
+      dataStore.write.mockImplementationOnce(() => { throw writeError; });
+      expect(() => service.trackSessions([source])).toThrow(writeError);
+      expect(dataStore.write).toHaveBeenCalledTimes(1);
+      expect(persisted).toEqual(previous);
+      expect(vi.getTimerCount()).toBe(0);
+
+      // An independent state save must not publish the failed source registration.
+      service.newStatsEpoch();
+      expect(persisted.sources).toEqual(previous.sources);
+      await service.shutdown();
+      dataStore.write.mockClear();
+      service.trackSessions([source]);
+      expect(dataStore.write).toHaveBeenCalledTimes(1);
+      expect(persisted.sources).toEqual([...previous.sources, source]);
+      expect(vi.getTimerCount()).toBe(1);
+      service.trackSessions([source]);
+      expect(dataStore.write).toHaveBeenCalledTimes(1);
+
+      await service.shutdown();
+      reloaded.load();
+      expect(persisted.sources).toEqual([...previous.sources, source]);
+      dataStore.write.mockClear();
+      reloaded.trackSessions([source]);
+      expect(dataStore.write).not.toHaveBeenCalled();
+    } finally {
+      await service.shutdown();
+      await reloaded.shutdown();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps configuration, credentials and pool unchanged when persistence fails, then allows retry", async () => {
     vi.useFakeTimers();
     let persisted;

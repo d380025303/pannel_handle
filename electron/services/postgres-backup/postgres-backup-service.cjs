@@ -248,7 +248,11 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     }
     const sources = [...known.values()];
     if (JSON.stringify(sources) !== JSON.stringify(state.sources || [])) {
-      state.sources = sources; saveFile(); schedule();
+      const previous = state;
+      state = { ...state, sources };
+      try { saveFile(); }
+      catch (error) { state = previous; throw error; }
+      schedule();
     }
   }
   function sessionPayload() {
