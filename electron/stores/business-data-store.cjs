@@ -255,6 +255,32 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
         ON CONFLICT(template_id) DO UPDATE SET value_json=excluded.value_json`).run(templateId, JSON.stringify(metadata));
     });
   }
+  // Serialize only the selected owner and the appended history, after checking the stored revision.
+  function writeModuleOwnerChange(templateId, metadata, entry) {
+    ensureOpen();
+    if (typeof templateId !== "string" || !metadata || !Number.isInteger(metadata.revision) || metadata.revision < 1 ||
+      !metadata.settings || Object.hasOwn(metadata, "records") || Object.hasOwn(metadata, "history") ||
+      entry?.kind !== "owner" || typeof entry.ownerId !== "string" || entry.revision !== metadata.revision ||
+      (entry.after && entry.after.id !== entry.ownerId)) throw new Error("Invalid module owner change.");
+    transaction(() => {
+      const current = db.prepare("SELECT value_json FROM app_module_owner_templates WHERE template_id=?").get(templateId);
+      if ((current ? JSON.parse(current.value_json).revision : 0) !== metadata.revision - 1) throw new Error("负责人表已变更，请重新读取后再操作。");
+      db.prepare(`INSERT INTO app_module_owner_templates(template_id, value_json) VALUES (?, ?)
+        ON CONFLICT(template_id) DO UPDATE SET value_json=excluded.value_json`).run(templateId, JSON.stringify(metadata));
+      const row = db.prepare("SELECT position FROM app_module_owner_records WHERE template_id=? AND json_extract(value_json, '$.id')=?").get(templateId, entry.ownerId);
+      if (!entry.after) {
+        if (row) db.prepare("DELETE FROM app_module_owner_records WHERE template_id=? AND position=?").run(templateId, row.position);
+      } else if (row) {
+        db.prepare("UPDATE app_module_owner_records SET value_json=? WHERE template_id=? AND position=?").run(JSON.stringify(entry.after), templateId, row.position);
+      } else {
+        const position = db.prepare("SELECT COALESCE(MAX(position), -1)+1 AS next FROM app_module_owner_records WHERE template_id=?").get(templateId).next;
+        db.prepare("INSERT INTO app_module_owner_records(template_id, position, value_json) VALUES (?, ?, ?)").run(templateId, position, JSON.stringify(entry.after));
+      }
+      const position = db.prepare("SELECT COALESCE(MAX(position), -1)+1 AS next FROM app_module_owner_history WHERE template_id=?").get(templateId).next;
+      db.prepare("INSERT INTO app_module_owner_history(template_id, position, value_json) VALUES (?, ?, ?)").run(templateId, position, JSON.stringify(entry));
+      db.prepare("INSERT INTO app_sources(name) VALUES ('module-owners.json') ON CONFLICT(name) DO NOTHING").run();
+    });
+  }
   function saveTaskRun(value) {
     ensureOpen();
     db.prepare(`INSERT INTO app_module_owner_task_runs(id, template_id, task_id, called_at, status, value_json)
@@ -308,7 +334,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { transaction, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { transaction, writeModuleOwnerChange, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };

@@ -65,6 +65,14 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     commit({ ...state, templates: { ...state.templates, [templateId]: value } }, [templateId]);
     return get(templateId);
   }
+  function persistOwnerChange(templateId, value) {
+    if (!dataStore?.writeModuleOwnerChange) return persist(templateId, value);
+    const { records, history, ...metadata } = value;
+    dataStore.writeModuleOwnerChange(templateId, metadata, history.at(-1));
+    state = { ...state, templates: { ...state.templates, [templateId]: value } };
+    broadcast("module-owners:changed", { templateId });
+    return get(templateId);
+  }
   function directories(values, cwd) {
     const api = /^(?:[A-Za-z]:|\\\\)/.test(cwd || "") ? path.win32 : path.posix;
     return [...new Set(values.map(value => {
@@ -94,7 +102,7 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
     else if (record) Object.assign(record, normalized, { version: value.revision, updatedAt: at });
     else value.records.push({ id: ownerId, ...normalized, version: value.revision, createdAt: at, updatedAt: at });
     history(value, parsed.operation, source, sessionId, at, ownerId, before, value.records.find(item => item.id === ownerId) || null);
-    return persist(templateId, value);
+    return persistOwnerChange(templateId, value);
   }
   function restore(templateId, input) {
     const { historyId, revision } = z.object({ historyId: z.string().min(1), revision: z.number().int().nonnegative() }).strict().parse(input);
@@ -115,7 +123,7 @@ function createModuleOwnerStore({ userData, dataStore, broadcast = () => {} }) {
       else value.records.splice(position, 1);
     } else if (after) value.records.push(after);
     history(value, "restore", "manual", undefined, at, target.ownerId, before, after);
-    return persist(templateId, value);
+    return persistOwnerChange(templateId, value);
   }
   function configure(templateId, input) {
     const settings = z.object({ mode: z.enum(["plan", "default"]), prompt: z.string().trim().min(1).max(100000) }).strict().parse(input);
