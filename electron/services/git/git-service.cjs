@@ -823,7 +823,7 @@ function createGitService({
     const safePaths = validateRepoPaths(paths).map(literalPathspec);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", "--", ...safePaths]
-      : ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...safePaths];
+      : ["rm", "--cached", "-f", "-r", "--ignore-unmatch", "--", ...safePaths];
     return runOperation(target, operationId, "Git unstage", args);
   }
 
@@ -831,7 +831,7 @@ function createGitService({
     const { session, cwd } = getRepositoryTarget(target);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", ":/"]
-      : ["rm", "--cached", "-r", "--ignore-unmatch", "."];
+      : ["rm", "--cached", "-f", "-r", "--ignore-unmatch", "."];
     return runOperation(target, operationId, "Git unstage all", args);
   }
 

@@ -561,6 +561,29 @@ describe("real temporary repository workflow", () => {
     ]);
   });
 
+  it.each(["files", "all"])("unstages edited additions before the first commit (%s)", async (scope) => {
+    const { directory, session, service } = createRepository();
+    git(directory, "config", "core.autocrlf", "false");
+    const target = repositoryTarget(session.id, directory);
+    fs.writeFileSync(path.join(directory, "new.txt"), "staged content\n");
+    fs.writeFileSync(path.join(directory, "other.txt"), "other staged content\n");
+    git(directory, "add", "-A");
+    const latestContent = "latest content\nsecond line\n";
+    fs.writeFileSync(path.join(directory, "new.txt"), latestContent);
+    expect(git(directory, "status", "--porcelain")).toBe("AM new.txt\nA  other.txt");
+
+    const result = scope === "files"
+      ? await service.unstageFiles(target, ["new.txt"], "unstage-edited-unborn")
+      : await service.unstageAll(target, "unstage-all-edited-unborn");
+
+    expect(result.ok).toBe(true);
+    expect(git(directory, "status", "--porcelain", "--", "new.txt")).toBe("?? new.txt");
+    expect(git(directory, "ls-files")).toBe(scope === "files" ? "other.txt" : "");
+    if (scope === "files") expect(git(directory, "show", ":other.txt")).toBe("other staged content");
+    expect(fs.readFileSync(path.join(directory, "new.txt"), "utf-8")).toBe(latestContent);
+    expect(fs.readFileSync(path.join(directory, "other.txt"), "utf-8")).toBe("other staged content\n");
+  });
+
   it("isolates unborn unstage, untracked diff, and clean for bracket filenames", async () => {
     const { directory, session, service } = createRepository();
     git(directory, "config", "core.autocrlf", "false");
