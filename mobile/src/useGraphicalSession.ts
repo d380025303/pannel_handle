@@ -144,7 +144,14 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           if (effortIdRef.current) pendingRef.current.delete(effortIdRef.current);
           effortIdRef.current = null; setChangingEffort(false);
           for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
-          const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
+          const fileIds = [...new Set([
+            ...attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []),
+            ...[...activeUploads.current].flatMap(([key, upload]) => {
+              cancelledUploads.current.add(key);
+              upload.controller.abort();
+              return upload.fileId ? [upload.fileId] : [];
+            })
+          ])];
           if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
             threadId: threadRef.current, fileIds, requestId: createRequestId() });
           setHistory(null);
@@ -255,7 +262,14 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       rejectRequests("会话已关闭。");
       unsubscribe();
       for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
-      const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
+      const fileIds = [...new Set([
+        ...attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []),
+        ...[...activeUploads.current].flatMap(([key, upload]) => {
+          cancelledUploads.current.add(key);
+          upload.controller.abort();
+          return upload.fileId ? [upload.fileId] : [];
+        })
+      ])];
       if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
         threadId: threadRef.current, fileIds, requestId: createRequestId() });
       for (const pending of uploadRequests.current.values()) pending.reject(new Error("会话已切换。"));
