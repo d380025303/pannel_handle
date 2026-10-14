@@ -57,11 +57,22 @@ export function CodexBackgroundTerminalsDialog({ sessionId, onClose }: Props) {
 
   return <div className="modal-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="modal-dialog codex-app-server-background-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-background-title"
-      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+      onKeyDown={event => {
+        if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+        if (event.key === "Tab") {
+          const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled)"));
+          if (!elements.includes(document.activeElement as HTMLElement)) {
+            event.preventDefault();
+            (event.shiftKey ? elements.at(-1) : elements[0])?.focus();
+          }
+          else if (event.shiftKey && document.activeElement === elements[0]) { event.preventDefault(); elements.at(-1)?.focus(); }
+          else if (!event.shiftKey && document.activeElement === elements.at(-1)) { event.preventDefault(); elements[0]?.focus(); }
+        }
+      }}>
       <div className="codex-app-server-history-header"><h2 id="codex-background-title">后台终端</h2>
-        <button type="button" aria-label="关闭后台终端" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <button type="button" autoFocus aria-label="关闭后台终端" onClick={onClose}><X aria-hidden="true" /></button></div>
       <div className="codex-app-server-background-actions">
-        <button type="button" autoFocus disabled={loading || Boolean(pending)} onClick={() => void refresh()}><RefreshCw aria-hidden="true" />刷新</button>
+        <button type="button" disabled={loading || Boolean(pending)} onClick={() => void refresh()}><RefreshCw aria-hidden="true" />刷新</button>
         <button type="button" disabled={loading || Boolean(pending) || !terminals.length} onClick={() => void clean()}>
           {confirmClean ? "确认全部清理" : "全部清理"}</button>
         {confirmClean && <button type="button" disabled={Boolean(pending)} onClick={() => setConfirmClean(false)}>取消清理</button>}

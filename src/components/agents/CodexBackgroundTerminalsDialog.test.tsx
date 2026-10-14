@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { CodexBackgroundTerminalsDialog } from "./CodexBackgroundTerminalsDialog";
 
 const terminal = { itemId: "item-1", processId: "p-1", command: "pnpm dev", cwd: "C:\\project",
@@ -8,6 +9,32 @@ const terminal = { itemId: "item-1", processId: "p-1", command: "pnpm dev", cwd:
 
 describe("CodexBackgroundTerminalsDialog", () => {
   afterEach(cleanup);
+
+  it.each(["populated", "empty", "loading"])("keeps keyboard focus inside the %s dialog", async state => {
+    const user = userEvent.setup();
+    const listBackgroundTerminals = vi.fn(() => state === "loading"
+      ? new Promise<typeof terminal[]>(() => {})
+      : Promise.resolve(state === "empty" ? [] : [terminal]));
+    Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: { listBackgroundTerminals } });
+    render(<><button>pnpm test</button><CodexBackgroundTerminalsDialog sessionId="run-1" onClose={vi.fn()} /><button>outside</button></>);
+    if (state === "populated") await screen.findByText("pnpm dev");
+    if (state === "empty") await screen.findByText("当前会话没有运行中的后台终端。");
+    if (state === "loading") expect(screen.getByRole("status").textContent).toContain("正在读取");
+    const close = screen.getByRole("button", { name: "关闭后台终端" });
+    const last = state === "populated" ? screen.getByRole("button", { name: "终止" })
+      : state === "empty" ? screen.getByRole("button", { name: "刷新" }) : close;
+    expect(document.activeElement).toBe(close);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(last);
+    await user.tab();
+    expect(document.activeElement).toBe(close);
+    const count = state === "populated" ? 4 : state === "empty" ? 2 : 1;
+    for (let index = 0; index < count; index += 1) {
+      await user.tab();
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+    }
+    expect(document.activeElement).toBe(close);
+  });
 
   it("loads, refreshes, and terminates a listed terminal", async () => {
     const listBackgroundTerminals = vi.fn().mockResolvedValueOnce([terminal]).mockResolvedValueOnce([terminal]).mockResolvedValue([]);
