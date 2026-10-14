@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { inflateSync } from "node:zlib";
 import { afterEach, expect, it, vi } from "vitest";
 import remoteModule from "./remote-history-reader.cjs";
 import limits from "./history-limits.cjs";
@@ -70,6 +71,7 @@ it("routes WSL through its distribution and keeps the encoded script and request
   const [command, args, options] = f.spawn.mock.calls[0];
   expect(command).toBe("wsl.exe");
   expect(args.slice(0, 5)).toEqual(["-d", "Ubuntu", "--", "python3", "-c"]);
+  expect(inflateSync(Buffer.from(args[5].match(/b64decode\("([^"]+)"\)/)[1], "base64")).toString()).toBe("print('test')");
   expect(JSON.parse(Buffer.from(args.at(-1), "base64").toString())).toEqual({ cwd: "/work/a b", limit: 50 });
   expect(options.windowsHide).toBe(true);
   f.child.stdout.emit("data", Buffer.from('{"items":[],"nextCursor":null}'));

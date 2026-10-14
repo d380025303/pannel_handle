@@ -1,5 +1,6 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const { StringDecoder } = require("node:string_decoder");
+const { deflateSync } = require("node:zlib");
 const { REMOTE_TIMEOUT_MS, MAX_REMOTE_OUTPUT_BYTES } = require("./history-limits.cjs");
 
 function shellQuote(value) {
@@ -46,7 +47,8 @@ function runProcess(command, args, spawn = defaultSpawn) {
 function createRemoteHistoryReader({ fsApi, remoteScriptFile, spawn = defaultSpawn, sshAgentTransport }) {
   async function runRemote(session, action, input) {
     const script = fsApi.readFileSync(remoteScriptFile);
-    const expression = `import base64;exec(base64.b64decode("${Buffer.from(script).toString("base64")}"))`;
+    // Keep the inline script below Windows' command-line limit as readers grow.
+    const expression = `import base64,zlib;exec(zlib.decompress(base64.b64decode("${deflateSync(script).toString("base64")}")))`;
     const payload = Buffer.from(JSON.stringify(input), "utf-8").toString("base64");
     const output = session.type === "wsl"
       ? await runProcess("wsl.exe", ["-d", session.wslDistro, "--", "python3", "-c", expression, action, payload], spawn)

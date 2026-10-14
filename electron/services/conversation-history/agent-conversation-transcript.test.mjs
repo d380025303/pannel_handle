@@ -71,9 +71,8 @@ describe("Agent conversation transcript parser", () => {
       ].join("\n");
       writeFileSync(file, text);
       const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
-      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c",
-        script + '\nprint(json.dumps(parse_messages("codex", sys.argv[1])))', file
-      ], { encoding: "utf8" });
+      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-", file
+      ], { input: script + '\nprint(json.dumps(parse_messages("codex", sys.argv[1])))', encoding: "utf8" });
       expect(result.status, result.stderr).toBe(0);
       const local = parseAgentConversationText("codex", text, { includeUser: true });
       const remote = JSON.parse(result.stdout);
@@ -128,9 +127,8 @@ describe("Agent conversation transcript parser", () => {
       const text = [...records, ...records].map(record => JSON.stringify(record)).join("\n") + '\n{"type":';
       writeFileSync(file, text);
       const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
-      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c",
-        script + '\nprint(json.dumps({p: parse_messages(p, sys.argv[1]) for p in ["codex", "codebuddy"]}, ensure_ascii=False))', file
-      ], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-", file
+      ], { input: script + '\nprint(json.dumps({p: parse_messages(p, sys.argv[1]) for p in ["codex", "codebuddy"]}, ensure_ascii=False))', encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
       expect(result.status, result.stderr).toBe(0);
       const remote = JSON.parse(result.stdout);
       for (const provider of ["codex", "codebuddy"])

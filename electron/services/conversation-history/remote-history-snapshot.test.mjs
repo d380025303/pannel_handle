@@ -4,11 +4,93 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+it("lists 10,000 Codex threads once per traversal using cross-process pages", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "history-list-snapshot-"));
+  const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
+  const setup = `
+database = os.path.join(os.path.expanduser("~"), ".codex", "state_5.sqlite")
+count_file = database + ".count"
+original_list = list_codex
+def counted_list(payload):
+    items = original_list(payload)
+    with open(count_file, "a") as output: output.write(str(len(items)) + "\\n")
+    return items
+list_codex = counted_list
+payload = {"providers": ["codex"], "cwd": "/work", "scope": "cwd", "limit": 200}
+`;
+  const run = code => {
+    const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-"], {
+      input: script + "\n" + setup + code, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8",
+    });
+    expect(result.status, result.stderr || result.error?.message).toBe(0);
+    return JSON.parse(result.stdout);
+  };
+  try {
+    const first = run(`
+os.makedirs(os.path.dirname(database))
+connection = sqlite3.connect(database)
+connection.execute("CREATE TABLE threads (id TEXT, cwd TEXT, title TEXT, created_at INTEGER, updated_at INTEGER, archived INTEGER, first_user_message TEXT, preview TEXT, source TEXT)")
+connection.executemany("INSERT INTO threads VALUES (?, '/work', 'title', 1700000000, ?, 0, 'hello', '', 'cli')",
+                       ((str(i), 1700000000 + i) for i in range(10000)))
+connection.commit()
+connection.close()
+page = list_history(payload)
+print(json.dumps(page))
+`);
+    expect(first.items).toHaveLength(200);
+    // Separate processes for all subsequent pages; edits must not shift this traversal.
+    run(`
+connection = sqlite3.connect(database)
+connection.execute("INSERT INTO threads VALUES ('new', '/work', 'new', 1800000000, 1800000000, 0, 'new', '', 'cli')")
+connection.commit()
+connection.close()
+print("null")
+`);
+    const refs = first.items.map(item => item.ref);
+    let cursor = first.nextCursor;
+    let pages = 1;
+    while (cursor) {
+      const page = run(`
+payload["cursor"] = ${JSON.stringify(cursor)}
+page = list_history(payload)
+print(json.dumps(page))
+`);
+      refs.push(...page.items.map(item => item.ref));
+      cursor = page.nextCursor;
+      pages++;
+    }
+    expect(pages).toBe(50);
+    expect(refs).toEqual(Array.from({ length: 10000 }, (_, i) => `codex:${9999 - i}`));
+    expect(readFileSync(path.join(home, ".codex/state_5.sqlite.count"), "utf8").replace(/\r/g, "")).toBe("10000\n");
+    const fresh = run('print(json.dumps(list_history(payload)))');
+    expect(fresh.items[0].ref).toBe("codex:new");
+    expect(readFileSync(path.join(home, ".codex/state_5.sqlite.count"), "utf8").replace(/\r/g, "")).toBe("10000\n10001\n");
+    run(`
+payload["cursor"] = ${JSON.stringify(first.nextCursor)}
+for field, value in [("cwd", "/other"), ("query", "hello"), ("providers", ["gemini"]), ("includeArchived", True), ("scope", "all")]:
+    changed = {**payload, field: value}
+    try: list_history(changed)
+    except RuntimeError as error: assert str(error) == "Invalid history snapshot"
+    else: raise AssertionError("mismatched filters accepted")
+for invalid in ["../unsafe:200", "list-invalid:200", "-1"]:
+    try: list_history({**payload, "cursor": invalid})
+    except RuntimeError: pass
+    else: raise AssertionError("invalid cursor accepted")
+for name in glob.glob(os.path.join(snapshot_root(), "*.sqlite")): os.utime(name, (0, 0))
+try: list_history(payload)
+except RuntimeError as error: assert "expired" in str(error)
+else: raise AssertionError("expired snapshot accepted")
+print("null")
+`);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+}, 30000);
+
 it("reuses paged snapshots across processes and refreshes changed transcripts", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "history-snapshot-"));
   const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
   const run = code => {
-    const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c", script + "\n" + code], {
+    const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-"], {
+      input: script + "\n" + code,
       env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", maxBuffer: 2 * 1024 * 1024,
     });
     expect(result.status, result.stderr).toBe(0);

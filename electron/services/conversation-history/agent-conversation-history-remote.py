@@ -487,6 +487,20 @@ def list_history(payload):
     providers = payload.get("providers") or ["codex", "codebuddy", "opencode", "gemini", "grok"]
     if any(provider not in PROVIDERS for provider in providers):
         raise RuntimeError("Unsupported history provider")
+    query = str(payload.get("query") or "").strip().lower()
+    identity = json.dumps([providers, payload.get("scope") == "all",
+                           str(payload.get("cwd") or "").rstrip("/"),
+                           bool(payload.get("includeArchived")), query])
+    token = re.fullmatch(r"list-([0-9a-f]{64}):(\d+)", str(payload.get("cursor") or ""))
+    offset = int(token[2]) if token else cursor(payload)
+    limit = max(1, min(200, int(payload.get("limit") or 50)))
+    root = snapshot_root()
+    prune_snapshots(root)
+    if token:
+        name = os.path.join(root, token[1] + ".sqlite")
+        if not os.path.isfile(name):
+            raise RuntimeError("History snapshot expired; reload the first page")
+        return list_snapshot_page(name, token[1], identity, offset, limit)
     items = []
     errors = []
     for provider in providers:
@@ -494,14 +508,50 @@ def list_history(payload):
             items.extend(list_codex(payload) if provider == "codex" else list_opencode(payload) if provider == "opencode" else list_gemini(payload) if provider == "gemini" else list_grok(payload) if provider == "grok" else list_codebuddy(payload))
         except Exception:
             errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'OpenCode' if provider == 'opencode' else 'Gemini' if provider == 'gemini' else 'Grok' if provider == 'grok' else 'CodeBuddy'} history is unavailable."})
-    query = str(payload.get("query") or "").strip().lower()
     if query:
         items = [item for item in items if any(query in str(item.get(field) or "").lower() for field in ("title", "preview", "cwd"))]
     items.sort(key=lambda item: (-item["updatedAt"], item["ref"]))
-    offset = cursor(payload)
-    limit = max(1, min(200, int(payload.get("limit") or 50)))
-    page = items[offset:offset + limit]
-    return {"items": page, "nextCursor": str(offset + len(page)) if offset + len(page) < len(items) else None, "errors": errors}
+    # Every first-page request starts a new traversal, even if sources are unchanged.
+    key = os.urandom(32).hex()
+    name = os.path.join(root, key + ".sqlite")
+    descriptor, temporary = tempfile.mkstemp(prefix="snapshot-", dir=root)
+    os.close(descriptor)
+    try:
+        connection = sqlite3.connect(temporary)
+        try:
+            connection.execute("CREATE TABLE metadata (identity TEXT, count INTEGER, errors TEXT)")
+            connection.execute("INSERT INTO metadata VALUES (?, ?, ?)",
+                               (identity, len(items), json.dumps(errors)))
+            connection.execute("CREATE TABLE items (position INTEGER PRIMARY KEY, data TEXT)")
+            connection.executemany("INSERT INTO items VALUES (?, ?)",
+                ((index, json.dumps(item, ensure_ascii=False)) for index, item in enumerate(items)))
+            connection.commit()
+        finally:
+            connection.close()
+        if os.path.getsize(temporary) > SNAPSHOT_MAX_BYTES:
+            page = items[offset:offset + limit]
+            return {"items": page, "nextCursor": str(offset + len(page)) if offset + len(page) < len(items) else None, "errors": errors}
+        os.replace(temporary, name)
+        prune_snapshots(root)
+        return list_snapshot_page(name, key, identity, offset, limit)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def list_snapshot_page(name, key, identity, offset, limit):
+    connection = sqlite3.connect(f"file:{name}?mode=ro", uri=True)
+    try:
+        stored_identity, count, errors = connection.execute("SELECT identity, count, errors FROM metadata").fetchone()
+        if stored_identity != identity:
+            raise RuntimeError("Invalid history snapshot")
+        page = [json.loads(row[0]) for row in connection.execute(
+            "SELECT data FROM items WHERE position >= ? AND position < ? ORDER BY position",
+            (offset, offset + limit))]
+    finally:
+        connection.close()
+    return {"items": page, "nextCursor": f"list-{key}:{offset + len(page)}" if offset + len(page) < count else None,
+            "errors": json.loads(errors)}
 
 
 # Versioned, private cross-process snapshots. Each page reads only its own rows.

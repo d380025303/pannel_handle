@@ -38,7 +38,7 @@ for index in range(201): write(index)
 started = time.perf_counter()
 page = list_history(payload)
 print(json.dumps({"parses": len(parsed), "count": len(page["items"]), "cursor": page["nextCursor"]}))
-`)).toEqual({ parses: 201, count: 200, cursor: "200" });
+`)).toEqual({ parses: 201, count: 200, cursor: expect.stringMatching(/^list-[0-9a-f]{64}:200$/) });
     expect(run(`
 payload["cursor"] = "200"
 page = list_history(payload)
@@ -85,7 +85,7 @@ connection = sqlite3.connect(os.path.expanduser("~/.cache/pannel-handle/codebudd
 assert connection.execute("SELECT count(*) FROM metadata WHERE path LIKE '%/0.jsonl' OR path LIKE '%\\\\0.jsonl'").fetchone()[0] == 0
 connection.close()
 print(json.dumps({"parsed": parsed, "first": page["items"][0]["title"], "cursor": page["nextCursor"]}))
-`)).toEqual({ parsed: ["201.jsonl"], first: "added", cursor: "200" });
+`)).toEqual({ parsed: ["201.jsonl"], first: "added", cursor: expect.stringMatching(/^list-[0-9a-f]{64}:200$/) });
     expect(run(`
 cached_codebuddy_metadata([])
 connection = sqlite3.connect(os.path.expanduser("~/.cache/pannel-handle/codebuddy-metadata-v1/metadata.sqlite"))
