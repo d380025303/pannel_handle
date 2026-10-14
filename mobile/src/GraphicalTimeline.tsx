@@ -5,7 +5,7 @@ import { TurnDiffCard } from "../../src/components/agents/TurnDiffCard";
 import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
 import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
 import { copyMobileText } from "./clipboard";
-import { useCallback, useState } from "react";
+import { type ComponentProps, useCallback, useState } from "react";
 import { McpElicitationCard } from "../../src/components/agents/GraphicalInteractionCards";
 import { Check, Circle, Copy, GitFork, Paperclip } from "lucide-react";
 import { MarkdownBlock } from "../../src/components/shared/MarkdownBlock";
@@ -16,22 +16,36 @@ import { type useGraphicalSession } from "./useGraphicalSession";
 import type { GraphicalSnapshot } from "./types";
 
 type Controller = ReturnType<typeof useGraphicalSession>;
+function CollapsibleTeamMember({ teamExpanded, ...props }: ComponentProps<typeof TeamMemberTimeline> & { teamExpanded: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return <details onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary>{props.member.name} · {teamStatusLabels[props.member.status] || props.member.status}</summary>
+    {teamExpanded && expanded && <TeamMemberTimeline {...props} />}
+  </details>;
+}
+
 export function GraphicalTimeline({ snapshot, controller, minimalMode = false }: { snapshot: GraphicalSnapshot; controller: Controller; minimalMode?: boolean }) {
   const { expandedGroupId, setExpandedGroupId, changingMode, scrollRef, action, executeOpenCodePlan } = controller;
   const [rewind, setRewind] = useState<{ messageId: string; scope: string } | null>(null);
   const [rewindPending, setRewindPending] = useState(false);
+  const [teamExpanded, setTeamExpanded] = useState(false);
   const [teamText, setTeamText] = useState("");
   const [teamPending, setTeamPending] = useState(false);
   const [teamMember, setTeamMember] = useState("");
   const [preview, setPreview] = useState<{ kind: string; dataUrl?: string; text?: string } | null>(null);
   const copy = useCallback((text: string) => { void copyMobileText(text).catch(cause => controller.setError(String(cause))); }, [controller.setError]);
-  const fail = (cause: unknown) => controller.setError(cause instanceof Error ? cause.message : String(cause));
+  const fail = useCallback((cause: unknown) => controller.setError(cause instanceof Error ? cause.message : String(cause)), [controller.setError]);
+  const onLinkClick = useCallback((url: string) => {
+    if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+    else fail(new Error("手机浏览器仅支持 HTTP(S) 外链。"));
+  }, [fail]);
+  const onCopyLink = useCallback(async (text: string) => { await copyMobileText(text); return true; }, []);
   const openCodePlanItemId = openCodePlanReplyId(snapshot);
   const openCodeBuildMode = snapshot.nativeModes?.find(mode => mode.id.toLowerCase() === "build");
   return (    <div className="graphical-timeline" ref={scrollRef}>
       {rewind && <div className="graphical-card" role="dialog" aria-label="CodeBuddy 会话回退"><strong>回退到此处</strong><p>代码回退只覆盖 CodeBuddy 文件编辑工具记录的改动；终端命令和外部修改不在其中。</p><select aria-label="回退范围" value={rewind.scope} disabled={rewindPending} onChange={event => setRewind({ ...rewind, scope: event.target.value })}><option value="Conversation">仅对话</option><option value="Code">仅代码</option><option value="CodeAndConversation">对话和代码</option></select><button disabled={rewindPending} onClick={() => setRewind(null)}>取消</button><button disabled={rewindPending || snapshot.busy} onClick={() => { setRewindPending(true); void controller.buddyRequest("rewind", rewind).then(() => setRewind(null)).catch(fail).finally(() => setRewindPending(false)); }}>确认回退</button></div>}
-      {snapshot.provider === "codebuddy" && snapshot.team && <details className="graphical-card graphical-team"><summary>团队 · {snapshot.team.name} · {snapshot.team.members.length} 位成员</summary>
-        {snapshot.team.members.map(member => <details key={member.name}><summary>{member.name} · {teamStatusLabels[member.status] || member.status}</summary><TeamMemberTimeline member={member} minimalMode={minimalMode} onLinkClick={url => { if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); else fail(new Error("手机浏览器仅支持 HTTP(S) 外链。")); }} onCopyLink={async text => { await copyMobileText(text); return true; }} /></details>)}
+      {snapshot.provider === "codebuddy" && snapshot.team && <details className="graphical-card graphical-team" onToggle={event => setTeamExpanded(event.currentTarget.open)}><summary>团队 · {snapshot.team.name} · {snapshot.team.members.length} 位成员</summary>
+        {snapshot.team.members.map(member => <CollapsibleTeamMember key={member.name} member={member} teamExpanded={teamExpanded} minimalMode={minimalMode} onLinkClick={onLinkClick} onCopyLink={onCopyLink} />)}
         <form onSubmit={event => { event.preventDefault(); if (!teamText.trim() || !teamMember || teamPending) return; setTeamPending(true); void controller.buddyRequest("team-message", { team: snapshot.team!.name, member: teamMember, text: teamText }).then(() => setTeamText("")).catch(fail).finally(() => setTeamPending(false)); }}><select aria-label="团队成员" value={teamMember} onChange={event => setTeamMember(event.target.value)}><option value="">选择成员</option>{snapshot.team.members.filter(member => member.status !== "removed").map(member => <option key={member.name}>{member.name}</option>)}</select><textarea aria-label="团队消息" value={teamText} onChange={event => setTeamText(event.target.value)} /><button disabled={!teamText.trim() || !teamMember || teamPending}>发送给成员</button></form>
       </details>}
       {preview && <div className="graphical-card"><button type="button" onClick={() => setPreview(null)}>关闭附件预览</button>{preview.kind === "image" ? <img className="graphical-preview-image" src={preview.dataUrl} alt="会话附件" /> : <pre>{preview.text || (preview.kind === "too_large" ? "附件过大，无法预览" : "此附件不支持预览")}</pre>}</div>}

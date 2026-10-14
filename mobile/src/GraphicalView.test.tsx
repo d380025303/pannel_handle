@@ -311,6 +311,14 @@ it("appends reasoning sections, resyncs gaps and accepts full completion", () =>
   expect(screen.queryByText(/alpha one/)).toBeNull();
 });
 
+function expandTeamHistory() {
+  const team = document.querySelector(".graphical-team") as HTMLDetailsElement;
+  for (const details of [team, ...team.querySelectorAll("details")]) {
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+  }
+}
+
 it("applies team deltas with equal message IDs across full updates", () => {
   const { emit } = fixture();
   const initial: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", streamId: "stream-1", revision: 1,
@@ -322,6 +330,7 @@ it("applies team deltas with equal message IDs across full updates", () => {
     threadId: "thread-1", baseRevision: 1, revision: 2, items: [], textDeltas: [
       { memberName: "a", itemId: "m1", delta: " one" }, { memberName: "b", itemId: "m1", delta: " two" }] };
   emit({ ...delta, textDeltas: [...delta.textDeltas] });
+  expandTeamHistory();
   expect(screen.getByText("Alpha one")).toBeTruthy();
   expect(screen.getByText("Beta two")).toBeTruthy();
   expect(screen.queryByText("完成 one two")).toBeNull();
@@ -1321,6 +1330,8 @@ it("shows CodeBuddy teams and confirms rewind using desktop scopes", () => {
     team: { name: "builders", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "worker", status: "idle", items: [{ id: "member-msg", type: "agentMessage", text: "member result" }] }] },
     items: [{ id: "user", type: "userMessage", text: "implement", rewindMessageId: "msg" }] };
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: buddy });
+  expect(screen.queryByText("member result")).toBeNull();
+  expandTeamHistory();
   expect(screen.getByText("member result")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "回退到此处" }));
   fireEvent.change(screen.getByRole("combobox", { name: "回退范围" }), { target: { value: "CodeAndConversation" } });
@@ -1626,6 +1637,7 @@ it.each(["codex", "codebuddy"] as const)("applies minimal mode to %s member time
       members: [{ threadId: "child", parentThreadId: "root", name: "scout", role: "", task: "inspect", status: "completed", createdAt: 0, loading: false, error: null, items }] } }
       : { team: { name: "builders", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "worker", status: "idle", items }] } })
   } });
+  if (provider === "codebuddy") expandTeamHistory();
   if (provider === "codex") expect(screen.getByText("成员思考")).toBeTruthy();
   else expect(screen.queryByText("成员思考")).toBeNull();
   f.setMinimalMode(true);

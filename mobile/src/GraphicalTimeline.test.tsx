@@ -85,3 +85,64 @@ it("skips unchanged history Markdown on parent updates, refreshes changed messag
   fireEvent.click(screen.getAllByRole("button", { name: "复制代码" })[0]);
   await waitFor(() => expect(setError).toHaveBeenCalledWith("Error: Clipboard unavailable"));
 });
+
+it.each([100, 300])("only parses %i team messages while both details are open and preserves link actions", async count => {
+  mocks.copy.mockResolvedValue(undefined);
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  const setError = vi.fn();
+  const controller = { setError, scrollRef: { current: null } } as unknown as ComponentProps<typeof GraphicalTimeline>["controller"];
+  const snapshot: GraphicalSnapshot = {
+    threadId: "thread-1", provider: "codebuddy", busy: false, archived: false, error: null,
+    mode: "default", nativeMode: null, capabilities: { history: true }, pendingPlan: null, approvals: [], questions: [], items: [],
+    team: { name: "review", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "tester", status: "idle",
+      items: Array.from({ length: count }, (_, index) => ({ id: `member-${index}`, type: "agentMessage",
+        text: `Message ${index}\n\n[Website](https://example.com) [Local](file:///test.txt)\n\n` + Array.from({ length: 8 }, (_, block) => `\`\`\`js\nconst value = ${block};\n\`\`\``).join("\n\n") }))
+    }] }
+  };
+  const view = render(<GraphicalTimeline snapshot={snapshot} controller={controller} />);
+  const team = view.container.querySelector(".graphical-team") as HTMLDetailsElement;
+  const member = team.querySelector("details") as HTMLDetailsElement;
+  const toggle = (details: HTMLDetailsElement, expanded: boolean) => {
+    details.open = expanded;
+    fireEvent(details, new Event("toggle"));
+  };
+  const update = () => {
+    for (let index = 0; index < 2; index++) view.rerender(<GraphicalTimeline snapshot={{ ...snapshot }} controller={{ ...controller }} />);
+  };
+  update();
+  expect(mocks.markdownRender).not.toHaveBeenCalled();
+  expect(view.container.querySelectorAll(".hljs")).toHaveLength(0);
+  toggle(team, true);
+  update();
+  expect(mocks.markdownRender).not.toHaveBeenCalled();
+  expect(view.container.querySelectorAll(".hljs")).toHaveLength(0);
+  toggle(member, true);
+  expect(mocks.markdownRender).toHaveBeenCalledTimes(count);
+  expect(view.container.querySelectorAll(".hljs")).toHaveLength(count * 8);
+  expect(screen.getByText(`Message ${count - 1}`)).toBeTruthy();
+  update();
+  expect(mocks.markdownRender).toHaveBeenCalledTimes(count);
+  fireEvent.click(screen.getAllByText("Website")[0]);
+  expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noopener,noreferrer");
+  fireEvent.click(screen.getAllByText("Local")[0]);
+  expect(setError).toHaveBeenCalledWith("手机浏览器仅支持 HTTP(S) 外链。");
+  fireEvent.focus(screen.getAllByText("Website")[0]);
+  fireEvent.click(screen.getByRole("button", { name: "复制链接地址" }));
+  await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith("https://example.com"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("已复制"));
+  toggle(member, false);
+  mocks.markdownRender.mockClear();
+  update();
+  expect(mocks.markdownRender).not.toHaveBeenCalled();
+  expect(view.container.querySelectorAll(".hljs")).toHaveLength(0);
+  toggle(member, true);
+  expect(mocks.markdownRender).toHaveBeenCalledTimes(count);
+  toggle(team, false);
+  mocks.markdownRender.mockClear();
+  update();
+  expect(mocks.markdownRender).not.toHaveBeenCalled();
+  expect(view.container.querySelectorAll(".hljs")).toHaveLength(0);
+  toggle(team, true);
+  expect(mocks.markdownRender).toHaveBeenCalledTimes(count);
+  open.mockRestore();
+}, 20000);
