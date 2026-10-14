@@ -179,3 +179,44 @@ it.runIf(process.platform === "win32")("keeps timers running while three locked 
     await exited;
   }
 }, 15_000);
+
+it("stops a throttled 10 MiB HTTP upload and removes its temporary file on discard", async () => {
+  const { store, socket } = fixture();
+  const total = 10 * 1024 * 1024;
+  const ticket = store.prepare(socket, "session-1", "thread-1", "slow.bin", total);
+  let received = 0, incoming, write;
+  const original = nodeFs.createWriteStream;
+  vi.spyOn(nodeFs, "createWriteStream").mockImplementation((...args) => { write = original(...args); return write; });
+  const server = createServer((request, reply) => {
+    incoming = request;
+    request.on("data", chunk => { received += chunk.length; });
+    const url = new URL(request.url, "http://localhost");
+    void store.receive(request, reply, ticket.fileId, url.searchParams.get("ticket"));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const client = httpRequest({ hostname: "127.0.0.1", port: server.address().port, path: ticket.url,
+    method: "POST", headers: { "Content-Length": total }, agent: false });
+  client.on("error", () => {});
+  const timer = setInterval(() => { if (!client.destroyed) client.write(Buffer.alloc(16 * 1024)); }, 25);
+  try {
+    await vi.waitFor(() => { expect(received).toBeGreaterThan(0); expect(write?.pending).toBe(false); });
+    store.discard(socket, [ticket.fileId]);
+    await vi.waitFor(() => {
+      expect(incoming.destroyed).toBe(true);
+      expect(client.destroyed).toBe(true);
+      expect(write.closed).toBe(true);
+      expect(existsSync(dirname(write.path))).toBe(false);
+    });
+    const stoppedAt = received;
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(received).toBe(stoppedAt);
+    expect(received).toBeLessThan(total);
+  } finally {
+    clearInterval(timer);
+    client.destroy();
+    await store.stop();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});

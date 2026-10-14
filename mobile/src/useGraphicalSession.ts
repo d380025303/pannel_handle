@@ -75,6 +75,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const modelIdRef = useRef<string | null>(null);
   const uploadRequests = useRef(new Map<string, { resolve: (value: { fileId: string; url: string }) => void; reject: (reason: Error) => void }>());
   const cancelledUploads = useRef(new Set<string>());
+  const activeUploads = useRef(new Map<string, { controller: AbortController; fileId?: string }>());
   const [attachments, setAttachments] = useState<Array<{ key: string; file: File; fileId?: string; status: "uploading" | "ready" | "failed" }>>([]);
   const attachmentsRef = useRef<typeof attachments>([]);
   const switchIdRef = useRef<string | null>(null);
@@ -462,12 +463,15 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       setError(IMAGE_INPUT_UNSUPPORTED); return;
     }
     if (!snapshot?.threadId) return;
+    const upload = { controller: new AbortController(), fileId: undefined as string | undefined };
+    activeUploads.current.set(key, upload);
     const requestId = createRequestId();
     const prepared = new Promise<{ fileId: string; url: string }>((resolve, reject) => uploadRequests.current.set(requestId, { resolve, reject }));
     pendingRef.current.add(requestId);
     if (!send({ v: PROTOCOL_VERSION, type: "graphical.upload.prepare", sessionId: session.id,
       threadId: snapshot.threadId, name: file.name, size: file.size, requestId })) {
       uploadRequests.current.delete(requestId); pendingRef.current.delete(requestId);
+      activeUploads.current.delete(key);
       setAttachments(current => current.map(item => item.key === key ? { ...item, status: "failed" } : item));
       setError("连接已断开，请重试。");
       return;
@@ -476,9 +480,15 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     try {
       const { fileId, url } = await prepared;
       uploadedId = fileId;
+      upload.fileId = fileId;
       pendingRef.current.delete(requestId);
+      if (threadRef.current !== snapshot.threadId || cancelledUploads.current.has(key)) {
+        send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+          threadId: snapshot.threadId, fileIds: [fileId], requestId: createRequestId() });
+        return;
+      }
       if (!supportsCodexImageInput(snapshotRef.current) && isCodexImageFile(file.name)) throw new Error(IMAGE_INPUT_UNSUPPORTED);
-      const response = await fetch(url, { method: "POST", body: file, cache: "no-store" });
+      const response = await fetch(url, { method: "POST", body: file, cache: "no-store", signal: upload.controller.signal });
       if (!response.ok) throw new Error("附件上传失败，请重试。");
       if (threadRef.current !== snapshot.threadId || cancelledUploads.current.has(key)) {
         send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
@@ -487,10 +497,15 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       }
       setAttachments(current => current.map(item => item.key === key ? { ...item, fileId, status: "ready" } : item));
     } catch (cause) {
-      if (uploadedId) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+      if (uploadedId && !upload.controller.signal.aborted) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
         threadId: snapshot.threadId, fileIds: [uploadedId], requestId: createRequestId() });
+      if (cancelledUploads.current.has(key)) return;
       setAttachments(current => current.map(item => item.key === key ? { ...item, status: "failed" } : item));
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      activeUploads.current.delete(key);
+      cancelledUploads.current.delete(key);
+      pendingRef.current.delete(requestId);
     }
   };
   const addFiles = (files: FileList | null) => {
@@ -509,8 +524,11 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   };
   const removeAttachment = (key: string) => {
     cancelledUploads.current.add(key);
+    const upload = activeUploads.current.get(key);
+    upload?.controller.abort();
     const item = attachments.find(value => value.key === key);
-    if (item?.fileId) action({ type: "graphical.upload.discard", fileIds: [item.fileId] });
+    const fileId = upload?.fileId || item?.fileId;
+    if (fileId) action({ type: "graphical.upload.discard", fileIds: [fileId] });
     setAttachments(current => current.filter(value => value.key !== key));
   };
   const changeMode = (mode: "default" | "plan") => {
