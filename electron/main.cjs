@@ -163,10 +163,10 @@ if (!gotSingleInstanceLock) {
     if (process.platform === "win32") {
       app.setAppUserModelId("local.pannel-handle");
     }
+    businessDataStore = await createBusinessDataStore({ userData: app.getPath("userData") }).openAsync();
     windowManager = createWindowManager({
       onMainWindowClosed: () => { desktopMascot?.close(); agentConversationManager?.shutdown(); }
     });
-    businessDataStore = createBusinessDataStore({ userData: app.getPath("userData") }).open();
     modelCatalogDir = fs.mkdtempSync(path.join(app.getPath("temp"), "pannel-handle-catalog-"));
     templateUsageStore = createTemplateUsageStore({
       usageFile: path.join(app.getPath("userData"), "template-usage.json"), dataStore: businessDataStore

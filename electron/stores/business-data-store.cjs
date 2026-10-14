@@ -166,7 +166,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     }
     return fields;
   }
-  function open() {
+  function initialize(checkIntegrity) {
     db = new Database(databaseFile);
     try {
       db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
@@ -217,14 +217,29 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
         db.prepare("INSERT INTO app_migrations(version, completed_at) VALUES (3, ?) ON CONFLICT(version) DO NOTHING").run(Date.now());
       });
       transaction(() => workItems.initializeWorkItems());
-      const integrity = db.prepare("PRAGMA quick_check").get();
-      if (Object.values(integrity)[0] !== "ok") throw new Error("Business database failed integrity check.");
+      if (checkIntegrity) {
+        const integrity = db.prepare("PRAGMA quick_check").all();
+        if (integrity.length !== 1 || Object.values(integrity[0])[0] !== "ok") throw new Error("Business database failed integrity check.");
+      }
       for (const row of db.prepare("SELECT name FROM app_sources").all()) readDocument(row.name);
     } catch (error) {
       db.close(); db = null;
       throw error;
     }
     return this;
+  }
+  // Retain the synchronous API for existing callers and private in-memory databases.
+  function open() { return initialize.call(this, true); }
+  async function openAsync() {
+    if (databaseFile === ":memory:") throw new Error("Asynchronous integrity checks require a file-backed database.");
+    initialize.call(this, false);
+    try {
+      await require("./business-integrity-reader.cjs").checkBusinessIntegrity(databaseFile);
+      return this;
+    } catch (error) {
+      await close();
+      throw error;
+    }
   }
   function read(filePath) { return readDocument(sourceName(filePath)); }
   function write(filePath, value) {
@@ -334,7 +349,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       return records;
     });
   }
-  return { transaction, writeModuleOwnerChange, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
+  return { transaction, writeModuleOwnerChange, removeSessionTemplate, writeModuleOwnerTaskMetadata, listWorkItemPrompts, mutateWorkItemPrompt, open, openAsync, read, write, close, deleteTaskRun, saveTaskRun, listTaskRuns, getTaskRun, interruptTaskRuns, ...workItems };
 }
 
 module.exports = { createBusinessDataStore, SOURCES };
