@@ -28,7 +28,9 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   });
   const key = value => process.platform === "win32" ? value.toLowerCase() : value;
 
-  async function safePath(value, allowedRoots, validatedParent) {
+  async function safePath(value, allowedRoots, validatedParent, isCancelled = () => false) {
+    const checkCancelled = () => { if (isCancelled()) throw new Error("目录读取已取消。"); };
+    checkCancelled();
     if (typeof value !== "string" || !value || value.includes("\0") || !pathApi.isAbsolute(value)
       || value.startsWith("\\\\") || value.startsWith("//")) throw new Error("文件路径无效。");
     const target = pathApi.resolve(value);
@@ -44,33 +46,64 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     for (const part of relative ? relative.split(pathApi.sep) : []) {
       current = pathApi.join(current, part);
       const info = await fsApi.promises.lstat(current);
+      checkCancelled();
       if (info.isSymbolicLink()) throw new Error("不能访问符号链接或目录联接。");
     }
     const actual = await fsApi.promises.realpath(target);
+    checkCancelled();
     if (key(pathApi.resolve(actual)) !== key(target)) throw new Error("不能访问重定向的文件路径。");
-    return { target, info: await fsApi.promises.stat(target) };
+    const info = await fsApi.promises.stat(target);
+    checkCancelled();
+    return { target, info };
   }
 
-  async function list(directory) {
-    if (directory == null) return { path: null, entries: (await roots()).map(root => ({ name: root, path: root, type: "drive", size: null })) };
-    const allowed = (await roots()).map(root => pathApi.resolve(root));
-    const { target, info } = await safePath(directory, allowed);
+  async function list(directory, socket) {
+    let cancelled = false;
+    const operation = { cancel() { cancelled = true; } };
+    let operations;
+    if (socket) {
+      operations = active.get(socket);
+      if (!operations) { operations = new Set(); active.set(socket, operations); }
+      operations.add(operation);
+    }
+    const isCancelled = () => cancelled || (socket && !socket.authenticated);
+    try {
+      if (isCancelled()) return;
+      return await scanDirectory(directory, isCancelled);
+    } catch (error) {
+      if (!isCancelled()) throw error;
+    } finally {
+      operations?.delete(operation);
+      if (operations && !operations.size && active.get(socket) === operations) active.delete(socket);
+    }
+  }
+
+  async function scanDirectory(directory, isCancelled) {
+    const availableRoots = await roots();
+    if (isCancelled()) return;
+    if (directory == null) return { path: null, entries: availableRoots.map(root => ({ name: root, path: root, type: "drive", size: null })) };
+    const allowed = availableRoots.map(root => pathApi.resolve(root));
+    const { target, info } = await safePath(directory, allowed, undefined, isCancelled);
+    if (isCancelled()) return;
     if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
     const names = await fsApi.promises.readdir(target);
+    if (isCancelled()) return;
     const entries = [];
     let nextIndex = 0;
     async function validateEntries() {
-      while (nextIndex < names.length) {
+      while (!isCancelled() && nextIndex < names.length) {
         const name = names[nextIndex++];
         const child = pathApi.join(target, name);
         try {
-          const item = await safePath(child, allowed, target);
+          const item = await safePath(child, allowed, target, isCancelled);
+          if (isCancelled()) return;
           if (item.info.isDirectory() || item.info.isFile()) entries.push({ name, path: child,
             type: item.info.isDirectory() ? "directory" : "file", size: item.info.isFile() ? item.info.size : null });
         } catch { /* Unreadable entries and links are omitted. */ }
       }
     }
     await Promise.all(Array.from({ length: Math.min(LIST_CONCURRENCY, names.length) }, validateEntries));
+    if (isCancelled()) return;
     entries.sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
     return { path: target, entries };
   }

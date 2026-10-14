@@ -451,3 +451,52 @@ it.each(["resume", "close", "disconnect", "stop", "error", "warning"])(
     }
   }, 30_000
 );
+
+
+it.each(["disconnect", "stop", "authentication", "reauthenticate", "readdir"])(
+  "cancels a 10,000-entry listing on %s without claiming more entries", async reason => {
+    const directory = "C:\\folder";
+    const names = Array.from({ length: 10_000 }, (_, index) => `file-${index}.txt`);
+    const directoryInfo = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
+    const fileInfo = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 10 };
+    let resume;
+    let entered;
+    let blocked = true;
+    const gate = new Promise(resolve => { resume = resolve; });
+    const paused = new Promise(resolve => { entered = resolve; });
+    const fsApi = { promises: {
+      readdir: vi.fn(async () => {
+        if (reason === "readdir" && blocked) { entered(); await gate; }
+        return names;
+      }),
+      lstat: vi.fn(async target => {
+        if (target !== directory && blocked && reason !== "readdir") {
+          if (fsApi.promises.lstat.mock.calls.length === 9) entered();
+          await gate;
+        }
+        return target === directory ? directoryInfo : fileInfo;
+      }),
+      realpath: vi.fn(async target => target),
+      stat: vi.fn(async target => target === directory ? directoryInfo : fileInfo)
+    } };
+    const files = filesModule.createMobileFiles({ fsApi, getRoots: () => ["C:\\"] });
+    const socket = { authenticated: true };
+    const listing = files.list(directory, socket);
+    await paused;
+    const counts = [fsApi.promises.lstat, fsApi.promises.realpath, fsApi.promises.stat].map(fn => fn.mock.calls.length);
+    if (reason === "stop") files.stop();
+    else if (reason === "authentication") socket.authenticated = false;
+    else {
+      files.releaseSocket(socket);
+      if (reason === "reauthenticate") socket.authenticated = true;
+    }
+    blocked = false;
+    resume();
+    expect(await listing).toBeUndefined();
+    expect([fsApi.promises.lstat, fsApi.promises.realpath, fsApi.promises.stat].map(fn => fn.mock.calls.length)).toEqual(counts);
+    expect(counts[0]).toBe(reason === "readdir" ? 1 : 9);
+    const connected = { authenticated: true };
+    expect((await files.list(directory, connected)).entries).toHaveLength(10_000);
+    files.stop();
+  }
+);

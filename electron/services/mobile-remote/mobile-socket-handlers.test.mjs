@@ -247,3 +247,26 @@ it("rechecks batch candidates, skips stale sessions and continues after failures
   expect(closeSession.mock.calls.map(([id]) => id)).toEqual(["bad", "done"]);
   expect(uploads.releaseSession.mock.calls.map(([id]) => id)).toEqual(["bad", "done"]);
 });
+
+
+it.each(["cancelled", "disconnected", "connected"])("handles %s file-list results without sending abandoned lists", async state => {
+  let resolve;
+  const files = { list: vi.fn(() => new Promise(done => { resolve = done; })), releaseSocket: vi.fn() };
+  const send = vi.fn();
+  const sendError = vi.fn();
+  const handlers = socketModule.createMobileSocketHandlers({
+    terminalManager: {}, sizes: {}, now: Date.now, files, send, sendError,
+    auth: { handleSocketClosed: socket => { socket.authenticated = false; } }
+  });
+  const socket = new EventEmitter();
+  handlers.handleWebSocket(socket, { socket: { remoteAddress: "127.0.0.1" } });
+  socket.authenticated = true;
+  socket.emit("message", JSON.stringify({ v: protocolModule.PROTOCOL_VERSION, type: "files.list", path: null, requestId: "list" }));
+  expect(files.list).toHaveBeenCalledWith(null, socket);
+  if (state === "disconnected") socket.emit("close");
+  resolve(state === "cancelled" ? undefined : { path: null, entries: [] });
+  await new Promise(done => setImmediate(done));
+  if (state === "connected") expect(send).toHaveBeenCalledExactlyOnceWith(socket, { type: "files.list.result", requestId: "list", path: null, entries: [] });
+  else expect(send).not.toHaveBeenCalled();
+  expect(sendError).not.toHaveBeenCalled();
+});

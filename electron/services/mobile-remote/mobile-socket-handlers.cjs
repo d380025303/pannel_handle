@@ -91,8 +91,8 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         const result = await service[message.operation](message.input);
         send(socket, { type: "work-items.result", requestId, result });
       } else if (message.type === "files.list") {
-        const result = await files.list(message.path);
-        send(socket, { type: "files.list.result", requestId, ...result });
+        const result = await files.list(message.path, socket);
+        if (result && socket.authenticated) send(socket, { type: "files.list.result", requestId, ...result });
       } else if (message.type === "files.download.prepare") {
         const result = await files.prepare(socket, message.path);
         send(socket, { type: "files.download.ready", requestId, ...result });
