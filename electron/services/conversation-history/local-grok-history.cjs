@@ -2,18 +2,36 @@ const path = require("node:path");
 const { getGrokChunkText } = require("./grok-chunk-text.cjs");
 const { readJsonLines, timestampMs, normalizeCwd } = require("./history-values.cjs");
 
-function getGrokSessionDirectories(fsApi, homeDir) {
-  const sessionsRoot = path.join(process.env.GROK_HOME || path.join(homeDir, ".grok"), "sessions");
-  if (!fsApi.existsSync(sessionsRoot)) return [];
-  const directories = [];
-  for (const workspace of fsApi.readdirSync(sessionsRoot, { withFileTypes: true })) {
-    if (!workspace.isDirectory()) continue;
-    const workspaceRoot = path.join(sessionsRoot, workspace.name);
-    for (const session of fsApi.readdirSync(workspaceRoot, { withFileTypes: true })) {
-      if (session.isDirectory() && /^[0-9a-f-]{36}$/i.test(session.name)) directories.push(path.join(workspaceRoot, session.name));
+const FILE_CONCURRENCY = 16;
+
+async function mapConcurrent(values, callback) {
+  const results = new Array(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(FILE_CONCURRENCY, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await callback(values[index]);
     }
+  }));
+  return results;
+}
+
+async function getGrokSessionDirectories(fsApi, homeDir) {
+  const sessionsRoot = path.join(process.env.GROK_HOME || path.join(homeDir, ".grok"), "sessions");
+  let workspaces;
+  try {
+    workspaces = await fsApi.promises.readdir(sessionsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
   }
-  return directories;
+  const directories = await mapConcurrent(workspaces.filter(entry => entry.isDirectory()), async workspace => {
+    const workspaceRoot = path.join(sessionsRoot, workspace.name);
+    const sessions = await fsApi.promises.readdir(workspaceRoot, { withFileTypes: true });
+    return sessions.filter(session => session.isDirectory() && /^[0-9a-f-]{36}$/i.test(session.name))
+      .map(session => path.join(workspaceRoot, session.name));
+  });
+  return directories.flat();
 }
 
 function parseGrokMessages(text) {
@@ -58,33 +76,32 @@ async function readGrokMessages(fsApi, sessionDirectory) {
   return readGrokTranscript({ text });
 }
 
-function listLocalGrok({ homeDir, cwd, scope, fsApi }) {
-  const items = [];
-  for (const sessionDirectory of getGrokSessionDirectories(fsApi, homeDir)) {
+async function listLocalGrok({ homeDir, cwd, scope, fsApi }) {
+  const directories = await getGrokSessionDirectories(fsApi, homeDir);
+  const items = await mapConcurrent(directories, async sessionDirectory => {
     const summaryPath = path.join(sessionDirectory, "summary.json");
-    if (!fsApi.existsSync(summaryPath)) continue;
     let summary;
-    try { summary = JSON.parse(fsApi.readFileSync(summaryPath, "utf-8")); } catch { continue; }
+    try { summary = JSON.parse(await fsApi.promises.readFile(summaryPath, "utf-8")); } catch { return null; }
     const sessionCwd = String(summary?.info?.cwd || "");
-    if (scope !== "all" && normalizeCwd(sessionCwd, process.platform === "win32") !== normalizeCwd(cwd, process.platform === "win32")) continue;
+    if (scope !== "all" && normalizeCwd(sessionCwd, process.platform === "win32") !== normalizeCwd(cwd, process.platform === "win32")) return null;
     const id = path.basename(sessionDirectory);
     const preview = String(summary?.session_summary || "").trim();
-    items.push({
+    return {
       ref: `grok:${id}`,
       provider: "grok",
       title: String(summary?.generated_title || preview || "Grok conversation").trim(),
       preview,
       cwd: sessionCwd,
       createdAt: timestampMs(summary?.created_at),
-      updatedAt: timestampMs(summary?.last_active_at || summary?.updated_at) || fsApi.statSync(summaryPath).mtimeMs,
+      updatedAt: timestampMs(summary?.last_active_at || summary?.updated_at) || (await fsApi.promises.stat(summaryPath)).mtimeMs,
       archived: false
-    });
-  }
-  return items;
+    };
+  });
+  return items.filter(Boolean);
 }
 
-function getLocalGrokMessages({ homeDir, id, fsApi }) {
-  const directory = getGrokSessionDirectories(fsApi, homeDir).find(candidate => path.basename(candidate) === id);
+async function getLocalGrokMessages({ homeDir, id, fsApi }) {
+  const directory = (await getGrokSessionDirectories(fsApi, homeDir)).find(candidate => path.basename(candidate) === id);
   if (!directory) throw new Error("Grok conversation is unavailable.");
   return readGrokMessages(fsApi, directory);
 }

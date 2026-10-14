@@ -91,7 +91,7 @@ function createAgentConversationHistoryService({
           : provider === "gemini"
             ? await listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: geminiMetadataCache })
             : provider === "grok"
-              ? listLocalGrok({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
+              ? await listLocalGrok({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
               : await listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
         );
       } catch (error) {
