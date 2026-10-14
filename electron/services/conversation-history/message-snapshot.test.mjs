@@ -1,6 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import historyModule from "./agent-conversation-history-service.cjs";
 import archiveModule from "./conversation-archive-service.cjs";
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+const directories = [];
+afterEach(() => { for (const dir of directories.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 
 const session = { id: "panel", type: "windows", cwd: "C:\\work", agentProvider: "codex", runtimeMode: "terminal" };
 function fixture(count = 4) {
@@ -18,7 +25,17 @@ function fixture(count = 4) {
     prepare() { return { get: () => ({ rollout_path: "rollout.jsonl" }),
       all: () => [{ id: "bound", cwd: session.cwd, title: "Task", created_at: 1, updated_at: 2 }] }; }
   }
-  const history = historyModule.createAgentConversationHistoryService({ homeDir: "fixture",
+  // List reads now happen in a Worker; message reads retain the focused transcript mocks.
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-snapshot-"));
+  directories.push(homeDir);
+  fs.mkdirSync(path.join(homeDir, ".codex"));
+  const database = new DatabaseSync(path.join(homeDir, ".codex", "state_5.sqlite"));
+  database.exec(`CREATE TABLE threads (id TEXT, cwd TEXT, title TEXT, created_at INTEGER,
+    updated_at INTEGER, archived INTEGER, first_user_message TEXT, preview TEXT, source TEXT,
+    recency_at_ms INTEGER, updated_at_ms INTEGER)`);
+  database.prepare("INSERT INTO threads VALUES (?, ?, 'Task', 1, 2, 0, 'question', '', 'cli', 2, 2)").run("bound", session.cwd);
+  database.close();
+  const history = historyModule.createAgentConversationHistoryService({ homeDir,
     fsApi: { existsSync: () => true, promises: { readFile, stat } }, Database });
   const read = (cursor = null, activeSession = session, ref = "codex:bound") =>
     history.getHistoryMessagesForSession(activeSession, { conversationRef: ref, cursor, limit: 2 });

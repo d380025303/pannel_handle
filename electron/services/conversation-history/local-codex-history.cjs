@@ -3,7 +3,7 @@ const { DatabaseSync } = require("node:sqlite");
 const { createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
 const { normalizeCwd, timestampMs } = require("./history-values.cjs");
 
-function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database = DatabaseSync }) {
+function readLocalCodexList({ homeDir, cwd, scope, includeArchived, fsApi, Database = DatabaseSync }) {
   const databaseFile = path.join(homeDir, ".codex", "state_5.sqlite");
   if (!fsApi.existsSync(databaseFile)) return [];
   const database = new Database(databaseFile, { readOnly: true });
@@ -90,6 +90,6 @@ async function getLocalCodexMessages({ homeDir, id, fsApi, signatureOnly = false
 }
 
 module.exports = {
-  listLocalCodex,
+  readLocalCodexList,
   getLocalCodexMessages
 };

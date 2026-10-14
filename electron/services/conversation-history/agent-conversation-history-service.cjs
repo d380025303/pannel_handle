@@ -2,7 +2,7 @@ const { createRemoteHistoryReader } = require("./remote-history-reader.cjs");
 const { getGrokSessionDirectories, readGrokMessages, listLocalGrok, getLocalGrokMessages } = require("./local-grok-history.cjs");
 const { getGeminiChatFiles, materializeGeminiMessages, listLocalGemini, getLocalGeminiMessages } = require("./local-gemini-history.cjs");
 const { getCodeBuddyProjectFiles, codeBuddyMetadata, listLocalCodeBuddy, getLocalCodeBuddyMessages } = require("./local-codebuddy-history.cjs");
-const { listLocalCodex, getLocalCodexMessages } = require("./local-codex-history.cjs");
+const { getLocalCodexMessages } = require("./local-codex-history.cjs");
 const { listLocalOpenCode, getLocalOpenCodeMessages } = require("./local-opencode-history.cjs");
 const { clampLimit, normalizeCwd, timestampMs, filterAndPage, parseConversationRef, parseCursor, pageMessages } = require("./history-values.cjs");
 const { HISTORY_PROVIDERS, DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIMIT } = require("./history-limits.cjs");
@@ -28,6 +28,7 @@ function createAgentConversationHistoryService({
   const codeBuddyMetadataCache = new Map();
   const geminiMetadataCache = new Map();
   const listCache = new Map();
+  const codexCacheNamespace = require("node:crypto").randomUUID();
   const messageCache = new Map();
   const geminiMessageCache = new Map();
   const codexMessageCache = new Map();
@@ -78,15 +79,13 @@ function createAgentConversationHistoryService({
       if (now - entry.createdAt >= LIST_CACHE_TTL_MS) listCache.delete(key);
     }
     const cached = request.cursor !== null && request.cursor !== "" ? listCache.get(cacheKey) : null;
-    if (cached) return { ...filterAndPage(cached.items, request), errors: cached.errors };
+    if (cached && !providers.includes("codex")) return { ...filterAndPage(cached.items, request), errors: cached.errors };
 
-    const items = [];
-    const errors = [];
-    for (const provider of providers) {
+    const items = cached ? cached.items : [];
+    const errors = cached ? [...cached.errors] : [];
+    for (const provider of cached ? [] : providers.filter(provider => provider !== "codex")) {
       try {
-        items.push(...(provider === "codex"
-          ? listLocalCodex({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
-          : provider === "opencode"
+        items.push(...(provider === "opencode"
             ? await listLocalOpenCode({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived })
           : provider === "gemini"
             ? await listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: geminiMetadataCache })
@@ -99,9 +98,22 @@ function createAgentConversationHistoryService({
         errors.push({ provider, message: `${provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "CodeBuddy"} history is unavailable.` });
       }
     }
-    listCache.delete(cacheKey);
-    listCache.set(cacheKey, { items, errors, createdAt: now });
-    if (listCache.size > MAX_LIST_CACHE_ENTRIES) listCache.delete(listCache.keys().next().value);
+    if (!cached) {
+      listCache.delete(cacheKey);
+      listCache.set(cacheKey, { items, errors: [...errors], createdAt: now });
+      if (listCache.size > MAX_LIST_CACHE_ENTRIES) listCache.delete(listCache.keys().next().value);
+    }
+    if (providers.includes("codex")) {
+      try {
+        return await require("./codex-history-worker-client.cjs").readCodexHistory({
+          homeDir, ...request, items, errors, cacheKey: codexCacheNamespace + cacheKey
+        });
+      } catch (error) {
+        console.error("Failed to list codex conversation history:", error);
+        errors.push({ provider: "codex", message: "Codex history is unavailable." });
+        return { ...filterAndPage(items, request), errors };
+      }
+    }
     return { ...filterAndPage(items, request), errors };
   }
 
