@@ -5,6 +5,7 @@ import { installBrowserPreview } from "./installBrowserPreview";
 
 describe("installBrowserPreview", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     installBrowserPreview();
   });
 
@@ -16,6 +17,32 @@ describe("installBrowserPreview", () => {
       "mcpApi", "sessionStatusMcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
       "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi", "projectToolsApi"
     ]));
+  });
+
+  it("routes usage through the selected session provider and binds the Qoder account", async () => {
+    const session = await window.terminalApi.createSession({ title: "usage" });
+    expect((await window.agentUsageApi.getUsage(session.id))?.provider).toBe("codex");
+    await window.terminalApi.updateSession(session.id, { agentProvider: "codebuddy" });
+    expect(await window.agentUsageApi.getUsage(session.id)).toMatchObject({ provider: "codebuddy", summary: (await window.agentUsageApi.getCodeBuddyUsage())?.summary });
+    await window.terminalApi.updateSession(session.id, { agentProvider: "qoder" });
+    const usage = await window.agentUsageApi.getUsage(session.id);
+    expect(usage?.provider).toBe("qoder");
+    expect(usage?.qoderAccount?.id).toBe((await window.qoderCheckinApi.getStatus()).accountId);
+  });
+
+  it.each(["qoderCheckinApi", "workBuddyCheckinApi"] as const)("supports pending, failed claim, retry and persisted success for %s", async (key) => {
+    window.history.replaceState(null, "", "/?checkin=retry");
+    installBrowserPreview();
+    const api = window[key];
+    expect((await api.getStatus()).todayCheckedIn).toBe(false);
+    await expect(api.claim()).rejects.toThrow("签到失败");
+    expect((await api.getStatus()).todayCheckedIn).toBe(false);
+    expect((await api.claim()).status.todayCheckedIn).toBe(true);
+    expect((await api.getStatus()).todayCheckedIn).toBe(true);
+    expect((await api.claim()).alreadyCheckedIn).toBe(true);
+    window.history.replaceState(null, "", "/?checkin=checked-in");
+    installBrowserPreview();
+    expect((await window[key].getStatus()).todayCheckedIn).toBe(true);
   });
 
   it("supports session status MCP toggles, token reveal and subscription cleanup", async () => {

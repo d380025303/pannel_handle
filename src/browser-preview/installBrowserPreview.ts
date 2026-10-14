@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  AgentUsageSnapshot,
   CodexExecutionPermission,
   CodexAppServerSnapshot,
   CodexPluginCatalog,
@@ -191,6 +192,23 @@ function createRouterState(modelId: string): { config: OpenRouterConfig; models:
 
 export function installBrowserPreview() {
   let sessions: TerminalSession[] = [];
+  // ?checkin=checked-in preserves the completed view; retry fails the first claim.
+  const checkinScene = new URLSearchParams(window.location.search).get("checkin");
+  let qoderCheckedIn = checkinScene === "checked-in";
+  let workBuddyCheckedIn = checkinScene === "checked-in";
+  const failedClaims = new Set<string>();
+  const checkClaim = (provider: string) => {
+    if (checkinScene === "retry" && !failedClaims.has(provider)) {
+      failedClaims.add(provider);
+      throw new Error("浏览器预览：签到失败，请重试");
+    }
+  };
+  const qoderStatus = () => ({ accountId: "preview", accountLabel: "Preview desktop account", active: true,
+    claimable: !qoderCheckedIn, todayCheckedIn: qoderCheckedIn, dailyCredit: 100,
+    windowStart: now, nextClaimAt: qoderCheckedIn ? now + 86400000 : now });
+  const workBuddyStatus = () => ({ active: true, todayCheckedIn: workBuddyCheckedIn,
+    streakDays: workBuddyCheckedIn ? 6 : 5, dailyCredit: 10, todayCredit: workBuddyCheckedIn ? 10 : 0,
+    totalCredits: workBuddyCheckedIn ? 280 : 270, weekProgress: [true, true, true, true, true, workBuddyCheckedIn, false] });
   let previewExecutionPermission: CodexExecutionPermission = "askApproval";
   let previewSkillEnabled = true;
   let previewProfileId: string | null = null;
@@ -722,7 +740,13 @@ export function installBrowserPreview() {
       copy: async () => ({ status: "exists" })
     } satisfies Window["mcpApi"],
     agentUsageApi: {
-      getUsage: async () => ({ provider: "codex", fetchedAt: Date.now(), primaryLimitId: "five-hour", limits: [{ id: "five-hour", name: "5 小时用量", usedPercent: 32, remainingPercent: 68, windowDurationMins: 300, resetsAt: now + 10_800_000 }] }),
+      getUsage: async (sessionId): Promise<AgentUsageSnapshot | null> => {
+        const provider = sessions.find((session) => session.id === sessionId)?.agentProvider;
+        if (provider === "codebuddy") return apis.agentUsageApi.getCodeBuddyUsage();
+        if (provider === "qoder") return { ...await apis.agentUsageApi.getCodeBuddyUsage(), provider: "qoder",
+          qoderSource: "desktop", qoderAccount: { id: "preview", label: "Preview desktop account" } };
+        return apis.agentUsageApi.getCodexUsage();
+      },
       getCodeBuddyUsage: async () => ({ provider: "codebuddy", fetchedAt: Date.now(), primaryLimitId: "base", summary: { kind: "credits", total: 1000, used: 320, remaining: 680, usedPercent: 32, remainingPercent: 68, unit: "Credits" }, limits: [{ id: "base", name: "基础额度", category: "base", totalAmount: 1000, usedAmount: 320, remainingAmount: 680, usedPercent: 32, remainingPercent: 68, unit: "Credits", expiresAt: now + 10_800_000 }] }),
       getCodexUsage: async () => ({ provider: "codex", fetchedAt: Date.now(), primaryLimitId: "five-hour", limits: [{ id: "five-hour", name: "5 小时用量", usedPercent: 32, remainingPercent: 68, windowDurationMins: 300, resetsAt: now + 10_800_000 }] }),
       consumeResetCredit: async () => ({ outcome: "nothingToReset" }),
@@ -731,12 +755,12 @@ export function installBrowserPreview() {
       cancelCodexUsage: () => undefined
     } satisfies Window["agentUsageApi"],
     qoderCheckinApi: {
-      getStatus: async () => ({ accountId: "preview", accountLabel: "Preview desktop account", active: true, claimable: false, todayCheckedIn: true, dailyCredit: 100, windowStart: Date.now(), nextClaimAt: Date.now() + 86400000 }),
-      claim: async () => ({ alreadyCheckedIn: true, status: { accountId: "preview", accountLabel: "Preview desktop account", active: true, claimable: false, todayCheckedIn: true, dailyCredit: 100, windowStart: Date.now(), nextClaimAt: Date.now() + 86400000 } })
+      getStatus: async () => qoderStatus(),
+      claim: async () => { checkClaim("qoder"); const alreadyCheckedIn = qoderCheckedIn; qoderCheckedIn = true; return { alreadyCheckedIn, status: qoderStatus() }; }
     } satisfies Window["qoderCheckinApi"],
     workBuddyCheckinApi: {
-      getStatus: async () => ({ active: true, todayCheckedIn: true, streakDays: 6, dailyCredit: 10, todayCredit: 10, totalCredits: 280, weekProgress: [true, true, true, true, true, true, false] }),
-      claim: async () => ({ alreadyCheckedIn: true, status: { active: true, todayCheckedIn: true, streakDays: 6, dailyCredit: 10, todayCredit: 10, totalCredits: 280, weekProgress: [true, true, true, true, true, true, false] } })
+      getStatus: async () => workBuddyStatus(),
+      claim: async () => { checkClaim("codebuddy"); const alreadyCheckedIn = workBuddyCheckedIn; workBuddyCheckedIn = true; return { alreadyCheckedIn, status: workBuddyStatus() }; }
     } satisfies Window["workBuddyCheckinApi"],
     agentTokenStatsApi: {
       getDashboard: async (options) => { const tokens = { inputTokens: 48_000, cachedInputTokens: 12_000, cacheWriteInputTokens: 0, outputTokens: 8_000, reasoningOutputTokens: 2_400, totalTokens: 58_400 }; return { generatedAt: Date.now(), range: options?.range || "7d", provider: options?.provider || "all", summary: { sessionCount: 3, averageTokens: 19_467, skillCalls: 4, mcpCalls: 7, tokens }, dailyTrend: [{ date: new Date(now).toISOString().slice(0, 10), tokens }], providerBreakdown: [{ provider: "codex", sessionCount: 3, tokens }], topSkills: [{ name: "UI Review", count: 4 }], topMcpServers: [{ name: "filesystem", count: 7, tools: [{ name: "read_file", count: 7 }] }], sessions: [], totalCount: 3, offset: options?.offset || 0, limit: options?.limit || 20 }; },
