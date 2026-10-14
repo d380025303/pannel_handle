@@ -474,6 +474,62 @@ it("saves only boolean mobile preferences and broadcasts after successful persis
 });
 
 
+it("keeps timers and other IPC responsive until background copying finishes", async () => {
+  const userDataDir = createTempDir();
+  const source = path.join(createTempDir(), "image.png");
+  fs.writeFileSync(source, "image-bytes");
+  const harness = createHarness({
+    userDataDir,
+    dialog: { showOpenDialog: vi.fn().mockResolvedValue({ canceled: false, filePaths: [source] }) }
+  });
+  const realCopy = fs.promises.copyFile.bind(fs.promises);
+  let releaseCopy;
+  const gate = new Promise(resolve => { releaseCopy = resolve; });
+  let copyStarted;
+  const started = new Promise(resolve => { copyStarted = resolve; });
+  const copy = vi.spyOn(fs.promises, "copyFile").mockImplementation(async (...args) => {
+    copyStarted();
+    await gate;
+    return realCopy(...args);
+  });
+  let completed = false;
+  const importing = harness.ipcMain.handlers.get("terminal-background:choose-image")({})
+    .then(result => { completed = true; return result; });
+  try {
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(completed).toBe(false);
+    expect(harness.ipcMain.handlers.get("config:get")({})).toEqual(harness.configStore.getConfig());
+    expect(copy.mock.calls[0][2]).toBe(fs.constants.COPYFILE_EXCL);
+    releaseCopy();
+    const result = await importing;
+    expect(result).toEqual({ canceled: false, name: expect.any(String) });
+    expect(fs.readFileSync(path.join(userDataDir, "terminal-background", result.name), "utf8")).toBe("image-bytes");
+  } finally {
+    releaseCopy();
+    await importing;
+    copy.mockRestore();
+  }
+});
+
+it("preserves the error response when asynchronous background copying fails", async () => {
+  const userDataDir = createTempDir();
+  const source = path.join(createTempDir(), "image.png");
+  fs.writeFileSync(source, "image-bytes");
+  const harness = createHarness({
+    userDataDir,
+    dialog: { showOpenDialog: vi.fn().mockResolvedValue({ canceled: false, filePaths: [source] }) }
+  });
+  const copy = vi.spyOn(fs.promises, "copyFile").mockRejectedValue(new Error("Storage unavailable"));
+  try {
+    await expect(harness.ipcMain.handlers.get("terminal-background:choose-image")({}))
+      .resolves.toEqual({ canceled: false, error: "Storage unavailable" });
+    expect(fs.readdirSync(path.join(userDataDir, "terminal-background"))).toEqual([]);
+  } finally {
+    copy.mockRestore();
+  }
+});
+
 describe("terminal background file lifecycle", () => {
   function setup() {
     const userDataDir = createTempDir();

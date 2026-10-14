@@ -216,7 +216,7 @@ function registerSettingsIpcHandlers({
       return { canceled: true };
     }
     try {
-      const name = copyBackgroundImage(result.filePaths[0], userDataDir);
+      const name = await copyBackgroundImage(result.filePaths[0], userDataDir);
       pendingBackgroundImages.add(name);
       return { canceled: false, name };
     } catch (err) {

@@ -99,7 +99,7 @@ describe("copyBackgroundImage", () => {
     ["photo..summer.png", "photo_summer"],
     ["photo.summer.png", "photo.summer"],
     [`${"a".repeat(79)}.x.png`, `${"a".repeat(79)}_`]
-  ])("keeps imported %s configured and accessible after reload", (filename, safeBase) => {
+  ])("keeps imported %s configured and accessible after reload", async (filename, safeBase) => {
     const userDataDir = createTempDir();
     const sourceFile = path.join(createTempDir(), filename);
     const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64");
@@ -108,7 +108,7 @@ describe("copyBackgroundImage", () => {
     const store = createConfigStore({ configFile });
     store.updateConfig({ terminalBackgroundImage: "existing.png" }, { throwOnSaveError: true });
 
-    const name = copyBackgroundImage(sourceFile, userDataDir);
+    const name = await copyBackgroundImage(sourceFile, userDataDir);
     expect(name.slice(name.indexOf("-") + 1)).toMatch(new RegExp(`^${safeBase.replaceAll(".", "\\.")}-[0-9a-f-]+\\.png$`));
     expect(isValidBackgroundName(name)).toBe(true);
     store.updateConfig({ terminalBackgroundImage: name }, { throwOnSaveError: true });
@@ -128,41 +128,42 @@ describe("copyBackgroundImage", () => {
     expect(fs.readFileSync(imagePath)).toEqual(imageBytes);
   });
 
-  it("copies an allowed image into the background directory with a unique name", () => {
+  it("copies an allowed image into the background directory with a unique name", async () => {
     const userDataDir = createTempDir();
     const sourceDir = createTempDir();
     const sourceFile = path.join(sourceDir, "My Photo.PNG");
     fs.writeFileSync(sourceFile, "image-bytes");
 
-    const name = copyBackgroundImage(sourceFile, userDataDir);
+    const name = await copyBackgroundImage(sourceFile, userDataDir);
 
     expect(name).toMatch(/^\d+-My_Photo-[0-9a-f-]+\.png$/);
     expect(fs.readFileSync(path.join(userDataDir, "terminal-background", name), "utf-8")).toBe("image-bytes");
   });
 
-  it("rejects unsupported extensions and oversized files", () => {
+  it("rejects unsupported extensions and oversized files", async () => {
     const userDataDir = createTempDir();
     const sourceDir = createTempDir();
     const textFile = path.join(sourceDir, "notes.txt");
     fs.writeFileSync(textFile, "hello");
-    expect(() => copyBackgroundImage(textFile, userDataDir)).toThrow(/Unsupported image type/);
+    await expect(copyBackgroundImage(textFile, userDataDir)).rejects.toThrow(/Unsupported image type/);
 
     const bigFile = path.join(sourceDir, "big.png");
     fs.writeFileSync(bigFile, Buffer.alloc(20 * 1024 * 1024 + 1));
-    expect(() => copyBackgroundImage(bigFile, userDataDir)).toThrow(/too large/);
+    await expect(copyBackgroundImage(bigFile, userDataDir)).rejects.toThrow(/too large/);
 
-    expect(() => copyBackgroundImage("", userDataDir)).toThrow(/Invalid source path/);
+    await expect(copyBackgroundImage("", userDataDir)).rejects.toThrow(/Invalid source path/);
   });
 });
 
 
-it("uses distinct filenames even for imports in the same millisecond", () => {
+it("uses distinct filenames even for imports in the same millisecond", async () => {
   const dir = createTempDir();
   const source = path.join(createTempDir(), "image.png");
   fs.writeFileSync(source, "image");
   const clock = vi.spyOn(Date, "now").mockReturnValue(123);
   try {
-    expect(copyBackgroundImage(source, dir)).not.toBe(copyBackgroundImage(source, dir));
+    const names = await Promise.all([copyBackgroundImage(source, dir), copyBackgroundImage(source, dir)]);
+    expect(names[0]).not.toBe(names[1]);
     expect(fs.readdirSync(path.join(dir, "terminal-background"))).toHaveLength(2);
   } finally {
     clock.mockRestore();

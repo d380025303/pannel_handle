@@ -50,7 +50,7 @@ function registerTerminalBackgroundProtocol(protocolApi, userDataDir) {
   });
 }
 
-function copyBackgroundImage(sourcePath, userDataDir) {
+async function copyBackgroundImage(sourcePath, userDataDir) {
   if (typeof sourcePath !== "string" || sourcePath.length === 0) {
     throw new Error("Invalid source path");
   }
@@ -58,18 +58,18 @@ function copyBackgroundImage(sourcePath, userDataDir) {
   if (!ALLOWED_EXTENSIONS.has(ext)) {
     throw new Error(`Unsupported image type: ${ext}`);
   }
-  const stat = fs.statSync(sourcePath);
+  const stat = await fs.promises.stat(sourcePath);
   if (!stat.isFile() || stat.size > MAX_IMAGE_SIZE_BYTES) {
     throw new Error("Image is too large or not a file");
   }
   const bgDir = path.join(userDataDir, TERMINAL_BG_DIR);
-  fs.mkdirSync(bgDir, { recursive: true });
+  await fs.promises.mkdir(bgDir, { recursive: true });
   const originalBase = path.basename(sourcePath);
   const baseWithoutExt = originalBase.slice(0, originalBase.length - path.extname(originalBase).length);
   // A trailing dot would form ".." when the extension is appended.
   const safeBase = baseWithoutExt.replace(/[^\w.-]+/g, "_").slice(0, 80).replace(/\.{2,}|\.$/g, "_") || "background";
   const name = `${Date.now()}-${safeBase}-${randomUUID()}${ext}`;
-  fs.copyFileSync(sourcePath, path.join(bgDir, name), fs.constants.COPYFILE_EXCL);
+  await fs.promises.copyFile(sourcePath, path.join(bgDir, name), fs.constants.COPYFILE_EXCL);
   return name;
 }
 
