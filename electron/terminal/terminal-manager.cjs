@@ -1216,8 +1216,8 @@ function createTerminalManager({
       return;
     }
     if (typeof session?.term?.write === "function") {
-      trackCodexTerminalCommand(session, data);
-      session.term.write(data);
+      const result = session.term.write(data);
+      if (result?.ok !== false) trackCodexTerminalCommand(session, data);
     }
   }
 

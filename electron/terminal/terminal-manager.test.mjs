@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -6,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { createSsh2Terminal, MAX_PENDING_INPUT_BYTES } = require("../ssh/ssh2-terminal.cjs");
 const {
   AGENT_EXIT_MARKER,
   buildSshArgs,
@@ -608,6 +610,60 @@ describe("terminal-manager", () => {
     expect(term.killed).toBe(true);
     expect(remaining).toEqual([]);
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it.each(["codex", "qoder", "gemini"])("preserves %s command tracking when SSH rejects input and clears after acceptance", provider => {
+    const client = new EventEmitter();
+    const stream = new EventEmitter();
+    stream.stderr = new EventEmitter();
+    stream.write = vi.fn(() => true);
+    stream.end = vi.fn();
+    client.connect = vi.fn();
+    client.end = vi.fn();
+    client.shell = vi.fn((_options, callback) => callback(undefined, stream));
+    const onAgentStatusChanged = vi.fn();
+    let term;
+    const { manager, broadcast } = createManager({
+      onAgentStatusChanged,
+      ssh2TerminalFactory: options => {
+        term = createSsh2Terminal({ ...options, clientFactory: () => client });
+        return term;
+      }
+    });
+    const session = manager.createSession({
+      type: "ssh", sshConfig: { host: "example.com" }, agentProvider: provider
+    });
+    client.emit("ready");
+    manager.write(session.id, "/cl");
+    const runtime = manager.getSession(session.id);
+    runtime.agentStatus = "completed";
+    const commandState = runtime.agentCommandState;
+    const snapshot = { ...commandState };
+    stream.writableLength = MAX_PENDING_INPUT_BYTES;
+    const write = vi.spyOn(term, "write");
+    stream.write.mockClear();
+    broadcast.mockClear();
+    onAgentStatusChanged.mockClear();
+
+    for (const input of ["/clear\r", "ear\r"]) {
+      manager.write(session.id, input);
+      expect(write).toHaveLastReturnedWith(expect.objectContaining({ ok: false, code: "SSH_INPUT_LIMIT" }));
+      expect(runtime.agentStatus).toBe("completed");
+      expect(runtime.agentCommandState).toBe(commandState);
+      expect(runtime.agentCommandState).toEqual(snapshot);
+    }
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(broadcast.mock.calls.filter(([channel]) => channel === "agent:status")).toEqual([]);
+    expect(onAgentStatusChanged).not.toHaveBeenCalled();
+
+    stream.writableLength = 0;
+    manager.write(session.id, "ear\r");
+    expect(write).toHaveLastReturnedWith({ ok: true });
+    expect(stream.write).toHaveBeenCalledWith("ear\r");
+    expect(runtime.agentStatus).toBe("cleared");
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({ provider, status: "cleared" }));
+    expect(onAgentStatusChanged).toHaveBeenCalledOnce();
+    term.kill();
   });
 
   it("clears a Codex session when the submitted terminal command is /clear", () => {
