@@ -64,8 +64,9 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   function remove(id, input) {
     const tasks = list(id); const task = tasks.find(value => value.id === input?.id);
     if (!task) throw new Error("任务不存在。");
+    const result = write(id, tasks.filter(value => value.id !== task.id));
     revokeTask(task.id);
-    return write(id, tasks.filter(value => value.id !== task.id));
+    return result;
   }
   async function runTask(id, input) {
     const parsed = z.object({ id: z.string().min(1) }).strict().parse(input);

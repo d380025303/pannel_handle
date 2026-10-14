@@ -299,6 +299,74 @@ it("exposes filtered owner history and validates the source template", async () 
 });
 
 describe("scheduled call history", () => {
+  function trackJobs() {
+    let jobs;
+    const set = Map.prototype.set;
+    vi.spyOn(Map.prototype, "set").mockImplementation(function (key, value) {
+      if (typeof key === "string" && key.startsWith("task:") && value?.runId) jobs = this;
+      return set.call(this, key, value);
+    });
+    return () => jobs;
+  }
+
+  it("releases completed jobs after ten large replies and task deletions", async () => {
+    const getJobs = trackJobs();
+    const f = await fixture();
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    const output = "x".repeat(1024 * 1024);
+    for (let index = 0; index < 10; index++) {
+      const task = f.owners.saveTask("one", { ...scheduled(owner.id), enabled: false, autoCreateWorkItem: false })[0];
+      await f.owners.runTask("one", { id: task.id });
+      f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output });
+      expect(getJobs().get(`task:${task.id}`).output).toBe(output);
+      f.sessions.clear();
+      f.owners.deleteTask("one", { id: task.id });
+      expect(getJobs().size).toBe(0);
+    }
+    expect(f.owners.listTasks("one")).toEqual([]);
+    expect(f.sessions.size).toBe(0);
+  });
+
+  it.each(["completed", "running"])("retains deleted %s jobs until result and history retries succeed", async status => {
+    let retry;
+    const interval = globalThis.setInterval;
+    vi.spyOn(globalThis, "setInterval").mockImplementation((fn, delay, ...args) => {
+      retry = fn;
+      return interval(fn, delay, ...args);
+    });
+    const getJobs = trackJobs();
+    const f = await fixture();
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    const task = f.owners.saveTask("one", { ...scheduled(owner.id), enabled: false, recordHistory: true })[0];
+    await f.owners.runTask("one", { id: task.id });
+    const job = getJobs().get(`task:${task.id}`);
+    const saveHistory = f.dataStore.saveTaskRun.bind(f.dataStore);
+    const saveResult = f.dataStore.insertWorkItem.bind(f.dataStore);
+    const history = vi.spyOn(f.dataStore, "saveTaskRun").mockImplementation(() => { throw new Error("disk full"); });
+    const result = vi.spyOn(f.dataStore, "insertWorkItem").mockImplementation(() => { throw new Error("disk full"); });
+    if (status === "running") {
+      f.owners.deleteTask("one", { id: task.id });
+      retry();
+      expect(getJobs().get(`task:${task.id}`)).toBe(job);
+    }
+    f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "final reply" });
+    if (status === "completed") f.owners.deleteTask("one", { id: task.id });
+    f.sessions.clear();
+    retry();
+    expect(getJobs().get(`task:${task.id}`)).toBe(job);
+    history.mockImplementation(saveHistory);
+    retry();
+    expect(getJobs().get(`task:${task.id}`)).toBe(job);
+    expect(f.owners.getTaskRun("one", { taskId: task.id, id: job.runId })).toMatchObject({ status: "completed", output: "final reply" });
+    result.mockImplementation(saveResult);
+    retry();
+    expect(getJobs().size).toBe(0);
+    expect(f.owners.workItems.list().records).toHaveLength(1);
+    expect(f.owners.workItems.list().records[0]).toMatchObject({ summary: "final reply", sourceRunId: job.runId });
+    retry();
+    expect(f.owners.workItems.list().records).toHaveLength(1);
+  });
+
   it("does not serialize or write unchanged history for 100 completed disabled tasks", async () => {
     const f = await fixture(true);
     const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];

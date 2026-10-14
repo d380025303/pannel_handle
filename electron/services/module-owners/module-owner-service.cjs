@@ -19,6 +19,12 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   const jobs = new Map();
   const grants = new Map();
   const pendingResults = new Map();
+  function cleanupJob(job) {
+    if (!job || !(job.manual || job.deleted) || job.creating || ["creating", "running", "uncertain"].includes(job.status)) return;
+    if (job.historyDirty || job.historyError || job.progressError || pendingResults.has(job.runId)) return;
+    const key = `task:${job.taskId}`;
+    if (jobs.get(key) === job) { grants.delete(job.token); jobs.delete(key); }
+  }
   function saveResults() {
     for (const [id, pending] of pendingResults) {
       try {
@@ -69,6 +75,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       if (!event.threadId || !terminalManager.getSession(job.sessionId)) {
         failClosedTask(job);
         persistRun(job);
+        cleanupJob(job);
         broadcast("module-owners:changed", { templateId: job.templateId });
         continue;
       }
@@ -92,6 +99,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       if (job.history && job.history.output !== job.output) { job.history.output = job.output; job.historyDirty = true; }
       grants.delete(job.token);
       persistRun(job);
+      cleanupJob(job);
       broadcast("module-owners:changed", { templateId: job.templateId });
     }
   });
@@ -103,7 +111,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   }
   const supported = value => value.type === "windows" && value.agentProvider === "codex" && value.graphicalSessionEnabled !== false && Boolean(value.cwd);
   function refresh(job) {
-    if (!job || !["creating", "running", "uncertain"].includes(job.status)) { persistRun(job); return job; }
+    if (!job || !["creating", "running", "uncertain"].includes(job.status)) { persistRun(job); cleanupJob(job); return job; }
     if (job.sessionId) {
       let snapshot;
       try { if (terminalManager.getSession(job.sessionId)) snapshot = graphicalService.getInjectedToolState(job.sessionId); } catch {}
@@ -127,6 +135,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       grants.delete(job.token);
     }
     persistRun(job);
+    cleanupJob(job);
     return job;
   }
   const publicJob = job => job ? { status: job.status, sessionId: job.sessionId, error: [job.error, job.historyError, job.resultError, job.progressError].filter(Boolean).join(" · "), startedAt: job.startedAt } : null;
@@ -286,7 +295,10 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       if (!dataStore) throw new Error("SQLite 任务存储不可用。");
       return dataStore.workItemTaskUnprocessed(id, taskId) || [...pendingResults.values()].some(value => value.item.templateId === id && value.item.taskId === taskId);
     },
-    revokeTask: taskId => { const job = jobs.get(`task:${taskId}`); if (job) grants.delete(job.token); },
+    revokeTask: taskId => {
+      const job = jobs.get(`task:${taskId}`);
+      if (job) { grants.delete(job.token); job.deleted = true; cleanupJob(job); }
+    },
     ownerBusy: (id, ownerId) => ownerBusy(id, ownerId) || Boolean(dataStore?.workItemOwnerBusy(id, ownerId)),
     revoke: ownerId => { for (const job of jobs.values()) if (job.ownerId === ownerId) grants.delete(job.token); }
   });
@@ -304,9 +316,9 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     } });
   const retryTimer = setInterval(() => {
     saveResults();
-    for (const [key, job] of jobs) {
-      if (job.manual || job.historyError) refresh(job);
-      if (job.manual && !["creating", "running", "uncertain"].includes(job.status) && !job.progressError) jobs.delete(key);
+    for (const job of jobs.values()) {
+      if (job.manual || job.deleted || job.historyError) refresh(job);
+      cleanupJob(job);
     }
   }, 1000);
   retryTimer.unref?.();
