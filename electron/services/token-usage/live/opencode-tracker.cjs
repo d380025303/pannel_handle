@@ -48,6 +48,7 @@ function createOpenCodeTrackerManager({ now, emitSnapshot, onUsage }) {
         provider: "opencode",
         session,
         messages: new Map(),
+        modelCounts: new Map(),
         rawTokens: emptyTokens(),
         rawCapabilities: emptyCapabilityUsage("unavailable"),
         sessionBaseline: emptyTokens(),
@@ -65,13 +66,20 @@ function createOpenCodeTrackerManager({ now, emitSnapshot, onUsage }) {
     return tracker;
   }
 
-  function recompute(tracker) {
-    const tokens = emptyTokens();
-    for (const message of tracker.messages.values()) {
-      for (const field of TOKEN_FIELDS) tokens[field] += safeInteger(message.tokens?.[field]);
+  function updateUsage(tracker, message, previous) {
+    for (const field of TOKEN_FIELDS) {
+      tracker.rawTokens[field] += message.tokens[field] - (previous?.tokens[field] || 0);
     }
-    tracker.rawTokens = tokens;
-    tracker.models = [...new Set([...tracker.messages.values()].map(message => message.model).filter(Boolean))];
+    if (previous?.model === message.model) return;
+    if (previous?.model) {
+      const count = tracker.modelCounts.get(previous.model) - 1;
+      if (count > 0) tracker.modelCounts.set(previous.model, count);
+      else tracker.modelCounts.delete(previous.model);
+    }
+    if (message.model) {
+      tracker.modelCounts.set(message.model, (tracker.modelCounts.get(message.model) || 0) + 1);
+    }
+    tracker.models = [...tracker.modelCounts.keys()];
   }
 
   function emit(tracker) {
@@ -96,7 +104,7 @@ function createOpenCodeTrackerManager({ now, emitSnapshot, onUsage }) {
       const previous = tracker.messages.get(message.id);
       if (message.tokens.totalTokens === 0 && previous?.tokens?.totalTokens > 0) return;
       tracker.messages.set(message.id, message);
-      recompute(tracker);
+      updateUsage(tracker, message, previous);
       if (tracker.turnStartedAt) {
         const startedAt = tracker.turnStartedAt;
         tracker.turnStartedAt = startedAt;
