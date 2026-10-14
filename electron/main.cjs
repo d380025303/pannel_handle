@@ -13,7 +13,7 @@ const { createWindowManager } = require("./core/window-manager.cjs");
 const { createAgentConversationManager } = require("./core/agent-conversation-manager.cjs");
 const { createAgentHookServer } = require("./hooks/agent-hook-server.cjs");
 const { createAgentSessionLauncher } = require("./hooks/agent-session-launcher.cjs");
-const { createHookConfigManager } = require("./hooks/hook-config-manager.cjs");
+const { createAsyncHookConfigManager } = require("./hooks/hook-config-worker-client.cjs");
 const { createRemoteHookConfigService } = require("./hooks/remote-hook-config-service.cjs");
 const { createCodexWorkspaceTrustService } = require("./hooks/codex-workspace-trust-service.cjs");
 const { createAgentNotificationManager } = require("./notifications/agent-notification-manager.cjs");
@@ -501,7 +501,7 @@ if (!gotSingleInstanceLock) {
       graphicalService: codexAppServerSessionService, sshAgentTransport, sshFileSystem, environmentService });
     skillsService = createSkillsService({ homeDir: app.getPath("home"), terminalManager,
       codexAppServerSessionService: codexGraphicalService, environmentService, sshFileSystem });
-    hookConfigManager = createHookConfigManager();
+    hookConfigManager = createAsyncHookConfigManager();
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService: tokenUsageModule });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
