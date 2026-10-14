@@ -568,6 +568,45 @@ describe("agent-session-launcher", () => {
     });
   });
 
+  it.each(["windows", "wsl"])("keeps timers responsive during a 600ms %s Gemini version probe", async (type) => {
+    let versionFinished = false;
+    const service = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService: service,
+      execFile: (_file, args, options, callback) => {
+        if (!String(args.at(-1)).includes("gemini --version")) return callback(null, "found", "");
+        expect(options).toMatchObject({ timeout: 10_000, maxBuffer: 64 * 1024 });
+        return execFile(process.execPath, ["-e", "setTimeout(() => console.log('0.56.0'), 600)"], options, (...result) => {
+          versionFinished = true;
+          callback(...result);
+        });
+      } });
+    const started = performance.now();
+    const timer = new Promise(resolve => setTimeout(() => resolve({ elapsed: performance.now() - started, versionFinished }), 20));
+    const pending = mocks.launcher.createSession({ type, wslDistro: "Ubuntu", cwd: type === "wsl" ? "/work" : "C:/work",
+      agentProvider: "gemini", graphicalSessionEnabled: true });
+    const observation = await timer;
+    expect(observation.versionFinished).toBe(false);
+    expect(observation.elapsed).toBeLessThan(400);
+    expect(service.start).not.toHaveBeenCalled();
+    await expect(pending).resolves.toMatchObject({ runtimeMode: "app-server" });
+    expect(service.start).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["console.log('unrecognized')", {}, "无法识别 Gemini CLI 版本"],
+    ["console.log('0.25.9')", {}, "最低 0.26.0"],
+    ["process.exit(1)", {}, "无法读取 Gemini CLI 版本"],
+    ["setTimeout(() => {}, 600)", { timeout: 100 }, "无法读取 Gemini CLI 版本"],
+    ["console.log('x'.repeat(70000))", {}, "无法读取 Gemini CLI 版本"]
+  ])("rejects unsuccessful real async Gemini probes: %s", async (script, optionsOverride, message) => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      execFile: (_file, _args, options, callback) => execFile(process.execPath, ["-e", script],
+        { ...options, ...optionsOverride }, callback) });
+    await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:/work", agentProvider: "gemini", graphicalSessionEnabled: true }))
+      .rejects.toThrow(message);
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
   it("requires Gemini CLI 0.26.0 or newer on Windows", async () => {
     const old = createMocks({
       spawnSync: vi.fn((command) => command === "where.exe"

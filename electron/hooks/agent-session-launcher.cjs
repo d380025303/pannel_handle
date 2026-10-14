@@ -87,11 +87,11 @@ function assertOpenCodeVersion(result, session) {
   return match[1];
 }
 
-function readGeminiVersion(session, spawnSync) {
+async function readGeminiVersion(session, checkLocalCommand) {
   const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
   const result = session.type === "wsl"
-    ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "resolved=$(command -v gemini) || exit 127; case \"$resolved\" in /mnt/*) echo WINDOWS_SHIM >&2; exit 126;; esac; gemini --version"], options)
-    : spawnSync("cmd.exe", ["/d", "/s", "/c", "gemini --version"], options);
+    ? await checkLocalCommand("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "resolved=$(command -v gemini) || exit 127; case \"$resolved\" in /mnt/*) echo WINDOWS_SHIM >&2; exit 126;; esac; gemini --version"], options)
+    : await checkLocalCommand("cmd.exe", ["/d", "/s", "/c", "gemini --version"], options);
   if (result.error || result.status !== 0) {
     const detail = String(result.stderr || "").includes("WINDOWS_SHIM")
       ? "WSL 中检测到的是 Windows Gemini shim，请在该 WSL 发行版内安装原生 Gemini CLI。"
@@ -410,7 +410,7 @@ function createAgentSessionLauncher({
       if (result.status !== 0) throw new Error(`检测 WSL ${session.wslDistro} 中的 ${agentCommand} 命令失败（退出代码 ${result.status ?? "未知"}）：${String(result.stderr || "").trim().slice(-1000)}`);
       if (session.agentProvider === "opencode") assertOpenCodeVersion(spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic", "opencode --version"],
         { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 }), session);
-      return session.agentProvider === "gemini" ? readGeminiVersion(session, spawnSync)
+      return session.agentProvider === "gemini" ? await readGeminiVersion(session, checkLocalCommand)
         : session.agentProvider === "grok" ? readGrokVersion(session, spawnSync) : undefined;
     }
     const result = session.type === "wsl"
@@ -419,7 +419,7 @@ function createAgentSessionLauncher({
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider, session)}`);
     }
-    if (session.agentProvider === "gemini") return readGeminiVersion(session, spawnSync);
+    if (session.agentProvider === "gemini") return await readGeminiVersion(session, checkLocalCommand);
     if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
     if (session.agentProvider === "opencode") {
       const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
