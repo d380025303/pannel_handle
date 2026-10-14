@@ -33,6 +33,64 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it.each(["windows", "ssh"])("checks %s image size before reading and retains the post-read limit", async type => {
+    const limit = 10 * 1024 * 1024;
+    const file = type === "ssh" ? "/srv/app/image.png" : "C:\\work\\image.png";
+    const prompts = [];
+    const respond = (message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") {
+        prompts.push(message.params.prompt);
+        emit({ id: message.id, result: { stopReason: "end_turn" } });
+      }
+    };
+    const child = fakeChild(respond);
+    const transport = new EventEmitter();
+    transport.write = chunk => respond(JSON.parse(String(chunk)), value =>
+      transport.emit("stdout", Buffer.from(`${JSON.stringify(value)}\n`)));
+    transport.close = vi.fn();
+    const stat = vi.fn();
+    const read = vi.fn();
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      sshAgentTransport: { createStdioTransport: async () => transport,
+        createHttpForwarder: async () => ({ host: "127.0.0.1", port: 12345, close: vi.fn() }) }, sshFileSystem: { stat, get: read } });
+    let statSpy; let readSpy;
+    try {
+      await service.start({ id: "one", type, cwd: type === "ssh" ? "/srv/app" : "C:\\work" });
+      if (type === "windows") {
+        statSpy = vi.spyOn(fs.promises, "stat").mockImplementation(stat);
+        readSpy = vi.spyOn(fs.promises, "readFile").mockImplementation(read);
+      }
+      service.allowFiles("one", [file]);
+      stat.mockResolvedValue({ size: 64 * 1024 * 1024 });
+      await expect(service.submit("one", "image", [file])).rejects.toThrow("图片超过 10 MB。");
+      expect(stat).toHaveBeenCalledWith(...(type === "ssh" ? ["one", file] : [file]));
+      expect(read).not.toHaveBeenCalled();
+      expect(prompts).toEqual([]);
+      expect(service.snapshot("one").busy).toBe(false);
+
+      for (const size of [4, limit]) {
+        const data = Buffer.alloc(size, 1);
+        stat.mockResolvedValue({ size });
+        read.mockResolvedValue(data);
+        service.allowFiles("one", [file]);
+        await service.submit("one", "image", [file]);
+        expect(prompts.at(-1)).toContainEqual({ type: "image", mimeType: "image/png", data: data.toString("base64") });
+      }
+      expect(read).toHaveBeenCalledTimes(2);
+      stat.mockResolvedValue({ size: limit });
+      read.mockResolvedValue(Buffer.alloc(limit + 1));
+      service.allowFiles("one", [file]);
+      await expect(service.submit("one", "image", [file])).rejects.toThrow("图片超过 10 MB。");
+      expect(prompts).toHaveLength(2);
+    } finally {
+      statSpy?.mockRestore(); readSpy?.mockRestore();
+      await service.close("one");
+    }
+  });
+
   it("confirms prompt submission before completion and retains later execution failures", async () => {
     let finishPrompt;
     const child = fakeChild((message, emit) => {

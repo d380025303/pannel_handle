@@ -1647,7 +1647,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const mime = IMAGE_MIME[path.extname(file).toLowerCase()];
       if (mime) {
         const hostPath = entry.session.type === "wsl" && agentPath.startsWith("/") ? toWslHostPath(entry.session.wslDistro, agentPath) : file;
-        const data = isRemote(entry) && agentPath.startsWith("/") ? await sshFileSystem.get(id, agentPath) : await fs.promises.readFile(hostPath);
+        const remote = isRemote(entry) && agentPath.startsWith("/");
+        const stat = remote ? await sshFileSystem.stat(id, agentPath) : await fs.promises.stat(hostPath);
+        if (stat.size > IMAGE_LIMIT) throw new Error("图片超过 10 MB。");
+        const data = remote ? await sshFileSystem.get(id, agentPath) : await fs.promises.readFile(hostPath);
         if (data.length > IMAGE_LIMIT) throw new Error("图片超过 10 MB。");
         const block = { type: "image", mimeType: mime, data: Buffer.from(data).toString("base64") };
         if (orderedContent) imageBlocks.set(file, block);
