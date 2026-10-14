@@ -100,6 +100,14 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         await graphical.handle(socket, message);
       } else if (message.type === "terminal.subscribe") {
         await subscribeTerminal(socket, String(message.sessionId || ""), Number(message.lastSeq));
+      } else if (message.type === "terminal.unsubscribe") {
+        if (typeof message.sessionId !== "string" || !message.sessionId) throw new Error("终端会话无效。");
+        socket.subscriptions.delete(message.sessionId);
+        const pending = pendingTerminalSubscriptions.get(socket);
+        if (pending?.sessionId === message.sessionId) {
+          pending.events.length = 0;
+          pendingTerminalSubscriptions.delete(socket);
+        }
       } else if (message.type === "terminal.input") {
         if (terminalManager.getSession(String(message.sessionId || ""))?.runtimeMode === "app-server") throw new Error("图形会话不能接收终端输入。");
         const data = typeof message.data === "string" ? message.data : "";

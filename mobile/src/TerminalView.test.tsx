@@ -48,3 +48,17 @@ it("resubscribes to the current terminal after reconnect", () => {
   page.rerender(<TerminalView {...props} connectionEpoch={2} />);
   expect(send.mock.calls.filter(([message]) => message.type === "terminal.subscribe")).toHaveLength(2);
 });
+
+it("unsubscribes the previous session on switch and the current session on leaving the view", () => {
+  const send = vi.fn((_message: ClientMessage) => true);
+  const props = { send, onTerminalMessage: () => () => {}, pasteText: "", setPasteText: vi.fn(), pasteOpen: false, setPasteOpen: vi.fn() };
+  const page = render(<TerminalView {...props} session={session} connectionEpoch={1} />);
+  page.rerender(<TerminalView {...props} session={{ ...session, id: "terminal-2" }} connectionEpoch={1} />);
+  page.unmount();
+  expect(send.mock.calls.map(([message]) => message)).toEqual([
+    { v: 8, type: "terminal.subscribe", sessionId: "terminal-1", lastSeq: undefined },
+    { v: 8, type: "terminal.unsubscribe", sessionId: "terminal-1" },
+    { v: 8, type: "terminal.subscribe", sessionId: "terminal-2", lastSeq: undefined },
+    { v: 8, type: "terminal.unsubscribe", sessionId: "terminal-2" }
+  ]);
+});

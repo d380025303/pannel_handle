@@ -123,7 +123,11 @@ function fixture() {
   const messages = [];
   const sendError = vi.fn();
   const handlers = socketModule.createMobileSocketHandlers({
-    terminalManager: { getSession: id => ({ id, runtimeMode: "terminal" }) },
+    terminalManager: {
+      getSession: id => ({ id, runtimeMode: "terminal" }),
+      listSessions: () => [{ id: "one", runtimeMode: "terminal", type: "windows" }]
+    },
+    sessionStore: { getLibrary: () => [] },
     stateHub, now: () => 1, auth: { handleSocketClosed: vi.fn() },
     sizes: { getSizeState: () => ({ owner: "desktop", cols: 100, rows: 30 }) },
     send: (_socket, message) => messages.push(message), sendError
@@ -138,10 +142,58 @@ function fixture() {
     const seq = stateHub.write(sessionId, data);
     handlers.handleTerminalData(socket, { type: "terminal.data", sessionId, data, seq });
   };
-  return { stateHub, messages, socket, subscribe, write, sendError };
+  const unsubscribe = (sessionId = "one") => socket.emit("message", JSON.stringify({
+    v: protocolModule.PROTOCOL_VERSION, type: "terminal.unsubscribe", sessionId
+  }));
+  return { stateHub, messages, socket, subscribe, unsubscribe, write, sendError, handlers };
 }
 
 describe("mobile terminal subscription ordering", () => {
+  it("stops all 1024 output frames after unsubscribe and restores the next snapshot", async () => {
+    const f = fixture();
+    f.subscribe("one", 0);
+    f.write("LIVE");
+    expect(f.messages.at(-1)).toMatchObject({ type: "terminal.data", data: "LIVE" });
+    f.unsubscribe();
+    f.messages.length = 0;
+    for (let index = 0; index < 1024; index++) f.write("x".repeat(1024));
+    expect(f.messages).toEqual([]);
+    expect(f.socket.authenticated).toBe(true);
+    f.subscribe();
+    await vi.waitFor(() => expect(f.messages).toHaveLength(1));
+    expect(f.messages[0]).toMatchObject({ type: "terminal.snapshot", snapshot: { seq: 1025 } });
+    f.write("RESUMED");
+    expect(f.messages.at(-1)).toMatchObject({ type: "terminal.data", data: "RESUMED" });
+    expect(f.sendError).not.toHaveBeenCalled();
+  });
+
+  it("still sends the homepage overview after unsubscribing", async () => {
+    const f = fixture();
+    f.subscribe("one", 0);
+    f.unsubscribe();
+    f.messages.length = 0;
+    f.write("HOMEPAGE SUMMARY\r\n");
+    f.handlers.sendReady(f.socket);
+    await vi.waitFor(() => expect(f.messages.some(message => message.type === "session.overview")).toBe(true));
+    expect(f.messages.find(message => message.type === "session.overview")).toMatchObject({
+      overview: { sessionId: "one", summary: "HOMEPAGE SUMMARY" }
+    });
+    expect(f.messages.some(message => message.type === "terminal.data")).toBe(false);
+  });
+
+  it("keeps a newer session's pending snapshot and output when the old session unsubscribes", async () => {
+    const f = fixture();
+    f.subscribe("one", 0);
+    f.subscribe("two");
+    f.unsubscribe("one");
+    f.write("NEW", "two");
+    await vi.waitFor(() => expect(f.messages.some(message => message.type === "terminal.snapshot")).toBe(true));
+    expect(f.messages.filter(message => message.type === "terminal.data")).toEqual([
+      { type: "terminal.data", sessionId: "two", data: "NEW", seq: 1 }
+    ]);
+    expect(f.socket.subscriptions.has("two")).toBe(true);
+  });
+
   it("includes scrollback in the first mobile subscription", async () => {
     const f = fixture();
     f.stateHub.start("one", 40, 3);
@@ -200,7 +252,7 @@ describe("mobile terminal subscription ordering", () => {
     expect(f.messages[0]).toMatchObject({ type: "terminal.snapshot", snapshot: { seq: 1, ansi: "INCLUDED" } });
   });
 
-  it.each(["switch", "close", "resubscribe"])("discards a pending snapshot after %s", async action => {
+  it.each(["switch", "close", "resubscribe", "unsubscribe"])("discards a pending snapshot after %s", async action => {
     const f = fixture();
     let resolve;
     const snapshot = await f.stateHub.getSnapshot("one");
@@ -209,6 +261,7 @@ describe("mobile terminal subscription ordering", () => {
     const finishOld = resolve;
     f.write("OLD");
     if (action === "close") f.socket.emit("close", 1000);
+    else if (action === "unsubscribe") f.unsubscribe();
     else f.subscribe(action === "switch" ? "two" : "one", 0);
     const before = [...f.messages];
     finishOld(snapshot);

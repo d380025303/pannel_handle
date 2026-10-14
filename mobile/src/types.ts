@@ -153,6 +153,7 @@ export type ClientMessage =
   | { v: 8; type: `graphical.codex.${CodexCommand}`; sessionId: string; threadId: string | null; requestId: string; input?: Record<string, unknown> }
   | { v: 8; type: "password.login"; password: string; deviceName: string }
   | { v: 8; type: "terminal.subscribe"; sessionId: string; lastSeq?: number }
+  | { v: 8; type: "terminal.unsubscribe"; sessionId: string }
   | { v: 8; type: "terminal.input"; sessionId: string; data: string }
   | { v: 8; type: "quick-command.invoke"; sessionId: string; commandId: string; threadId?: string | null; requestId: string }
   | { v: 8; type: "terminal.claim-size"; sessionId: string; cols: number; rows: number }

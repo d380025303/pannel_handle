@@ -133,6 +133,9 @@ export function TerminalView({ session, deviceId, connectionEpoch, send, onTermi
     if (!connectionEpoch) return;
     send({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: session.id,
       lastSeq: seqRef.current.get(session.id) });
+    return () => {
+      send({ v: PROTOCOL_VERSION, type: "terminal.unsubscribe", sessionId: session.id });
+    };
   }, [connectionEpoch, send, session.id]);
 
   useEffect(() => {
