@@ -58,6 +58,44 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
 }
 
 describe("SettingsModal navigation", () => {
+  it("tabs through the bulk paste summary and skips its controls while collapsed", async () => {
+    const user = userEvent.setup();
+    window.environmentApi = { list: vi.fn(async () => []), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal();
+    await user.click(screen.getByRole("tab", { name: "环境变量" }));
+    const add = screen.getByRole("button", { name: "添加第一个变量" });
+    const summary = screen.getByText("批量粘贴 KEY=VALUE");
+    const details = summary.closest("details")!;
+    const input = screen.getByLabelText("批量环境变量");
+    const dialog = screen.getByRole("dialog");
+    add.focus();
+    await user.tab();
+    expect(document.activeElement).toBe(summary);
+    await user.tab();
+    const after = document.activeElement;
+    expect(after).not.toBe(summary);
+    expect(details.contains(after)).toBe(false);
+    expect(dialog.contains(after)).toBe(true);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(summary);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(add);
+    await user.tab();
+    // jsdom does not implement the native summary Enter activation.
+    await user.click(summary);
+    expect(details.open).toBe(true);
+    await user.tab();
+    expect(document.activeElement).toBe(input);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(summary);
+    await user.click(summary);
+    expect(details.open).toBe(false);
+    await user.tab();
+    expect(document.activeElement).toBe(after);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(summary);
+  });
+
   it("keeps forward and backward keyboard navigation inside settings and restores the opener", async () => {
     const user = userEvent.setup();
     const opener = document.createElement("button");

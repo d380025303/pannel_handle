@@ -127,6 +127,10 @@ export function SettingsModal({
     const visible = (element: HTMLElement) => {
       if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
       for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement && !parent.open) {
+          const summary = Array.from(parent.children).find(child => child.tagName === "SUMMARY");
+          if (!summary?.contains(element)) return false;
+        }
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") return false;
       }
@@ -134,7 +138,7 @@ export function SettingsModal({
     };
     const scope = Array.from(dialog.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'))
       .filter(visible).at(-1) ?? dialog;
-    const items = Array.from(scope.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex], [contenteditable="true"]'))
+    const items = Array.from(scope.querySelectorAll<HTMLElement>('button, input, select, textarea, summary, a[href], [tabindex], [contenteditable="true"]'))
       .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && visible(element));
     // Portal menus share aria-controls with their trigger. Continue from that
     // trigger after the menu's own Tab handler closes it.
