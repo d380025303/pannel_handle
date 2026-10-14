@@ -46,3 +46,23 @@ it("keeps ordinary transport real and suppresses pending events after preview so
   const socket = new PreviewSocket(); const opened = vi.fn(); socket.addEventListener("open", opened);
   socket.close(); await Promise.resolve(); expect(opened).not.toHaveBeenCalled();
 });
+
+it("previews configuration, refreshes selected permissions and disables restricted choices", async () => {
+  installBrowserPreview(); render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "打开图形会话 · 界面验收详情" }));
+  fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: /配置与权限/ }));
+  await screen.findByText(/工作区：.*移动端配置与权限验收/);
+  expect(screen.getByText("配置层来源")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "完全访问", exact: true }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "unrestricted", exact: true }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "workspace", exact: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "workspace", exact: true }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(screen.getByRole("button", { name: "刷新配置" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "刷新配置" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.getByRole("button", { name: "workspace", exact: true }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "只读", exact: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "只读", exact: true }).getAttribute("aria-pressed")).toBe("true"));
+  expect(screen.getByRole("button", { name: "workspace", exact: true }).getAttribute("aria-pressed")).toBe("false");
+  expect(screen.queryByText("此操作尚未提供预览模拟数据。")).toBeNull();
+});

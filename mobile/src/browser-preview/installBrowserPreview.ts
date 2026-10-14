@@ -1,9 +1,19 @@
 import { installPreviewTransport, type RemoteSocket } from "../remoteSocket";
 import type { ClientMessage, GraphicalSnapshot, RuntimeSession, SavedTemplate, ServerMessage } from "../types";
-import type { CodexSessionCapabilities, WorkItem, WorkItemAttempt, WorkItemQuickPrompt } from "../../../src/vite-env";
+import type { CodexConfigurationView, CodexSessionCapabilities, WorkItem, WorkItemAttempt, WorkItemQuickPrompt } from "../../../src/vite-env";
 
 const longText = "浏览器内存预览：检查窄屏长文本换行、弹窗滚动与模拟交互。".repeat(24);
 const cwd = "C:\\preview";
+const configurationCwd = `${cwd}\\移动端配置与权限验收\\包含长路径的工作区\\projects\\terminal-session-manager\\mobile-browser-preview`;
+const permissionProfiles = [
+  { id: "workspace", allowed: true, reason: null, description: "仅允许修改当前工作区；访问工作区外文件或执行网络请求时需要确认。" },
+  { id: "audit", allowed: true, reason: null, description: "只读审查权限档：用于检查项目配置与代码，不允许修改文件。" },
+  { id: "unrestricted", allowed: false, reason: "管理员限制：不允许绕过审批或访问工作区外的敏感目录。请使用工作区权限档，并在需要额外访问时逐次确认。", description: "无限制访问（预览中禁用）" }
+];
+const legacyPermissions: CodexConfigurationView["legacy"] = [
+  { id: "readOnly", allowed: true, reason: null }, { id: "askApproval", allowed: true, reason: null },
+  { id: "fullAccess", allowed: false, reason: "管理员限制：当前工作区禁止完全访问，写入与网络访问须遵循审批策略。" }
+];
 
 export class PreviewSocket extends EventTarget {
   readyState = 0;
@@ -17,7 +27,8 @@ export class PreviewSocket extends EventTarget {
     { id: "preview-agent", title: "图形助手模板", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd, runningCount: 1 }
   ];
   private snapshot: GraphicalSnapshot = { threadId: "preview-thread", provider: "codex", busy: false, archived: false,
-    error: null, mode: "default", nativeMode: null, capabilities: { history: true, plan: true, permissions: true }, pendingPlan: null,
+    error: null, mode: "default", executionPermission: "askApproval", permissionProfileId: null,
+    permissionOptions: legacyPermissions, nativeMode: null, capabilities: { history: true, plan: true, permissions: true }, pendingPlan: null,
     model: "preview-model", models: [{ id: "preview-model", displayName: "预览模型" }], effort: "medium",
     items: [{ id: "user", type: "userMessage", text: "请检查移动端布局。" },
       { id: "assistant", type: "agentMessage", text: `## 移动端预览\n\n${longText}\n\n- 会话与模板\n- 任务与文件\n- 图形消息交互` }], approvals: [], questions: [] };
@@ -99,6 +110,34 @@ export class PreviewSocket extends EventTarget {
         catch (error) { this.emit({ v: 8, type: "error", code: "PREVIEW_REQUEST", requestId: message.requestId, message: String(error) }); }
         return;
       case "graphical.subscribe": snapshot(message.sessionId); return;
+      case "graphical.codex.configuration": {
+        const values = { model: "preview-model", model_reasoning_effort: "medium", approval_policy: "on-request", sandbox_mode: "workspace-write", web_search: "cached" };
+        const result: CodexConfigurationView = {
+          cwd: configurationCwd,
+          config: { status: "ready", data: { values, layers: [
+            { type: "user", path: `${cwd}\\用户配置\\.codex\\config.toml`, disabled: false, values: { model: "preview-model", model_reasoning_effort: "medium" } },
+            { type: "project", path: `${configurationCwd}\\.codex\\config.toml`, disabled: false, values: { approval_policy: "on-request", sandbox_mode: "workspace-write" } },
+            { type: "project", path: `${configurationCwd}\\不受信任的子目录\\.codex\\config.toml`, disabled: true, values: { sandbox_mode: "danger-full-access" } }
+          ] } },
+          requirements: { status: "ready", data: { allowedApprovalPolicies: ["on-request"], allowedSandboxModes: ["read-only", "workspace-write"], allowedPermissionProfiles: ["workspace", "audit"], network: "只允许经审批的网络请求；禁止访问内部管理地址和敏感服务。此说明用于验收长内容换行与滚动。" } },
+          profiles: { status: "ready", data: permissionProfiles }, legacy: legacyPermissions,
+          runtime: { model: this.snapshot.model, effort: this.snapshot.effort, mode: this.snapshot.mode,
+            executionPermission: this.snapshot.executionPermission === "readOnly" ? "readOnly" : "askApproval", permissionProfileId: this.snapshot.permissionProfileId ?? null }
+        };
+        this.emit({ v: 8, type: "graphical.result", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId, result }); return;
+      }
+      case "graphical.codex.permission-profile": case "graphical.codex.permission-legacy": {
+        const profile = message.type === "graphical.codex.permission-profile";
+        const id = String(profile ? message.input?.profileId : message.input?.permission);
+        const option = (profile ? permissionProfiles : legacyPermissions).find(value => value.id === id);
+        if (!option?.allowed) {
+          this.emit({ v: 8, type: "error", code: "PREVIEW_PERMISSION", requestId: message.requestId, message: option?.reason || "预览权限选项不存在。" }); return;
+        }
+        this.snapshot = { ...this.snapshot, permissionProfileId: profile ? id : null,
+          executionPermission: profile ? id === "audit" ? "readOnly" : "askApproval" : id as CodexConfigurationView["runtime"]["executionPermission"] };
+        snapshot(message.sessionId);
+        this.emit({ v: 8, type: "graphical.result", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId, result: { ok: true } }); return;
+      }
       case "graphical.usage": this.emit({ v: 8, type: "graphical.usage", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId,
         usage: { provider: "codex", fetchedAt: Date.now(), primaryLimitId: "preview-limit", limits: [{ id: "preview-limit", name: "预览额度", usedPercent: 25, remainingPercent: 75, windowDurationMins: 300 }] } }); return;
       case "graphical.codex.capabilities": this.emit({ v: 8, type: "graphical.result", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId, result: { skills: [], apps: [], mcp: [], errors: {} } satisfies CodexSessionCapabilities }); return;
