@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { GitDiffResult, GitRepositorySnapshot, GitRepositoryTarget, GitWorkspaceSnapshot, TerminalSession } from "../../vite-env";
 import { GitStatusPanel } from "./GitStatusPanel";
+import { ProjectSearchModal } from "../remote/ProjectSearchModal";
 
 function createSession(id: string): TerminalSession {
   return {
@@ -134,6 +135,36 @@ function renderPanel(session: TerminalSession) {
 }
 
 describe("GitStatusPanel", () => {
+  it("closes only the diff on Escape and preserves the underlying project search", async () => {
+    const session = createSession("search-diff-escape");
+    window.gitApi = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    window.projectSearchApi = {
+      listDirectories: vi.fn(async () => ({ workspaceRoot: session.cwd, path: session.cwd, directories: [] })),
+      searchFiles: vi.fn(async () => ({ root: session.cwd, results: [{ name: "App.tsx", path: `${session.cwd}\\src\\App.tsx`, relativePath: "src/App.tsx" }] })),
+      cancelFileSearch: vi.fn(async () => true)
+    } as unknown as typeof window.projectSearchApi;
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<I18nProvider locale="zh-CN">
+      <ProjectSearchModal mode="files" initialRoot={session.cwd} session={session} embedded onClose={onClose} onOpenPath={() => {}} />
+      <GitStatusPanel session={session} />
+    </I18nProvider>);
+    const searchInput = screen.getAllByRole("textbox")[1];
+    await user.type(searchInput, "App");
+    await screen.findByRole("button", { name: /App\.tsx/ });
+    await user.click((await screen.findByText("working.ts")).closest("button")!);
+    const diffSearch = await screen.findByRole("textbox", { name: "搜索差异" });
+    await user.click(diffSearch);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect((searchInput as HTMLInputElement).value).toBe("App");
+    expect(screen.getByRole("button", { name: /App\.tsx/ })).toBeTruthy();
+    await user.click(searchInput);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("labels the ours comparison base in the preview and search selector", async () => {
     const session = createSession("ours-diff");
     const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });

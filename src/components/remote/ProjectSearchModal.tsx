@@ -109,7 +109,11 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        const blockingOverlay = Array.from(document.querySelectorAll<HTMLElement>(
+          '.modal-overlay, .remote-preview-overlay, .git-diff-overlay, .git-stash-overlay, [aria-modal="true"]'
+        )).some(overlay => !overlay.closest('[aria-hidden="true"]'));
+        if (blockingOverlay) return;
         event.preventDefault();
         onClose();
       }

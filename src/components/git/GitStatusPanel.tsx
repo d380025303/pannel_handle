@@ -211,6 +211,17 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   }, [matches]);
   const activeMatchId = matches[activeIndex]?.id;
 
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [onClose]);
+
   useEffect(() => setActiveIndex(0), [normalizedQuery, side]);
   useEffect(() => {
     gridRef.current?.querySelector('[data-active-diff-match="true"]')?.scrollIntoView({ block: "center", inline: "nearest" });
