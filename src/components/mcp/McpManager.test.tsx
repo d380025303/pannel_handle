@@ -136,6 +136,33 @@ describe("McpManager", () => {
     ]);
   });
 
+  it("preserves Enter while editing arguments and saves separate items without empty lines", async () => {
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    renderManager(windowsSession, onDirtyChange);
+    await screen.findByRole("heading", { name: "local-tools" });
+    const args = screen.getByPlaceholderText("每行一个参数") as HTMLTextAreaElement;
+    await user.click(args);
+    await user.keyboard("{Control>}{End}{/Control}{Enter}");
+    expect(args.value).toBe("-y\nexample-mcp\n");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.keyboard("--help{Enter}{Enter}");
+    expect(args.value).toBe("-y\nexample-mcp\n--help\n\n");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      draft: expect.objectContaining({ args: ["-y", "example-mcp", "--help"] })
+    })));
+    await screen.findByText("MCP 配置已保存。");
+    const savedDocument = (await save.mock.results[0].value).document;
+    list.mockResolvedValueOnce(savedDocument);
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(args.value).toBe("-y\nexample-mcp\n--help"));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
   it("switches CodeBuddy project scopes using the active Windows session", async () => {
     renderManager();
     await screen.findByRole("heading", { name: "local-tools" });

@@ -69,7 +69,7 @@ function cloneDraft(server: McpServerSummary): EditorDraft {
 }
 
 function draftSignature(draft: McpServerDraft | null) {
-  return draft ? JSON.stringify(draft) : "";
+  return draft ? JSON.stringify({ ...draft, args: draft.args.filter((value) => value !== "") }) : "";
 }
 
 type SecretRowsProps = {
@@ -197,7 +197,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
       const result = await api.save({
         ...requestTarget(),
         originalName,
-        draft: { ...draft, env: configEntries(draft.env), headers: configEntries(draft.headers) },
+        draft: { ...draft, args: draft.args.filter((value) => value !== ""), env: configEntries(draft.env), headers: configEntries(draft.headers) },
         expectedVersion: document.version
       });
       if (result.status === "conflict") {
@@ -396,7 +396,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
               {draft.transport === "stdio" ? (
                 <>
                   <label className="mcp-field"><span>{t("mcp.command")}</span><input value={draft.command} disabled={saving} onChange={(event) => setDraft({ ...draft, command: event.target.value })} /></label>
-                  <label className="mcp-field"><span>{t("mcp.args")}</span><div className="mcp-secret-input"><textarea value={draft.argsMasked ? "••••••••" : draft.args.join("\n")} disabled={saving || draft.argsMasked} placeholder={t("mcp.argsHint")} onChange={(event) => setDraft({ ...draft, args: event.target.value.split(/\r?\n/).filter((value) => value !== "") })} />{draft.argsMasked && <button className="icon-button" type="button" disabled={saving} title={t("mcp.reveal")} aria-label={t("mcp.reveal")} onClick={() => void reveal("args")}><Eye aria-hidden="true" /></button>}</div></label>
+                  <label className="mcp-field"><span>{t("mcp.args")}</span><div className="mcp-secret-input"><textarea value={draft.argsMasked ? "••••••••" : draft.args.join("\n")} disabled={saving || draft.argsMasked} placeholder={t("mcp.argsHint")} onChange={(event) => setDraft({ ...draft, args: event.target.value.split(/\r?\n/) })} />{draft.argsMasked && <button className="icon-button" type="button" disabled={saving} title={t("mcp.reveal")} aria-label={t("mcp.reveal")} onClick={() => void reveal("args")}><Eye aria-hidden="true" /></button>}</div></label>
                   {provider !== "codebuddy" && <label className="mcp-field"><span>{t("mcp.cwd")}</span><input value={draft.cwd} disabled={saving} onChange={(event) => setDraft({ ...draft, cwd: event.target.value })} /></label>}
                   <fieldset><legend>{t("mcp.env")}</legend><SecretRows entries={draft.env} disabled={saving} keyLabel={t("mcp.envKey")} valueLabel={t("mcp.reveal")} onChange={(env) => setDraft({ ...draft, env })} onReveal={(key) => void reveal("env", key)} /></fieldset>
                 </>
