@@ -7,6 +7,8 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
+import time
 
 PROVIDERS = {"codex", "codebuddy", "opencode", "gemini", "grok"}
 
@@ -460,36 +462,131 @@ def list_history(payload):
     return {"items": page, "nextCursor": str(offset + len(page)) if offset + len(page) < len(items) else None, "errors": errors}
 
 
+# Versioned, private cross-process snapshots. Each page reads only its own rows.
+SNAPSHOT_TTL = 3600
+SNAPSHOT_MAX_BYTES = 256 * 1024 * 1024
+SNAPSHOT_MAX_COUNT = 32
+
+
+def snapshot_root():
+    root = os.path.join(os.path.expanduser("~"), ".cache", "pannel-handle", "history-v1")
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    return root
+
+
+def prune_snapshots(root):
+    entries = []
+    for name in glob.glob(os.path.join(root, "*.sqlite")):
+        try:
+            stat = os.stat(name)
+            entries.append((stat.st_mtime, stat.st_size, name))
+        except OSError:
+            pass
+    entries.sort(reverse=True)
+    total = 0
+    for index, (modified, size, name) in enumerate(entries):
+        total += size
+        if time.time() - modified > SNAPSHOT_TTL or index >= SNAPSHOT_MAX_COUNT or total > SNAPSHOT_MAX_BYTES:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+
+
+def source_signature(files):
+    result = []
+    for name in files:
+        try:
+            stat = os.stat(name)
+            result.append((os.path.realpath(name), stat.st_dev, stat.st_ino, stat.st_size,
+                           stat.st_mtime_ns, stat.st_ctime_ns))
+        except FileNotFoundError:
+            result.append((os.path.realpath(name), None))
+    return result
+
+
+def snapshot_page(payload, files, load, attempt=0):
+    value = str(payload.get("cursor") or "")
+    token = re.fullmatch(r"([0-9a-f]{64}):(\d+)", value)
+    offset = int(token[2]) if token else cursor(payload)
+    limit = max(1, min(200, int(payload.get("limit") or 100)))
+    root = snapshot_root()
+    prune_snapshots(root)
+    signature = source_signature(files) if not token else None
+    key = token[1] if token else hashlib.sha256(json.dumps(
+        [payload["conversationRef"], signature], sort_keys=True).encode()).hexdigest()
+    name = os.path.join(root, key + ".sqlite")
+    if not os.path.isfile(name):
+        if token:
+            raise RuntimeError("History snapshot expired; reload the first page")
+        messages = sorted(load(), key=lambda item: -item["timestamp"])
+        # Do not associate a changing source with the signature captured before parsing.
+        if source_signature(files) != signature:
+            if attempt >= 2:
+                raise RuntimeError("History source is changing; retry the first page")
+            return snapshot_page(payload, files, load, attempt + 1)
+        descriptor, temporary = tempfile.mkstemp(prefix="snapshot-", dir=root)
+        os.close(descriptor)
+        try:
+            connection = sqlite3.connect(temporary)
+            try:
+                connection.execute("CREATE TABLE metadata (ref TEXT, count INTEGER)")
+                connection.execute("INSERT INTO metadata VALUES (?, ?)", (payload["conversationRef"], len(messages)))
+                connection.execute("CREATE TABLE messages (position INTEGER PRIMARY KEY, data TEXT)")
+                connection.executemany("INSERT INTO messages VALUES (?, ?)",
+                    ((index, json.dumps(message, ensure_ascii=False)) for index, message in enumerate(messages)))
+                connection.commit()
+            finally:
+                connection.close()
+            if os.path.getsize(temporary) > SNAPSHOT_MAX_BYTES:
+                # Oversized histories remain readable without exceeding the disk budget.
+                page = messages[offset:offset + limit]
+                return {"conversationRef": payload["conversationRef"], "messages": page,
+                        "nextCursor": str(offset + len(page)) if offset + len(page) < len(messages) else None}
+            os.replace(temporary, name)
+            prune_snapshots(root)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    connection = sqlite3.connect(f"file:{name}?mode=ro", uri=True)
+    try:
+        ref, count = connection.execute("SELECT ref, count FROM metadata").fetchone()
+        if ref != payload["conversationRef"]:
+            raise RuntimeError("Invalid history snapshot")
+        page = [json.loads(row[0]) for row in connection.execute(
+            "SELECT data FROM messages WHERE position >= ? AND position < ? ORDER BY position",
+            (offset, offset + limit))]
+    finally:
+        connection.close()
+    return {"conversationRef": payload["conversationRef"], "messages": page,
+            "nextCursor": f"{key}:{offset + len(page)}" if offset + len(page) < count else None}
+
+
 def history_messages(payload):
     match = re.fullmatch(r"(codex|codebuddy|opencode|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
     if not match:
         raise RuntimeError("Invalid conversation reference")
     provider, session_id = match.groups()
     if provider == "opencode":
-        messages = opencode_messages(session_id)
-        file_name = None
+        data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        database = os.path.join(data_home, "opencode", "opencode.db")
+        files = [database, database + "-wal"]
+        load = lambda: opencode_messages(session_id)
     elif provider == "grok":
         directory = next((candidate for candidate in grok_session_dirs() if os.path.basename(candidate) == session_id), None)
         if not directory:
             raise RuntimeError("Grok conversation is unavailable")
-        messages = grok_messages(directory)
-        file_name = None
+        files = [os.path.join(directory, "updates.jsonl")]
+        load = lambda: grok_messages(directory)
     else:
         file_name = codex_rollout(session_id) if provider == "codex" else gemini_transcript(session_id) if provider == "gemini" else codebuddy_transcript(session_id)
-    if provider == "gemini":
-        messages = [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
-                    for item in gemini_messages(gemini_records(file_name)) if isinstance(item.get("content"), str) and item.get("content").strip()]
-    elif provider not in {"grok", "opencode"}:
-        messages = parse_messages(provider, file_name)
-    messages = sorted(messages, key=lambda item: -item["timestamp"])
-    offset = cursor(payload)
-    limit = max(1, min(200, int(payload.get("limit") or 100)))
-    page = messages[offset:offset + limit]
-    return {
-        "conversationRef": payload["conversationRef"],
-        "messages": page,
-        "nextCursor": str(offset + len(page)) if offset + len(page) < len(messages) else None,
-    }
+        files = [file_name]
+        if provider == "gemini":
+            load = lambda: [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
+                           for item in gemini_messages(gemini_records(file_name)) if isinstance(item.get("content"), str) and item.get("content").strip()]
+        else:
+            load = lambda: parse_messages(provider, file_name)
+    return snapshot_page(payload, files, load)
 
 
 def main():
