@@ -85,3 +85,26 @@ print("null")
 `);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 30000);
+
+it("checks remote signatures without parsing messages and detects same-size edits", () => {
+  const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
+  const code = `
+with tempfile.TemporaryDirectory() as root:
+    source = os.path.join(root, "transcript.jsonl")
+    with open(source, "w") as output: output.write("old")
+    codex_rollout = lambda _: source
+    def forbidden(*args): raise AssertionError("message parsing is forbidden")
+    parse_messages = forbidden
+    payload = {"conversationRef": "codex:fixture", "signatureOnly": True}
+    first = history_messages(payload)
+    assert history_messages(payload) == first
+    with open(source, "w") as output: output.write("new")
+    stat = os.stat(source)
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000000000))
+    assert history_messages(payload) != first
+print("ok")
+`;
+  const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-"], { input: script + "\n" + code, encoding: "utf8" });
+  expect(result.status, result.stderr || result.error?.message).toBe(0);
+  expect(result.stdout.trim()).toBe("ok");
+});

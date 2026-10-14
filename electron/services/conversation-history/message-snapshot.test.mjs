@@ -85,6 +85,7 @@ describe("local message snapshots", () => {
   it("reuses unchanged transcripts across archive polls and captures appended messages", async () => {
     const f = fixture(10000);
     const saved = new Map();
+    const pages = vi.spyOn(f.history, "getHistoryMessagesForSession");
     const store = { start: () => "archive", associate() {}, captureStatus() {}, finish() {}, close() {},
       save: (_id, _ref, messages) => { for (const message of messages) saved.set(message.id, message); } };
     const archive = archiveModule.createConversationArchiveService({ store, now: () => 1000,
@@ -94,8 +95,10 @@ describe("local message snapshots", () => {
       archive.bindThread(session.id, "codex", "bound");
       await vi.waitFor(() => expect(saved.size).toBe(10000));
       expect(f.readFile).toHaveBeenCalledTimes(1);
+      pages.mockClear();
       await archive.flush();
       await archive.flush();
+      expect(pages).not.toHaveBeenCalled();
       expect(f.readFile).toHaveBeenCalledTimes(1);
       f.append();
       await archive.flush();

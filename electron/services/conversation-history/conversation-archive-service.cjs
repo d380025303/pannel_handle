@@ -115,6 +115,15 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
             let messageCursor = null;
             let thread = state.threads.get(item.ref);
             if (!thread) { thread = { saved: new Map() }; state.threads.set(item.ref, thread); }
+            const signature = await history.getHistorySignatureForSession?.(state.session, { conversationRef: item.ref });
+            if (stopped) return;
+            if (signature != null && signature === thread.signature) {
+              guard(state.session.id, () => {
+                store.captureStatus(state.id, "supported");
+                failures.delete(state.session.id);
+              });
+              continue;
+            }
             const messages = [];
             do {
               const detail = await history.getHistoryMessagesForSession(state.session, { conversationRef: item.ref, cursor: messageCursor, limit: 200 });
@@ -135,6 +144,8 @@ function createConversationArchiveService({ userData, getHistoryService, store, 
                 for (const message of messages) thread.saved.set(message.id, message);
               }
               store.captureStatus(state.id, "supported");
+              // Only successful reads and writes may advance the source baseline.
+              thread.signature = signature;
               failures.delete(state.session.id);
             });
           }

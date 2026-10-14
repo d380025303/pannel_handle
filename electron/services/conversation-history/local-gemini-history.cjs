@@ -142,7 +142,7 @@ async function listLocalGemini({ homeDir, cwd, scope, fsApi, metadataCache }) {
   return items;
 }
 
-async function getLocalGeminiMessages({ homeDir, cwd, id, fsApi, messageCache = new Map() }) {
+async function getLocalGeminiMessages({ homeDir, cwd, id, fsApi, signatureOnly = false, messageCache = new Map() }) {
   const separator = id.indexOf(":");
   const projectHash = separator >= 0 ? id.slice(0, separator) : geminiProjectHash(cwd);
   const sessionId = separator >= 0 ? id.slice(separator + 1) : id;
@@ -152,6 +152,7 @@ async function getLocalGeminiMessages({ homeDir, cwd, id, fsApi, messageCache = 
   const signatureOf = stat => JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
   try {
     const signature = signatureOf(await fsApi.promises.stat(filePath));
+    if (signatureOnly) return JSON.stringify([filePath, signature]);
     const cached = messageCache.get(filePath);
     if (cached?.signature === signature) return await cached.result;
     const { parseGeminiTranscript } = require("./gemini-history-worker-client.cjs");

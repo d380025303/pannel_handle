@@ -628,6 +628,8 @@ def history_messages(payload):
                            for item in gemini_messages(gemini_records(file_name)) if isinstance(item.get("content"), str) and item.get("content").strip()]
         else:
             load = lambda: parse_messages(provider, file_name)
+    if payload.get("signatureOnly"):
+        return {"signature": json.dumps(source_signature(files))}
     return snapshot_page(payload, files, load)
 
 

@@ -35,7 +35,7 @@ function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database 
   }
 }
 
-async function getLocalCodexMessages({ homeDir, id, fsApi, messageCache, Database = DatabaseSync }) {
+async function getLocalCodexMessages({ homeDir, id, fsApi, signatureOnly = false, messageCache, Database = DatabaseSync }) {
   const databaseFile = path.join(homeDir, ".codex", "state_5.sqlite");
   if (!fsApi.existsSync(databaseFile)) throw new Error("Codex history is unavailable.");
   const database = new Database(databaseFile, { readOnly: true });
@@ -51,6 +51,7 @@ async function getLocalCodexMessages({ homeDir, id, fsApi, messageCache, Databas
     const stat = await fsApi.promises.stat(file);
     // ctime also catches same-size rewrites with a restored modification time.
     const signature = JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
+    if (signatureOnly) return JSON.stringify([file, signature]);
     const cached = messageCache?.get(file);
     if (cached?.signature === signature) return cached.messages;
     const text = await fsApi.promises.readFile(file, "utf-8");

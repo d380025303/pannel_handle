@@ -119,6 +119,7 @@ function createAgentConversationHistoryService({
       throw new Error("Gemini conversation history is only available for Windows and WSL sessions.");
     }
     const request = {
+      signatureOnly: input.signatureOnly === true,
       conversationRef: input.conversationRef,
       cursor: input.cursor ?? null,
       limit: clampLimit(input.limit, DEFAULT_MESSAGE_LIMIT)
@@ -126,6 +127,7 @@ function createAgentConversationHistoryService({
     if (session.type === "wsl" || session.type === "ssh") {
       return runRemote(session, "messages", request);
     }
+    const signatureOnly = request.signatureOnly;
     const offset = parseCursor(request.cursor);
     const cacheKey = JSON.stringify([session.id, session.type, session.cwd, request.conversationRef]);
     const now = Date.now();
@@ -134,18 +136,19 @@ function createAgentConversationHistoryService({
     }
     // A first page always starts a fresh snapshot, including the next archive poll.
     const cached = offset > 0 ? messageCache.get(cacheKey) : null;
-    if (cached) return { conversationRef: request.conversationRef,
+    if (cached && !signatureOnly) return { conversationRef: request.conversationRef,
       ...pageMessages(cached.messages, request.cursor, request.limit, true) };
-    messageCache.delete(cacheKey);
+    if (!signatureOnly) messageCache.delete(cacheKey);
     const messages = reference.provider === "codex"
-      ? await getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database, messageCache: codexMessageCache })
+      ? await getLocalCodexMessages({ homeDir, id: reference.id, fsApi, signatureOnly, Database, messageCache: codexMessageCache })
       : reference.provider === "opencode"
-        ? await getLocalOpenCodeMessages({ homeDir, id: reference.id })
+        ? await getLocalOpenCodeMessages({ homeDir, id: reference.id, fsApi, signatureOnly })
       : reference.provider === "gemini"
-        ? await getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi, messageCache: geminiMessageCache })
+        ? await getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi, signatureOnly, messageCache: geminiMessageCache })
         : reference.provider === "grok"
-          ? await getLocalGrokMessages({ homeDir, id: reference.id, fsApi })
-          : await getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi, messageCache: codeBuddyMessageCache });
+          ? await getLocalGrokMessages({ homeDir, id: reference.id, fsApi, signatureOnly })
+          : await getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi, signatureOnly, messageCache: codeBuddyMessageCache });
+    if (signatureOnly) return { signature: messages };
     if (reference.provider !== "codebuddy" && reference.provider !== "gemini" && reference.provider !== "opencode") messages.sort((left, right) => right.timestamp - left.timestamp);
     messageCache.set(cacheKey, { messages, createdAt: now });
     if (messageCache.size > MAX_MESSAGE_CACHE_ENTRIES) messageCache.delete(messageCache.keys().next().value);
@@ -155,7 +158,11 @@ function createAgentConversationHistoryService({
     };
   }
 
-  return { listHistory, getHistoryMessages, listHistoryForSession, getHistoryMessagesForSession };
+  async function getHistorySignatureForSession(session, input) {
+    return (await getHistoryMessagesForSession(session, { ...input, signatureOnly: true })).signature;
+  }
+
+  return { listHistory, getHistoryMessages, listHistoryForSession, getHistoryMessagesForSession, getHistorySignatureForSession };
 }
 
 module.exports = {

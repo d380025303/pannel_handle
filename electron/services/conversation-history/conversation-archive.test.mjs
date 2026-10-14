@@ -74,6 +74,48 @@ describe("local conversation archive", () => {
       "other thread", "second", "second", "updated"
     ]);
   });
+  it("skips unchanged 10,000-message sources and captures additions, edits and write retries", async () => {
+    const store = createConversationArchiveStore({ userData: fixture(), now: () => 1000 });
+    const save = vi.spyOn(store, "save");
+    let signature = "initial";
+    const messages = Array.from({ length: 10000 }, (_, i) => ({ id: `old-${i}`, provider: "codex", kind: "reply", text: "old", timestamp: 1 }));
+    const history = {
+      listHistoryForSession: async () => ({ items: [{ ref: "codex:bound" }], nextCursor: null }),
+      getHistorySignatureForSession: async () => signature,
+      getHistoryMessagesForSession: vi.fn(async (_, { cursor }) => {
+        const offset = Number(cursor || 0);
+        return { messages: messages.slice(offset, offset + 200), nextCursor: offset + 200 < messages.length ? String(offset + 200) : null };
+      })
+    };
+    const archive = createConversationArchiveService({ store, getHistoryService: () => history, now: () => 1000 });
+    closers.push(() => archive.shutdown());
+    archive.start({ ...session, runtimeMode: "terminal" });
+    archive.bindThread("panel", "codex", "bound");
+    await archive.flush();
+    expect(history.getHistoryMessagesForSession).toHaveBeenCalledTimes(50);
+    expect(save).not.toHaveBeenCalled();
+    history.getHistoryMessagesForSession.mockClear();
+    await archive.flush();
+    await archive.flush();
+    expect(history.getHistoryMessagesForSession).not.toHaveBeenCalled();
+    messages.push({ id: "new", provider: "codex", kind: "reply", text: "partial", timestamp: 1001 });
+    signature = "appended";
+    await archive.flush();
+    expect(save).toHaveBeenCalledOnce();
+    messages.at(-1).text = "complete";
+    signature = "edited";
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      save.mockImplementationOnce(() => { throw new Error("disk full"); });
+      await archive.flush();
+      await archive.flush();
+      expect(save).toHaveBeenCalledTimes(3);
+      expect(save.mock.calls[2][2]).toEqual([expect.objectContaining({ id: "new", text: "complete" })]);
+    } finally { log.mockRestore(); }
+    history.getHistoryMessagesForSession.mockClear();
+    await archive.flush();
+    expect(history.getHistoryMessagesForSession).not.toHaveBeenCalled();
+  });
   it("persists actual compaction summaries and keeps their position across updates and restart", () => {
     const userData = fixture();
     const archive = createConversationArchiveService({ userData, getHistoryService: () => null, now: () => 1000 });

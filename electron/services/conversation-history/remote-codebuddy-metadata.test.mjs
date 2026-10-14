@@ -25,7 +25,8 @@ def write(index, title="original"):
         output.write(json.dumps({"type": "ai-title", "aiTitle": title}) + "\\n")
 `;
   const run = code => {
-    const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c", script + "\n" + setup + code], {
+    const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-"], {
+      input: script + "\n" + setup + code,
       env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", maxBuffer: 2 * 1024 * 1024,
     });
     expect(result.status, result.stderr).toBe(0);

@@ -75,7 +75,11 @@ function readLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
   }
 }
 
-function getLocalOpenCodeMessages({ homeDir, id, env = process.env }) {
+function getLocalOpenCodeMessages({ homeDir, id, fsApi, signatureOnly = false, env = process.env }) {
+  if (signatureOnly) {
+    const file = databaseFile(homeDir, env);
+    return require("./history-source-signature.cjs").sourceSignature(fsApi, [file, `${file}-wal`]);
+  }
   const { readOpenCodeHistory } = require("./opencode-history-worker-client.cjs");
   return readOpenCodeHistory({ homeDir, id, env: { XDG_DATA_HOME: env.XDG_DATA_HOME } });
 }

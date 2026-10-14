@@ -112,13 +112,14 @@ async function listLocalCodeBuddy({ homeDir, cwd, scope, fsApi, metadataCache })
   return items;
 }
 
-async function getLocalCodeBuddyMessages({ homeDir, id, fsApi, messageCache }) {
+async function getLocalCodeBuddyMessages({ homeDir, id, fsApi, signatureOnly = false, messageCache }) {
   const files = await getCodeBuddyProjectFilesAsync(fsApi, path.join(homeDir, ".codebuddy", "projects"));
   const filePath = files.find(candidate => path.basename(candidate, ".jsonl") === id);
   if (!filePath) throw new Error("CodeBuddy conversation is unavailable.");
   const signatureOf = stat => JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
   try {
     const signature = signatureOf(await fsApi.promises.stat(filePath));
+    if (signatureOnly) return JSON.stringify([filePath, signature]);
     const cached = messageCache?.get(filePath);
     if (cached?.signature === signature) return cached.messages;
     const parser = createAgentConversationTranscriptParser("codebuddy", { includeUser: true });

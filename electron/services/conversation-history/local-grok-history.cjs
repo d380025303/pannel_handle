@@ -100,9 +100,10 @@ async function listLocalGrok({ homeDir, cwd, scope, fsApi }) {
   return items.filter(Boolean);
 }
 
-async function getLocalGrokMessages({ homeDir, id, fsApi }) {
+async function getLocalGrokMessages({ homeDir, id, fsApi, signatureOnly = false }) {
   const directory = (await getGrokSessionDirectories(fsApi, homeDir)).find(candidate => path.basename(candidate) === id);
   if (!directory) throw new Error("Grok conversation is unavailable.");
+  if (signatureOnly) return require("./history-source-signature.cjs").sourceSignature(fsApi, [path.join(directory, "updates.jsonl")]);
   return readGrokMessages(fsApi, directory);
 }
 
