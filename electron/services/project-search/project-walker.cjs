@@ -18,6 +18,7 @@ async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, m
       continue;
     }
 
+    throwIfCancelled(task);
     for (const dirent of dirents) {
       throwIfCancelled(task);
       visitedEntries += 1;

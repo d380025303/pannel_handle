@@ -21,6 +21,33 @@ function createProjectSearchService({
   textRegexTimeoutMs
 }) {
   const activeTextSearches = new Map();
+  const activeFileSearches = new Map();
+
+  function cancelFileSearch(sessionId, requestId) {
+    const task = activeFileSearches.get(String(sessionId));
+    if (!task || task.requestId !== String(requestId || "")) return false;
+    task.cancelled = true;
+    task.cancelMatching?.();
+    return true;
+  }
+
+  async function runFileSearch(sessionId, query, rootPath, options, requestId, search) {
+    // Legacy callers without an ID remain independent of cancellable modal searches.
+    const task = { cancelled: false };
+    const key = String(sessionId);
+    if (requestId !== undefined) {
+      task.requestId = normalizeRequestId(requestId);
+      const previous = activeFileSearches.get(key);
+      if (previous) cancelFileSearch(sessionId, previous.requestId);
+      activeFileSearches.set(key, task);
+    }
+    try {
+      return await runFileQuerySearch(normalizeQuery(query), options,
+        (matches) => search(sessionId, query, rootPath, options, matches, task), fileRegexTimeoutMs, task);
+    } finally {
+      if (activeFileSearches.get(key) === task) activeFileSearches.delete(key);
+    }
+  }
 
   function cancelTextSearch(sessionId, requestId) {
     const active = activeTextSearches.get(String(sessionId || ""));
@@ -57,12 +84,13 @@ function createProjectSearchService({
     };
   }
 
-  async function searchFilesImpl(sessionId, query, rootPath, options, matchesQuery) {
+  async function searchFilesImpl(sessionId, query, rootPath, options, matchesQuery, task) {
     const normalizedQuery = normalizeQuery(query);
     if (!normalizedQuery) {
       return { root: "", results: [] };
     }
 
+    throwIfCancelled(task);
     const session = getSession(terminalManager, sessionId);
     const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, session, rootPath);
     const results = [];
@@ -70,6 +98,7 @@ function createProjectSearchService({
 
     await walkProject({
       fsApi,
+      task,
       hostRoot,
       maxVisitedEntries: MAX_FILE_VISITED_ENTRIES,
       maxResults: () => results.length >= MAX_FILE_RESULTS,
@@ -84,11 +113,13 @@ function createProjectSearchService({
       includeIgnored: options.includeIgnored
     });
 
+    throwIfCancelled(task);
     await collector.flush();
     return { root: displayRoot, results };
   }
 
-  async function searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matchesQuery) {
+  async function searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matchesQuery, task) {
+    throwIfCancelled(task);
     const session = terminalManager.getSession(sessionId);
     if (!session) {
       throw new Error("Session is not running.");
@@ -120,6 +151,7 @@ function createProjectSearchService({
       };
       await walkProject({
         fsApi,
+        task,
         hostRoot,
         maxVisitedEntries: MAX_FILE_VISITED_ENTRIES,
         maxResults: () => results.length >= MAX_FILE_RESULTS,
@@ -127,6 +159,7 @@ function createProjectSearchService({
         onFile: addResult("file"),
         includeIgnored: options.includeIgnored
       });
+      throwIfCancelled(task);
       await collector.flush();
       return { root: displayRoot, results };
     }
@@ -135,6 +168,7 @@ function createProjectSearchService({
       throw new Error("Remote file search is not available.");
     }
     const home = await remoteFileService.getHome(sessionId);
+    throwIfCancelled(task);
     const configuredCwd = String(rootPath || session.cwd || "~").trim() || "~";
     const root = configuredCwd === "~"
       ? home
@@ -147,6 +181,7 @@ function createProjectSearchService({
     let visitedEntries = 0;
 
     while (queue.length > 0 && visitedEntries < MAX_FILE_VISITED_ENTRIES && results.length < MAX_FILE_RESULTS) {
+      throwIfCancelled(task);
       const current = queue.shift();
       let entries;
       try {
@@ -154,7 +189,9 @@ function createProjectSearchService({
       } catch {
         continue;
       }
+      throwIfCancelled(task);
       for (const entry of entries) {
+        throwIfCancelled(task);
         visitedEntries += 1;
         if (visitedEntries > MAX_FILE_VISITED_ENTRIES || results.length >= MAX_FILE_RESULTS) break;
         const relativePath = current.relativePath
@@ -169,18 +206,17 @@ function createProjectSearchService({
       }
     }
 
+    throwIfCancelled(task);
     await collector.flush();
     return { root, results };
   }
 
-  function searchFiles(sessionId, query, rootPath, options = {}) {
-    return runFileQuerySearch(normalizeQuery(query), options,
-      (matches) => searchFilesImpl(sessionId, query, rootPath, options, matches), fileRegexTimeoutMs);
+  function searchFiles(sessionId, query, rootPath, options = {}, requestId) {
+    return runFileSearch(sessionId, query, rootPath, options, requestId, searchFilesImpl);
   }
 
-  function searchWorkspaceEntries(sessionId, query, rootPath, options = {}) {
-    return runFileQuerySearch(normalizeQuery(query), options,
-      (matches) => searchWorkspaceEntriesImpl(sessionId, query, rootPath, options, matches), fileRegexTimeoutMs);
+  function searchWorkspaceEntries(sessionId, query, rootPath, options = {}, requestId) {
+    return runFileSearch(sessionId, query, rootPath, options, requestId, searchWorkspaceEntriesImpl);
   }
 
   async function searchText(sessionId, query, requestId, rootPath, options = {}) {
@@ -228,7 +264,8 @@ function createProjectSearchService({
     searchFiles,
     searchWorkspaceEntries,
     searchText,
-    cancelTextSearch
+    cancelTextSearch,
+    cancelFileSearch
   };
 }
 

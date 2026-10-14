@@ -132,8 +132,8 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
     const timeout = window.setTimeout(() => {
       const runSearch = activeMode === "files"
         ? session.type === "ssh"
-          ? window.projectSearchApi.searchWorkspaceEntries(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored }).then((response) => ({ ...response, results: response.results.filter((entry) => entry.type === "file") }))
-          : window.projectSearchApi.searchFiles(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored })
+          ? window.projectSearchApi.searchWorkspaceEntries(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored }, ipcRequestId).then((response) => ({ ...response, results: response.results.filter((entry) => entry.type === "file") }))
+          : window.projectSearchApi.searchFiles(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored }, ipcRequestId)
         : window.projectSearchApi.searchText(session.id, trimmedQuery, ipcRequestId, rootPath, { caseSensitive, wholeWord, regex, includeIgnored });
       runSearch.then((response) => {
         if (requestRef.current !== requestId) return;
@@ -151,8 +151,10 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
     }, 180);
 
     return () => {
+      requestRef.current += 1;
       window.clearTimeout(timeout);
-      if (activeMode === "text") void window.projectSearchApi.cancelTextSearch(session.id, ipcRequestId);
+      const cancel = activeMode === "text" ? window.projectSearchApi.cancelTextSearch : window.projectSearchApi.cancelFileSearch;
+      void cancel(session.id, ipcRequestId).catch(() => {});
     };
   }, [activeMode, caseSensitive, includeIgnored, query, regex, rootPath, session.id, session.type, wholeWord]);
 

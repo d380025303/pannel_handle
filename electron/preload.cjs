@@ -594,10 +594,11 @@ contextBridge.exposeInMainWorld("gitApi", {
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {
-  searchWorkspaceEntries: (sessionId, query, rootPath, options) => ipcRenderer.invoke("project-search:workspace-entries", { sessionId, query, rootPath, options }),
+  searchWorkspaceEntries: (sessionId, query, rootPath, options, requestId) => ipcRenderer.invoke("project-search:workspace-entries", { sessionId, query, rootPath, options, requestId }),
   listDirectories: (sessionId, rootPath) => ipcRenderer.invoke("project-search:list-directories", { sessionId, rootPath }),
-  searchFiles: (sessionId, query, rootPath, options) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath, options }),
+  searchFiles: (sessionId, query, rootPath, options, requestId) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath, options, requestId }),
   searchText: (sessionId, query, requestId, rootPath, options) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath, options }),
+  cancelFileSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-files", { sessionId, requestId }),
   cancelTextSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-text", { sessionId, requestId })
 });
 

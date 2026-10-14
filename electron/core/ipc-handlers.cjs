@@ -476,16 +476,20 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     return projectSearchService.listDirectories(sessionId, rootPath);
   });
 
-  ipcMain.handle("project-search:files", (_event, { sessionId, query, rootPath, options }) => {
-    return projectSearchService.searchFiles(sessionId, query, rootPath, options);
+  ipcMain.handle("project-search:files", (_event, { sessionId, query, rootPath, options, requestId }) => {
+    return projectSearchService.searchFiles(sessionId, query, rootPath, options, requestId);
   });
 
-  ipcMain.handle("project-search:workspace-entries", (_event, { sessionId, query, rootPath, options }) => {
-    return projectSearchService.searchWorkspaceEntries(sessionId, query, rootPath, options);
+  ipcMain.handle("project-search:workspace-entries", (_event, { sessionId, query, rootPath, options, requestId }) => {
+    return projectSearchService.searchWorkspaceEntries(sessionId, query, rootPath, options, requestId);
   });
 
   ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId, rootPath, options }) => {
     return projectSearchService.searchText(sessionId, query, requestId, rootPath, options);
+  });
+
+  ipcMain.handle("project-search:cancel-files", (_event, { sessionId, requestId }) => {
+    return projectSearchService.cancelFileSearch(sessionId, requestId);
   });
 
   ipcMain.handle("project-search:cancel-text", (_event, { sessionId, requestId }) => {

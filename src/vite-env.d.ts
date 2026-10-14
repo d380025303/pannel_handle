@@ -1698,14 +1698,15 @@ export type GitApi = {
 };
 
 export type ProjectSearchApi = {
-  searchWorkspaceEntries: (sessionId: string, query: string, rootPath?: string, options?: ProjectSearchOptions) => Promise<WorkspaceEntrySearchResponse>;
+  searchWorkspaceEntries: (sessionId: string, query: string, rootPath?: string, options?: ProjectSearchOptions, requestId?: string) => Promise<WorkspaceEntrySearchResponse>;
   listDirectories: (sessionId: string, rootPath: string) => Promise<{
     workspaceRoot: string;
     path: string;
     directories: Array<{ name: string; path: string }>;
   }>;
-  searchFiles: (sessionId: string, query: string, rootPath: string, options?: ProjectSearchOptions) => Promise<ProjectFileSearchResponse>;
+  searchFiles: (sessionId: string, query: string, rootPath: string, options?: ProjectSearchOptions, requestId?: string) => Promise<ProjectFileSearchResponse>;
   searchText: (sessionId: string, query: string, requestId: string, rootPath: string, options?: ProjectSearchOptions) => Promise<ProjectTextSearchResponse>;
+  cancelFileSearch: (sessionId: string, requestId: string) => Promise<boolean>;
   cancelTextSearch: (sessionId: string, requestId: string) => Promise<boolean>;
 };
 

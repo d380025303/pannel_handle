@@ -1,9 +1,11 @@
 const { Worker } = require("node:worker_threads");
+const { throwIfCancelled } = require("./search-task.cjs");
 const path = require("node:path");
 const { matchesFileQuery } = require("./search-matching.cjs");
 const { SEARCH_TIMEOUT_MS, MAX_FILE_RESULTS } = require("./search-limits.cjs");
 
-async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIMEOUT_MS) {
+async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIMEOUT_MS, task) {
+  throwIfCancelled(task);
   if (!options.regex || !query) {
     return search((entries, limit) => {
       const indices = [];
@@ -54,9 +56,16 @@ async function runFileQuerySearch(query, options, search, timeoutMs = SEARCH_TIM
       worker.postMessage({ entries: entries.map(({ name, relativePath }) => [name, relativePath]), limit });
     });
   };
+  const cancelMatching = () => {
+    try { throwIfCancelled(task); } catch (error) { fail(error); }
+    void worker.terminate();
+  };
+  if (task) task.cancelMatching = cancelMatching;
   try {
+    throwIfCancelled(task);
     return await Promise.race([failed, search(matches)]);
   } finally {
+    if (task?.cancelMatching === cancelMatching) task.cancelMatching = undefined;
     clearTimeout(timer);
     await worker.terminate();
   }
