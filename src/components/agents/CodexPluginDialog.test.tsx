@@ -7,6 +7,47 @@ import type { TerminalSession } from "../../vite-env";
 
 afterEach(cleanup);
 
+it("wraps keyboard focus in both tabs while skipping unavailable controls", async () => {
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ installed: [{ name: "tools", marketplaceName: "team" }], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [] }) }
+  });
+  const onClose = vi.fn();
+  render(<CodexPluginDialog sessionId="focus" onClose={onClose} onChanged={vi.fn()} />);
+  const uninstall = await screen.findByRole("button", { name: "卸载" });
+  await waitFor(() => expect((uninstall as HTMLButtonElement).disabled).toBe(false));
+  const dialog = screen.getByRole("dialog", { name: "Codex 插件管理" });
+  const close = screen.getByRole("button", { name: "关闭插件管理" });
+  // jsdom has no layout; provide visible rectangles for the real dialog controls.
+  dialog.querySelectorAll<HTMLElement>("button, input").forEach(element => {
+    vi.spyOn(element, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  });
+  const hidden = document.createElement("button");
+  hidden.hidden = true;
+  vi.spyOn(hidden, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  const disabled = document.createElement("button");
+  disabled.disabled = true;
+  dialog.append(hidden, disabled);
+  uninstall.focus();
+  fireEvent.keyDown(uninstall, { key: "Tab" });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(uninstall);
+  fireEvent.click(screen.getByRole("tab", { name: "MCP 0" }));
+  const last = screen.getByRole("button", { name: "重载 MCP" });
+  dialog.querySelectorAll<HTMLElement>("button").forEach(element => {
+    vi.spyOn(element, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  });
+  last.focus();
+  fireEvent.keyDown(last, { key: "Tab" });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(last);
+  fireEvent.keyDown(last, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
 it("opens an installed plugin detail from its existing list", async () => {
   const readPluginDetail = vi.fn().mockResolvedValue({ name: "design", marketplaceName: "official",
     description: "Design tools", version: "1.0", source: { type: "remote" }, installed: true, enabled: true,

@@ -1843,7 +1843,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {goalOpen && snapshot.provider === "codebuddy" && <CodeBuddyGoalDialog
       key={`${sessionId}:${snapshot.threadId}`} sessionId={sessionId} snapshot={snapshot} onClose={() => setGoalOpen(false)}
       onUpdated={value => { if (currentSessionRef.current === sessionId && value.threadId === snapshot.threadId) setSnapshot(value); }} />}
-    {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} session={session} onClose={() => setPluginOpen(false)}
+    {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} session={session} onClose={() => { setPluginOpen(false); menuButtonRef.current?.focus(); }}
       onChanged={() => { setCapabilities(null); }} />}
     {codeBuddyMcpOpen && session && snapshot.provider === "codebuddy" && <CodeBuddyMcpDialog key={`${sessionId}:${snapshot.threadId}`} session={session} snapshot={snapshot}
       onClose={() => setCodeBuddyMcpOpen(false)} onRestart={async () => {

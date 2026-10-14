@@ -146,6 +146,16 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   return <div className="codex-plugin-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
     <section className="codex-plugin-dialog" role="dialog" aria-modal="true" aria-label="Codex 插件管理" onKeyDown={event => {
       if (event.key === "Escape") { event.stopPropagation(); close(); }
+      if (event.key === "Tab") {
+        const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+          "button, input, textarea, select, a[href], [tabindex]"
+        )).filter(element => element.tabIndex >= 0 && !element.matches(":disabled")
+          && !element.closest('[hidden], [inert], [aria-hidden="true"]')
+          && element.getClientRects().length > 0 && getComputedStyle(element).visibility === "visible");
+        if (!elements.length) { event.preventDefault(); return; }
+        if (event.shiftKey && document.activeElement === elements[0]) { event.preventDefault(); elements.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === elements.at(-1)) { event.preventDefault(); elements[0]?.focus(); }
+      }
     }}>
       <header><div><strong>插件</strong><small>管理插件、技能和 MCP · {catalog?.environment || "当前会话"}</small></div>
         <button type="button" aria-label="关闭插件管理" onClick={close}><X aria-hidden="true" /></button></header>
