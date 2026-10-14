@@ -23,7 +23,16 @@ type McpManagerProps = {
   onCommitted?: () => void;
 };
 
-const emptyDraft = (provider: McpProvider): McpServerDraft => ({
+type SecretRow = McpSecretEntry & { uiId: string };
+type EditorDraft = Omit<McpServerDraft, "env" | "headers"> & {
+  env: SecretRow[];
+  headers: SecretRow[];
+};
+
+const createSecretRow = (entry: McpSecretEntry): SecretRow => ({ ...entry, uiId: crypto.randomUUID() });
+const configEntries = (entries: SecretRow[]): McpSecretEntry[] => entries.map(({ uiId: _uiId, ...entry }) => entry);
+
+const emptyDraft = (provider: McpProvider): EditorDraft => ({
   name: "",
   enabled: true,
   transport: "stdio",
@@ -40,7 +49,7 @@ const emptyDraft = (provider: McpProvider): McpServerDraft => ({
   toolTimeoutSec: provider === "codex" ? "" : undefined
 });
 
-function cloneDraft(server: McpServerSummary): McpServerDraft {
+function cloneDraft(server: McpServerSummary): EditorDraft {
   return {
     name: server.name,
     enabled: server.enabled,
@@ -52,8 +61,8 @@ function cloneDraft(server: McpServerSummary): McpServerDraft {
     url: server.url,
     urlMasked: server.urlMasked,
     bearerTokenEnvVar: server.bearerTokenEnvVar,
-    env: server.env.map((entry) => ({ ...entry })),
-    headers: server.headers.map((entry) => ({ ...entry })),
+    env: server.env.map(createSecretRow),
+    headers: server.headers.map(createSecretRow),
     startupTimeoutSec: server.startupTimeoutSec ?? "",
     toolTimeoutSec: server.toolTimeoutSec ?? ""
   };
@@ -64,11 +73,11 @@ function draftSignature(draft: McpServerDraft | null) {
 }
 
 type SecretRowsProps = {
-  entries: McpSecretEntry[];
+  entries: SecretRow[];
   disabled: boolean;
   keyLabel: string;
   valueLabel: string;
-  onChange: (entries: McpSecretEntry[]) => void;
+  onChange: (entries: SecretRow[]) => void;
   onReveal: (key: string) => void;
 };
 
@@ -79,7 +88,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   return (
     <div className="mcp-key-values">
       {entries.map((entry, index) => (
-        <div className="mcp-key-value-row" key={`${entry.key}-${index}`}>
+        <div className="mcp-key-value-row" key={entry.uiId}>
           <input aria-label={keyLabel} value={entry.key} disabled={disabled || entry.masked} onChange={(event) => update(index, { key: event.target.value })} />
           <input
             aria-label={valueLabel}
@@ -99,7 +108,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
           </button>
         </div>
       ))}
-      <button className="mcp-add-row" type="button" disabled={disabled} onClick={() => onChange([...entries, { key: "", value: "", masked: false, hasValue: false }])}>
+      <button className="mcp-add-row" type="button" disabled={disabled} onClick={() => onChange([...entries, createSecretRow({ key: "", value: "", masked: false, hasValue: false })])}>
         <Plus aria-hidden="true" />
       </button>
     </div>
@@ -113,7 +122,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
   const [document, setDocument] = useState<McpDocument | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [originalName, setOriginalName] = useState<string | undefined>();
-  const [draft, setDraft] = useState<McpServerDraft | null>(null);
+  const [draft, setDraft] = useState<EditorDraft | null>(null);
   const [savedSignature, setSavedSignature] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -188,7 +197,7 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
       const result = await api.save({
         ...requestTarget(),
         originalName,
-        draft,
+        draft: { ...draft, env: configEntries(draft.env), headers: configEntries(draft.headers) },
         expectedVersion: document.version
       });
       if (result.status === "conflict") {

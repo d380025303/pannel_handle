@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { McpDocument, McpServerSummary, TerminalSession } from "../../vite-env";
@@ -94,6 +95,45 @@ describe("McpManager", () => {
     await waitFor(() => expect(reveal).toHaveBeenCalledWith(expect.objectContaining({ name: "local-tools", field: "env", key: "TOKEN" })));
     expect(await screen.findByDisplayValue("top-secret")).toBeTruthy();
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  });
+
+  it.each([
+    ["stdio", "环境变量名", "env", "API_KEY"],
+    ["http", "Header 名称", "headers", "X-API-Key"]
+  ])("keeps %s row focus and identity while editing and deleting siblings", async (transport, label, field, name) => {
+    const user = userEvent.setup();
+    renderManager();
+    await screen.findByRole("heading", { name: "local-tools" });
+    await user.click(screen.getByRole("button", { name: "新增 MCP 服务" }));
+    await user.type(screen.getByLabelText("服务名称"), "focus-test");
+    await user.selectOptions(screen.getByLabelText("传输方式"), transport);
+    const add = document.querySelector(".mcp-add-row") as HTMLButtonElement;
+    await user.click(add);
+    await user.click(add);
+    const [first, target] = screen.getAllByLabelText(label) as HTMLInputElement[];
+    await user.type(first, "OTHER");
+    await user.click(target);
+    // Keyboard input follows focus, so a remount after the first character fails this check.
+    await user.keyboard(name);
+    expect(target.value).toBe(name);
+    expect(document.activeElement).toBe(target);
+    await user.keyboard("{ArrowLeft}{Backspace}Z");
+    const edited = name.slice(0, -2) + "Z" + name.slice(-1);
+    expect(target.value).toBe(edited);
+    expect(target.selectionStart).toBe(name.length - 1);
+    expect(document.activeElement).toBe(target);
+    // Remove the preceding row without moving focus to its button.
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    expect(screen.getByLabelText(label)).toBe(target);
+    expect(document.activeElement).toBe(target);
+    expect(target.selectionStart).toBe(name.length - 1);
+    await user.keyboard("{End}_NEXT");
+    expect(target.value).toBe(edited + "_NEXT");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].draft[field]).toEqual([
+      { key: edited + "_NEXT", value: "", masked: false, hasValue: false }
+    ]);
   });
 
   it("switches CodeBuddy project scopes using the active Windows session", async () => {
