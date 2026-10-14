@@ -11,6 +11,7 @@ import type {
   OpenRouterConfig,
   OpenRouterModel,
   RemoteFileEntry,
+  SessionStatusMcpState,
   TerminalSession
 } from "../vite-env";
 import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "../components/app/titleBarActions";
@@ -451,11 +452,25 @@ export function installBrowserPreview() {
 
   let sessionApiState = { enabled: false, running: false, port: 43125, url: "http://127.0.0.1:43125", lanUrls: [] as string[], error: "浏览器预览：查询为模拟数据，不会启动 HTTP 服务。" };
   const sessionApiChanged = createChannel<typeof sessionApiState>();
+  let sessionStatusMcpState: SessionStatusMcpState = {
+    enabled: false, running: false, url: "http://127.0.0.1:43124/mcp", error: ""
+  };
+  const sessionStatusMcpChanged = createChannel<SessionStatusMcpState>();
   const previewInstance = (session: TerminalSession) => ({ sessionId: session.id, title: session.title, templateId: session.templateId || null,
     runtimeMode: session.runtimeMode === "app-server" ? "app-server" : "terminal", type: session.type, agentProvider: session.agentProvider || null,
     sshConnectionState: session.type === "ssh" ? session.sshConnectionState || "connecting" : null,
     workState: "unknown", summary: "浏览器预览模拟会话", queriedAt: Date.now() });
   const apis = {
+    sessionStatusMcpApi: {
+      get: async () => copy(sessionStatusMcpState),
+      setEnabled: async enabled => {
+        sessionStatusMcpState = { ...sessionStatusMcpState, enabled, running: enabled };
+        sessionStatusMcpChanged.emit(copy(sessionStatusMcpState));
+        return copy(sessionStatusMcpState);
+      },
+      revealToken: async () => "PREVIEW_SESSION_STATUS_MCP_TOKEN",
+      onChanged: sessionStatusMcpChanged.subscribe
+    } satisfies Window["sessionStatusMcpApi"],
     sessionApi: {
       get: async () => copy(sessionApiState),
       configure: async input => {
@@ -804,7 +819,7 @@ export function installBrowserPreview() {
     "sessionApi" | "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
     "agentConversationApi" | "codexAppServerApi" | "codexPluginApi" | "codeBuddyPluginApi" | "codeBuddyMcpApi" | "codeBuddyVersionApi" | "openCodeAuthApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
-    "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
+    "mcpApi" | "sessionStatusMcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi" | "projectToolsApi"
   >;
 

@@ -13,9 +13,34 @@ describe("installBrowserPreview", () => {
       "environmentApi", "terminalApi", "screenshotApi", "openRouterApi", "naraRouterApi", "miniMaxApi",
       "agentConversationApi", "codexAppServerApi", "codexPluginApi", "codexWorkspaceTrustApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
       "dingTalkApi", "clipboardApi", "externalLinkApi", "remoteFileApi", "remoteSystemApi", "skillsApi",
-      "mcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
+      "mcpApi", "sessionStatusMcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
       "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi", "projectToolsApi"
     ]));
+  });
+
+  it("supports session status MCP toggles, token reveal and subscription cleanup", async () => {
+    const api = window.sessionStatusMcpApi;
+    const initial = await api.get();
+    expect(initial).toEqual({ enabled: false, running: false, url: "http://127.0.0.1:43124/mcp", error: "" });
+    initial.enabled = true;
+    expect((await api.get()).enabled).toBe(false);
+
+    const onChanged = vi.fn();
+    const unsubscribe = api.onChanged(onChanged);
+    const started = await api.setEnabled(true);
+    expect(started).toMatchObject({ enabled: true, running: true, error: "" });
+    expect(onChanged).toHaveBeenLastCalledWith(started);
+    expect(await api.revealToken()).toBe("PREVIEW_SESSION_STATUS_MCP_TOKEN");
+    started.running = false;
+    expect((await api.get()).running).toBe(true);
+
+    const stopped = await api.setEnabled(false);
+    expect(stopped).toMatchObject({ enabled: false, running: false });
+    expect(onChanged).toHaveBeenLastCalledWith(stopped);
+    unsubscribe();
+    await api.setEnabled(true);
+    expect(onChanged).toHaveBeenCalledTimes(2);
+    expect((await api.get()).running).toBe(true);
   });
 
   it("provides graphical preview panels and keeps their changes in memory", async () => {
