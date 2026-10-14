@@ -62,9 +62,20 @@ export function CodeBuddyGoalDialog({ api = window.codexAppServerApi, sessionId,
   const elapsed = active ? active.durationMs + (active.paused ? 0 : Math.max(0, now - goal.updatedAt)) : 0;
   return <div className="modal-overlay codex-app-server-goal-overlay" onMouseDown={event => { if (event.target === event.currentTarget && !pending) onClose(); }}>
     <div className="modal-dialog codex-app-server-goal-dialog" role="dialog" aria-modal="true" aria-labelledby="codebuddy-goal-title"
-      onKeyDown={event => { if (event.key === "Escape" && !pending) onClose(); }}>
+      tabIndex={-1} onKeyDown={event => {
+        if (event.key === "Escape") { event.stopPropagation(); if (!pending) onClose(); }
+        if (event.key === "Tab") {
+          const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)"));
+          if (!elements.length) { event.preventDefault(); event.currentTarget.focus(); }
+          else if (event.shiftKey && (document.activeElement === elements[0] || document.activeElement === event.currentTarget)) {
+            event.preventDefault(); elements.at(-1)?.focus();
+          } else if (!event.shiftKey && (document.activeElement === elements.at(-1) || document.activeElement === event.currentTarget)) {
+            event.preventDefault(); elements[0]?.focus();
+          }
+        }
+      }}>
       <div className="codex-app-server-history-header"><h2 id="codebuddy-goal-title">CodeBuddy 目标管理</h2>
-        <button type="button" aria-label="关闭目标管理" disabled={pending} onClick={onClose}><X aria-hidden="true" /></button></div>
+        <button type="button" autoFocus aria-label="关闭目标管理" disabled={pending} onClick={onClose}><X aria-hidden="true" /></button></div>
       <div className="codex-app-server-goal-content">
         {active ? <div className="codex-app-server-goal-summary" aria-label="当前目标状态">
           <strong>{active.paused ? "已暂停" : "进行中"}</strong>

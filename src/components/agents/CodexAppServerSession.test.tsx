@@ -665,6 +665,16 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("menuitem", { name: "Skills、Apps 和 MCP" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "压缩对话" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "目标管理" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "目标管理" }));
+    const dialog = await screen.findByRole("dialog", { name: "CodeBuddy 目标管理" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭目标管理" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "CodeBuddy 目标管理" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "目标管理" }));
+    fireEvent.click(await screen.findByRole("button", { name: "关闭目标管理" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
   });
 
   it("inserts capabilities into the draft and sends only retained structured references", async () => {

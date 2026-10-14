@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CodeBuddyGoalDialog } from "./CodeBuddyGoalDialog";
+import userEvent from "@testing-library/user-event";
 import type { CodexAppServerSnapshot } from "../../vite-env";
 
 const base = { threadId: "thread", provider: "codebuddy" as const, mode: "default" as const,
@@ -10,6 +11,34 @@ const base = { threadId: "thread", provider: "codebuddy" as const, mode: "defaul
 afterEach(cleanup);
 
 describe("CodeBuddy goal panel", () => {
+  it("focuses close on open and cycles in both directions, including after enabling create", async () => {
+    const user = userEvent.setup();
+    render(<><CodeBuddyGoalDialog sessionId="run" snapshot={base} onClose={vi.fn()} onUpdated={vi.fn()} />
+      <button>pnpm test</button></>);
+    const close = screen.getByRole("button", { name: "关闭目标管理" });
+    const condition = screen.getByLabelText("完成条件");
+    const refresh = screen.getByRole("button", { name: "刷新状态" });
+    const create = screen.getByRole("button", { name: "创建目标" });
+    expect(document.activeElement).toBe(close);
+    expect(create).toHaveProperty("disabled", true);
+    for (const control of [condition, refresh, close]) {
+      await user.tab(); expect(document.activeElement).toBe(control);
+    }
+    for (const control of [refresh, condition, close]) {
+      await user.tab({ shift: true }); expect(document.activeElement).toBe(control);
+    }
+    await user.type(condition, "完成并验证修复");
+    create.focus();
+    for (let index = 0; index < 3; index += 1) {
+      for (const control of [close, condition, refresh, create]) {
+        await user.tab(); expect(document.activeElement).toBe(control);
+      }
+      for (const control of [refresh, condition, close, create]) {
+        await user.tab({ shift: true }); expect(document.activeElement).toBe(control);
+      }
+    }
+  });
+
   it("shows official goal usage and confirms replacement and clearing", async () => {
     const setGoal = vi.fn().mockResolvedValue(base);
     const clearGoal = vi.fn().mockResolvedValue(base);
