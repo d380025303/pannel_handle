@@ -1,6 +1,6 @@
 import { installPreviewTransport, type RemoteSocket } from "../remoteSocket";
 import type { ClientMessage, GraphicalSnapshot, RuntimeSession, SavedTemplate, ServerMessage } from "../types";
-import type { WorkItem, WorkItemAttempt, WorkItemQuickPrompt } from "../../../src/vite-env";
+import type { CodexSessionCapabilities, WorkItem, WorkItemAttempt, WorkItemQuickPrompt } from "../../../src/vite-env";
 
 const longText = "浏览器内存预览：检查窄屏长文本换行、弹窗滚动与模拟交互。".repeat(24);
 const cwd = "C:\\preview";
@@ -101,7 +101,7 @@ export class PreviewSocket extends EventTarget {
       case "graphical.subscribe": snapshot(message.sessionId); return;
       case "graphical.usage": this.emit({ v: 8, type: "graphical.usage", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId,
         usage: { provider: "codex", fetchedAt: Date.now(), primaryLimitId: "preview-limit", limits: [{ id: "preview-limit", name: "预览额度", usedPercent: 25, remainingPercent: 75, windowDurationMins: 300 }] } }); return;
-      case "graphical.codex.capabilities": this.emit({ v: 8, type: "graphical.result", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId, result: { skills: [], apps: [], plugins: [], mcpServers: [] } }); return;
+      case "graphical.codex.capabilities": this.emit({ v: 8, type: "graphical.result", sessionId: message.sessionId, threadId: this.snapshot.threadId, requestId: message.requestId, result: { skills: [], apps: [], mcp: [], errors: {} } satisfies CodexSessionCapabilities }); return;
       case "graphical.submit":
         this.snapshot = { ...this.snapshot, items: [...this.snapshot.items,
           { id: crypto.randomUUID(), type: "userMessage", text: message.text },
