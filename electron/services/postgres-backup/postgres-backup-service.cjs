@@ -27,6 +27,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     lastSuccessAt: null, lastError: "", pendingSources: [], sources: [], deviceMarker: "", statsEpoch: 0,
     snapshotKeyVersion: 0, snapshotHashKey: "" };
   let pool = null;
+  const schemaPromises = new WeakMap();
   let timer = null;
   let pending = false;
   let running = null;
@@ -215,6 +216,17 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }
   }
+  function ensurePoolSchema(db, client) {
+    let promise = schemaPromises.get(db);
+    if (!promise) {
+      promise = ensureSchema(client).catch(error => {
+        schemaPromises.delete(db);
+        throw error;
+      });
+      schemaPromises.set(db, promise);
+    }
+    return promise;
+  }
   function sourceKey(session) {
     return JSON.stringify([session.type, session.type === "ssh" ? session.sshConfig?.host || "" : "",
       session.type === "ssh" ? session.sshConfig?.username || "" : "",
@@ -375,7 +387,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
       try {
         const db = await getPool();
         client = await db.connect();
-        await ensureSchema(client);
+        await ensurePoolSchema(db, client);
         await client.query(`INSERT INTO ph_devices(id,name) VALUES($1,$2)
           ON CONFLICT(id) DO UPDATE SET name=excluded.name,last_seen_at=now()`, [state.deviceId, state.deviceName]);
         await uploadSessions(client);
@@ -403,7 +415,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     if (state.enabled) schedule(0);
     interval = setInterval(() => { if (state.enabled) schedule(0); }, 5 * 60 * 1000);
   }
-  async function withClient(work) { const db = await getPool(); const client = await db.connect(); try { await ensureSchema(client); return await work(client); } finally { client.release(); } }
+  async function withClient(work) { const db = await getPool(); const client = await db.connect(); try { await ensurePoolSchema(db, client); return await work(client); } finally { client.release(); } }
   async function listDevices() { return withClient(async client => (await client.query("SELECT id,name,last_seen_at FROM ph_devices ORDER BY name")).rows); }
   async function getDashboard(options) {
     const { getRemoteDashboard } = require("./remote-dashboard.cjs");
