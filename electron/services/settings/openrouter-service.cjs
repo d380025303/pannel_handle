@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { execFile: defaultExecFile } = require("node:child_process");
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY";
@@ -248,7 +248,7 @@ function createOpenRouterService({
   store,
   catalogFile,
   fetchImpl = globalThis.fetch,
-  spawnSync = defaultSpawnSync,
+  execFile = defaultExecFile,
   now = Date.now,
   verificationTimeoutMs = MODEL_VERIFICATION_TIMEOUT_MS,
   providerId = "openrouter",
@@ -621,8 +621,16 @@ function createOpenRouterService({
     return catalogFile;
   }
 
-  function toWslPath(windowsPath, distro) {
-    const result = spawnSync("wsl.exe", ["-d", distro, "--", "wslpath", "-a", "-u", windowsPath], {
+  function runCommand(file, args, options) {
+    return new Promise(resolve => {
+      execFile(file, args, options, (error, stdout) => {
+        resolve({ error, stdout, status: error ? error.code : 0 });
+      });
+    });
+  }
+
+  async function toWslPath(windowsPath, distro) {
+    const result = await runCommand("wsl.exe", ["-d", distro, "--", "wslpath", "-a", "-u", windowsPath], {
       encoding: "utf-8",
       windowsHide: true,
       timeout: 10000
@@ -634,10 +642,10 @@ function createOpenRouterService({
     return converted;
   }
 
-  function assertCodexCompatibility(session) {
+  async function assertCodexCompatibility(session) {
     const result = session.type === "wsl"
-      ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "codex debug models --help"], { encoding: "utf-8", windowsHide: true, timeout: 10000 })
-      : spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "codex debug models --help"], { encoding: "utf-8", windowsHide: true, timeout: 10000 });
+      ? await runCommand("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "codex debug models --help"], { encoding: "utf-8", windowsHide: true, timeout: 10000 })
+      : await runCommand(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "codex debug models --help"], { encoding: "utf-8", windowsHide: true, timeout: 10000 });
     if (result.error || result.status !== 0) {
       throw new Error("当前 Codex CLI 不支持自定义模型目录，请升级 Codex 后重试。");
     }
@@ -658,7 +666,7 @@ function createOpenRouterService({
       }
       throw new Error(`${providerName} 模型 ${requestedModel} 未通过 Codex 兼容性检测：${verification.error || "未知错误"}`);
     }
-    assertCodexCompatibility(session);
+    await assertCodexCompatibility(session);
     const windowsCatalogPath = writeCatalog();
     const config = {
       apiKey,
@@ -667,7 +675,7 @@ function createOpenRouterService({
       apiKeyEnv,
       baseUrl,
       model: requestedModel,
-      catalogPath: session.type === "wsl" ? toWslPath(windowsCatalogPath, session.wslDistro) : windowsCatalogPath
+      catalogPath: session.type === "wsl" ? await toWslPath(windowsCatalogPath, session.wslDistro) : windowsCatalogPath
     };
     return launchAdapter ? launchAdapter(session, config) : config;
   }

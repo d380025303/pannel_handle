@@ -1,6 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { execFile as realExecFile } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -37,11 +39,56 @@ function fixture(overrides = {}) {
   };
   const spawnSync = overrides.spawnSync || vi.fn(() => ({ status: 0, stdout: "supported" }));
   const fetchImpl = overrides.fetchImpl || vi.fn(async () => completedResponse());
+  const execFile = overrides.execFile || vi.fn((file, args, options, callback) => {
+    const result = spawnSync(file, args, options);
+    queueMicrotask(() => callback(result.error || (result.status !== 0 ? Object.assign(new Error("command failed"), { code: result.status }) : null), result.stdout || ""));
+  });
   const catalogFile = path.join(dir, "catalog.json");
-  return { service: createOpenRouterService({ store, catalogFile, spawnSync, fetchImpl, now: overrides.now || (() => 100000), verificationTimeoutMs: overrides.verificationTimeoutMs, ...overrides.serviceOptions }), store, spawnSync, fetchImpl, catalogFile, model };
+  return { service: createOpenRouterService({ store, catalogFile, execFile, fetchImpl, now: overrides.now || (() => 100000), verificationTimeoutMs: overrides.verificationTimeoutMs, ...overrides.serviceOptions }), store, spawnSync, fetchImpl, catalogFile, model };
 }
 
 describe("openrouter-service", () => {
+
+  it.each(["openrouter", "nararouter", "minimax"])("keeps timers responsive during %s launch subprocesses", async providerId => {
+    const ticks = [];
+    const started = performance.now();
+    const execFile = vi.fn((_file, args, options, callback) => realExecFile(process.execPath,
+      ["-e", `setTimeout(() => process.stdout.write(${JSON.stringify(args.includes("wslpath") ? "/mnt/c/catalog.json" : "supported")}), 700)`], options, callback));
+    const { service, model } = fixture({ execFile, serviceOptions: { providerId } });
+    const timer = setInterval(() => ticks.push(performance.now() - started), 20);
+    try {
+      const config = await service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: providerId, codexModel: model.id });
+      expect(config.catalogPath).toBe("/mnt/c/catalog.json");
+      expect(ticks[0]).toBeLessThan(500);
+      expect(ticks.some(tick => tick > 700 && tick < 1300)).toBe(true);
+      expect(execFile).toHaveBeenCalledTimes(2);
+      expect(execFile.mock.calls.every(([, , options]) => options.timeout === 10000 && options.windowsHide === true && options.encoding === "utf-8")).toBe(true);
+    } finally {
+      clearInterval(timer);
+    }
+  });
+
+  it("handles a real subprocess timeout with the configured launch deadline", async () => {
+    const execFile = vi.fn((_file, _args, options, callback) => realExecFile(process.execPath,
+      ["-e", "setTimeout(() => {}, 30000)"], options, callback));
+    const { service, model } = fixture({ execFile });
+    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: model.id }))
+      .rejects.toThrow(/Codex CLI/);
+    expect(execFile.mock.calls[0][2].timeout).toBe(10000);
+  }, 15000);
+
+  it.each(["cli failure", "cli timeout", "path failure", "path timeout", "invalid path"])("rejects %s before releasing launch configuration", async failure => {
+    const execFile = vi.fn((_file, args, _options, callback) => {
+      const isPath = args.includes("wslpath");
+      const failHere = failure.startsWith(isPath ? "path" : "cli");
+      const error = failHere ? Object.assign(new Error(failure), failure.endsWith("timeout") ? { killed: true, signal: "SIGTERM" } : { code: 1 }) : null;
+      queueMicrotask(() => callback(error, isPath ? (failure === "invalid path" ? "C:\\catalog.json" : "/mnt/c/catalog.json") : "supported"));
+    });
+    const { service, model } = fixture({ execFile });
+    await expect(service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: "openrouter", codexModel: model.id }))
+      .rejects.toThrow(failure.startsWith("cli") ? "当前 Codex CLI 不支持" : "转换为 WSL 路径");
+  });
+
 
   it.each(["saveApiKey", "clearApiKey", "refreshModels", "verifyAgentModels"])("awaits sync failures from %s", async method => {
     let rejectSync;
