@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite");
@@ -26,7 +26,13 @@ it("keeps one read-only snapshot across batches and tables while local writes co
     expect((await reader.next()).value).toEqual([
       { table_name: "token_sessions", row_key: "7:first", data: { id: "first", total_tokens: 1, backup_epoch: 7 } }
     ]);
+    db.exec("PRAGMA wal_autocheckpoint=0; PRAGMA synchronous=NORMAL;");
+    const update = db.prepare("UPDATE token_sessions SET total_tokens=?");
+    for (let i = 0; i < 2000; i++) update.run(i);
     db.exec("UPDATE token_sessions SET total_tokens=99; DELETE FROM token_daily;");
+    const checkpoint = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+    expect(checkpoint.busy).toBe(0);
+    expect(require("node:fs").statSync(`${statsFile}-wal`).size).toBe(0);
     expect((await reader.next()).value[0].data.total_tokens).toBe(2);
     expect((await reader.next()).value).toEqual([
       { table_name: "token_daily", row_key: '7:["2026-10-13","codex"]',
@@ -39,13 +45,13 @@ it("keeps one read-only snapshot across batches and tables while local writes co
     db.close();
     if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) rmSync(root, { recursive: true, force: true });
   }
-});
+}, 30000);
 
 it("backs up 100000 real SQLite rows in bounded batches while the main event loop responds", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "pg-stats-worker-"));
   const statsFile = path.join(root, "stats.sqlite3");
   const db = new DatabaseSync(statsFile);
-  db.exec("BEGIN; CREATE TABLE token_sessions (id TEXT PRIMARY KEY, total_tokens INTEGER)");
+  db.exec("PRAGMA journal_mode=WAL; BEGIN; CREATE TABLE token_sessions (id TEXT PRIMARY KEY, total_tokens INTEGER)");
   db.exec(`CREATE TABLE token_session_models (session_id TEXT, model TEXT);
     CREATE TABLE token_session_skills (session_id TEXT, name TEXT);
     CREATE TABLE token_session_mcp_tools (session_id TEXT, server_name TEXT, tool_name TEXT);
@@ -131,6 +137,90 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
     }
   } finally {
     await service.shutdown();
+    if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
+
+
+it.each(["success", "cancel", "upload failure", "snapshot failure"])("removes the temporary snapshot after %s", async outcome => {
+  const fs = require("node:fs");
+  const root = mkdtempSync(path.join(tmpdir(), "pg-stats-cleanup-"));
+  const statsFile = path.join(root, "stats.sqlite3");
+  const db = new DatabaseSync(statsFile);
+  db.exec("CREATE TABLE token_sessions (id TEXT); INSERT INTO token_sessions VALUES ('one'), ('two')");
+  db.close();
+  const directories = [];
+  const original = fs.mkdtempSync;
+  const spy = vi.spyOn(fs, "mkdtempSync").mockImplementation(prefix => {
+    const directory = original(prefix);
+    directories.push(directory);
+    return directory;
+  });
+  try {
+    const consume = async () => {
+      for await (const batch of readStatsBatches({ statsFile, epoch: 0, batchSize: 1,
+        tables: outcome === "snapshot failure" ? ["token_sessions", "missing_table"] : ["token_sessions"] })) {
+        expect(batch).toHaveLength(1);
+        expect(fs.existsSync(path.join(directories[0], "batches.bin"))).toBe(true);
+        if (outcome === "cancel") break;
+        if (outcome === "upload failure") throw new Error("Remote write failed");
+      }
+    };
+    if (outcome === "snapshot failure") await expect(consume()).rejects.toThrow(/missing_table/);
+    else if (outcome === "upload failure") await expect(consume()).rejects.toThrow(/Remote write failed/);
+    else await consume();
+    expect(directories).toHaveLength(1);
+    expect(fs.existsSync(directories[0])).toBe(false);
+  } finally {
+    spy.mockRestore();
+    if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+it("allows WAL reclamation while the PostgreSQL batch write is pending", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pg-stats-upload-"));
+  const statsFile = path.join(root, "stats.sqlite3");
+  const db = new DatabaseSync(statsFile);
+  db.exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA synchronous=NORMAL;
+    CREATE TABLE token_sessions (id TEXT, total_tokens INTEGER);
+    CREATE TABLE token_session_models (session_id TEXT, model TEXT);
+    CREATE TABLE token_session_skills (session_id TEXT, name TEXT);
+    CREATE TABLE token_session_mcp_tools (session_id TEXT, server_name TEXT, tool_name TEXT);
+    CREATE TABLE token_daily (date TEXT, provider TEXT, total_tokens INTEGER);
+    INSERT INTO token_sessions VALUES ('one', 1);
+    INSERT INTO token_daily VALUES ('2026-10-13', 'codex', 3);`);
+  const uploaded = [];
+  const client = { release() {}, async query(sql, params = []) {
+    if (sql.includes("INSERT INTO ph_stat_rows")) {
+      if (!uploaded.length) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        const update = db.prepare("UPDATE token_sessions SET total_tokens=?");
+        for (let i = 0; i < 2000; i++) update.run(i);
+        db.exec("DELETE FROM token_daily");
+        expect(require("node:fs").statSync(`${statsFile}-wal`).size).toBeGreaterThan(0);
+        expect(db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get().busy).toBe(0);
+        expect(require("node:fs").statSync(`${statsFile}-wal`).size).toBe(0);
+      }
+      uploaded.push(...JSON.parse(params[1]));
+    }
+    return { rows: [] };
+  } };
+  class Pool { async connect() { return client; } async end() {} }
+  const service = createPostgresBackupService({ userData: root, statsFile, PoolClass: Pool,
+    safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value), decryptString: value => value.toString() },
+    sessionStore: { exportLibrary: () => [] }, terminalManager: { listSessions: () => [] }, historyService: {} });
+  try {
+    service.load();
+    await service.saveConfig({ enabled: true, host: "localhost", database: "backup", user: "user", password: "password", passphrase: "passphrase" });
+    await service.shutdown();
+    await service.backupNow();
+    expect(uploaded.map(row => [row.table_name, row.data.total_tokens])).toEqual([
+      ["token_sessions", 1], ["token_daily", 3]
+    ]);
+  } finally {
+    await service.shutdown();
+    db.close();
     if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) rmSync(root, { recursive: true, force: true });
   }
 }, 30000);

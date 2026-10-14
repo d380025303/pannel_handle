@@ -1,15 +1,27 @@
 const { parentPort, workerData } = require("node:worker_threads");
 const { DatabaseSync } = require("node:sqlite");
 
+const fs = require("node:fs");
+
 let db;
-let iterator;
+let snapshot;
 try {
   db = new DatabaseSync(workerData.statsFile, { readOnly: true });
-  // One snapshot across all tables, including when local statistics change during upload.
+  // Materialize one snapshot across all tables before waiting for remote uploads.
   db.exec("BEGIN");
-  iterator = rows();
+  snapshot = fs.openSync(workerData.snapshotFile, "wx+", 0o600);
+  for (const batch of rows()) {
+    const data = Buffer.from(JSON.stringify(batch));
+    const header = Buffer.alloc(4);
+    header.writeUInt32LE(data.length);
+    fs.writeFileSync(snapshot, header);
+    fs.writeFileSync(snapshot, data);
+  }
+  db.close();
+  db = null;
 } catch (error) {
   db?.close();
+  if (snapshot !== undefined) fs.closeSync(snapshot);
   throw error;
 }
 
@@ -33,17 +45,32 @@ function* rows() {
   }
 }
 
+let position = 0;
+function readExact(buffer) {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const count = fs.readSync(snapshot, buffer, offset, buffer.length - offset, position);
+    if (!count) throw new Error("Incomplete statistics snapshot.");
+    offset += count;
+    position += count;
+  }
+}
+
 parentPort.on("message", () => {
   try {
-    const next = iterator.next();
-    if (!next.done) parentPort.postMessage({ batch: next.value });
-    else {
-      db.close();
+    if (position === fs.fstatSync(snapshot).size) {
+      fs.closeSync(snapshot);
       parentPort.postMessage({ done: true });
       parentPort.close();
+      return;
     }
+    const header = Buffer.alloc(4);
+    readExact(header);
+    const data = Buffer.alloc(header.readUInt32LE());
+    readExact(data);
+    parentPort.postMessage({ batch: JSON.parse(data.toString("utf8")) });
   } catch (error) {
-    db.close();
+    fs.closeSync(snapshot);
     throw error;
   }
 });

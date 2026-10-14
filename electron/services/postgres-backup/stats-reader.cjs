@@ -1,8 +1,20 @@
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const { Worker } = require("node:worker_threads");
 
 async function* readStatsBatches(options) {
-  const worker = new Worker(path.join(__dirname, "stats-reader-worker.cjs"), { workerData: options });
+  // The parent owns cleanup even when the worker is terminated during snapshot creation.
+  const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-stats-snapshot-"));
+  let worker;
+  try {
+    worker = new Worker(path.join(__dirname, "stats-reader-worker.cjs"), {
+      workerData: { ...options, snapshotFile: path.join(snapshotDir, "batches.bin") }
+    });
+  } catch (error) {
+    fs.rmSync(snapshotDir, { recursive: true, force: true });
+    throw error;
+  }
   let failure;
   let waiter;
   worker.on("error", error => { failure = error; waiter?.reject(error); });
@@ -24,7 +36,8 @@ async function* readStatsBatches(options) {
     }
   } finally {
     waiter = null;
-    await worker.terminate();
+    try { await worker.terminate(); }
+    finally { fs.rmSync(snapshotDir, { recursive: true, force: true }); }
   }
 }
 
