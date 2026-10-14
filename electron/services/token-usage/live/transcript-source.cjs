@@ -7,6 +7,7 @@ const {
 const { createCopilotOtelParser, getCopilotOtelPath } = require("../copilot-otel.cjs");
 
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+const PARSE_BATCH_BYTES = 256 * 1024;
 const REMOTE_DELTA_SCRIPT = [
   "import base64,glob,json,os,sys",
   "f=sys.argv[1]; state=json.loads(sys.argv[2]); limit=int(sys.argv[3])",
@@ -96,25 +97,43 @@ function createTranscriptSource({
     onReset(tracker);
   }
 
-  function consumeMainBytes(tracker, buffer) {
-    const combined = Buffer.concat([tracker.pendingBytes, buffer]);
+  async function consumeLines(tracker, reader, buffer, onLine) {
+    const combined = reader.pendingBytes.length
+      ? Buffer.concat([reader.pendingBytes, buffer])
+      : buffer;
     let lineStart = 0;
     let parsedUsage = false;
-    for (let index = 0; index < combined.length; index += 1) {
-      if (combined[index] !== 0x0a) continue;
-      let line = combined.subarray(lineStart, index);
-      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-      if (line.length) {
-        const text = line.toString("utf-8");
-        parsedUsage = tracker.parser.pushLine(text) || parsedUsage;
-        onMainLine(tracker, text);
+    for (let batchStart = 0; batchStart < combined.length; batchStart += PARSE_BATCH_BYTES) {
+      if (batchStart > 0) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (tracker.disposed) return false;
       }
-      lineStart = index + 1;
+      // Bound the search even within a long line; parse only complete JSON/UTF-8 lines.
+      const batch = combined.subarray(batchStart, batchStart + PARSE_BATCH_BYTES);
+      let newline = batch.indexOf(0x0a);
+      while (newline !== -1) {
+        const index = batchStart + newline;
+        if (index > lineStart) {
+          let line = combined.subarray(lineStart, index);
+          if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+          if (line.length) {
+            const text = line.toString("utf-8");
+            parsedUsage = tracker.parser.pushLine(text) || parsedUsage;
+            onLine?.(tracker, text);
+          }
+        }
+        lineStart = index + 1;
+        newline = batch.indexOf(0x0a, newline + 1);
+      }
     }
-    tracker.pendingBytes = lineStart < combined.length
+    reader.pendingBytes = lineStart < combined.length
       ? Buffer.from(combined.subarray(lineStart))
       : Buffer.alloc(0);
     return parsedUsage;
+  }
+
+  function consumeMainBytes(tracker, buffer) {
+    return consumeLines(tracker, tracker, buffer, onMainLine);
   }
 
   function consumePendingLine(tracker) {
@@ -127,18 +146,7 @@ function createTranscriptSource({
   }
 
   function consumeSubagentBytes(tracker, reader, buffer) {
-    const combined = Buffer.concat([reader.pendingBytes, buffer]);
-    let lineStart = 0;
-    for (let index = 0; index < combined.length; index += 1) {
-      if (combined[index] !== 0x0a) continue;
-      let line = combined.subarray(lineStart, index);
-      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-      if (line.length) tracker.parser.pushLine(line.toString("utf-8"));
-      lineStart = index + 1;
-    }
-    reader.pendingBytes = lineStart < combined.length
-      ? Buffer.from(combined.subarray(lineStart))
-      : Buffer.alloc(0);
+    return consumeLines(tracker, reader, buffer);
   }
 
   function ensureRemoteClient(tracker) {
@@ -181,9 +189,11 @@ function createTranscriptSource({
     if (mainReset) reset(tracker);
     tracker.fileIdentity = main.identity;
     tracker.offset = main.offset;
-    let parsedUsage = consumeMainBytes(tracker, Buffer.from(String(main.data || ""), "base64"));
+    let parsedUsage = await consumeMainBytes(tracker, Buffer.from(String(main.data || ""), "base64"));
 
+    if (tracker.disposed) return false;
     for (const item of tracker.provider === "codebuddy" && Array.isArray(result.subagents) ? result.subagents : []) {
+      if (tracker.disposed) return false;
       if (!item?.path || !Number.isInteger(item.offset) || !Number.isInteger(item.start)) continue;
       let reader = tracker.subagentReaders.get(item.path);
       if (!reader) {
@@ -198,7 +208,7 @@ function createTranscriptSource({
       reader.fileIdentity = item.identity;
       reader.offset = item.offset;
       const before = tracker.parser.getResult()?.tokens?.totalTokens;
-      consumeSubagentBytes(tracker, reader, Buffer.from(String(item.data || ""), "base64"));
+      await consumeSubagentBytes(tracker, reader, Buffer.from(String(item.data || ""), "base64"));
       parsedUsage = tracker.parser.getResult()?.tokens?.totalTokens !== before || parsedUsage;
     }
     return parsedUsage;
@@ -236,6 +246,7 @@ function createTranscriptSource({
     let entries;
     try { entries = await fsPromises.readdir(subagentsDir); } catch { return; }
     for (const entry of [...entries].sort()) {
+      if (tracker.disposed) return;
       if (!entry.toLowerCase().endsWith(".jsonl")) continue;
       const filePath = path.join(subagentsDir, entry);
       try {
@@ -265,7 +276,7 @@ function createTranscriptSource({
           await handle.close();
         }
         reader.offset += bytesRead;
-        consumeSubagentBytes(tracker, reader, buffer.subarray(0, bytesRead));
+        await consumeSubagentBytes(tracker, reader, buffer.subarray(0, bytesRead));
       } catch { /* Skip temporarily unreadable subagent transcripts. */ }
     }
   }
@@ -273,7 +284,7 @@ function createTranscriptSource({
   async function readAppendedBytes(tracker) {
     if (tracker.remote) return readRemoteAppendedBytes(tracker);
     const parsed = await readLocalAppendedBytes(tracker);
-    await readSubagentAppendedBytes(tracker);
+    if (!tracker.disposed) await readSubagentAppendedBytes(tracker);
     return parsed;
   }
 
