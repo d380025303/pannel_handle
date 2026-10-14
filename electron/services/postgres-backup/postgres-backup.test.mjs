@@ -458,6 +458,7 @@ describe("statistics snapshot synchronization", () => {
     let remote = [];
     let beforeTransaction;
     let failWrite = false;
+    let failCommit = false;
     let hasStatsFile = true;
     const batches = [];
     const statsQueries = [];
@@ -465,6 +466,7 @@ describe("statistics snapshot synchronization", () => {
     const client = { release() {}, async query(sql, params = []) {
       if (sql.includes("DELETE FROM ph_stat_rows") || sql.includes("INSERT INTO ph_stat_rows")) uploadingStats = true;
       if (uploadingStats) statsQueries.push(sql);
+      if (uploadingStats && sql === "COMMIT" && failCommit) throw new Error("statistics commit failed");
       if (sql === "COMMIT" || sql === "ROLLBACK") uploadingStats = false;
       if (sql === "BEGIN") beforeTransaction = structuredClone(remote);
       else if (sql === "ROLLBACK") remote = beforeTransaction;
@@ -509,6 +511,9 @@ describe("statistics snapshot synchronization", () => {
       const deviceId = service.publicState().deviceId;
       const dashboard = () => service.getDashboard({ deviceId, range: "all" });
       await service.backupNow();
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches).toEqual([]);
       expect((await dashboard()).summary.skillCalls).toBe(3);
       const protectedRows = remote.flatMap(row => [
         { ...structuredClone(row), device_id: "other-device" },
@@ -547,6 +552,10 @@ describe("statistics snapshot synchronization", () => {
       expect(remote).toEqual(previous);
       assertProtected();
       failWrite = false;
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches.map(batch => batch.length)).toEqual([500, 1, 1]);
+      expect(remote.filter(row => row.device_id === deviceId && row.data.backup_epoch === 0)).toHaveLength(502);
       local.token_session_skills = [];
       local.token_sessions = Array.from({ length: 1000 }, (_, i) => ({
         id: `codex:batch-${i}`, provider: "codex", total_tokens: i
@@ -556,13 +565,36 @@ describe("statistics snapshot synchronization", () => {
         batches.length = 0;
         statsQueries.length = 0;
         await service.backupNow();
-        expect(batches.map(batch => batch.length)).toEqual([500, 500]);
+        expect(batches.map(batch => batch.length)).toEqual(round === 0 ? [500, 500] : []);
         // Five deletions, two UPSERTs, COMMIT (plus BEGIN = nine queries).
-        expect(statsQueries).toHaveLength(8);
+        expect(statsQueries).toHaveLength(round === 0 ? 8 : 6);
         expect(remote.filter(row => row.device_id === deviceId && row.data.backup_epoch === 0)).toHaveLength(1000);
         if (round === 0) firstRound = structuredClone(remote);
         else expect(remote).toEqual(firstRound);
         assertProtected();
+      }
+      local.token_sessions[750].total_tokens += 1;
+      batches.length = 0;
+      const beforeCommitFailure = structuredClone(remote);
+      failCommit = true;
+      await expect(service.backupNow()).rejects.toThrow("statistics commit failed");
+      expect(batches.map(batch => batch.length)).toEqual([500]);
+      expect(remote).toEqual(beforeCommitFailure);
+      failCommit = false;
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches.map(batch => batch.length)).toEqual([500]);
+      expect(remote.find(row => row.device_id === deviceId && row.row_key === "0:codex:batch-750").data.total_tokens).toBe(751);
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches).toEqual([]);
+
+      for (const database of ["other-backup", "backup"]) {
+        await service.saveConfig({ enabled: true, host: "localhost", database, user: "user" });
+        await service.shutdown();
+        batches.length = 0;
+        await service.backupNow();
+        expect(batches.map(batch => batch.length)).toEqual([500, 500]);
       }
       const unchanged = structuredClone(remote);
       for (const table of Object.keys(local)) local[table] = [];
@@ -574,6 +606,13 @@ describe("statistics snapshot synchronization", () => {
       expect(remote).toEqual(protectedRows);
       expect(batches).toHaveLength(2);
       assertProtected();
+      local.token_sessions = [{ id: "codex:epoch", total_tokens: 1 }];
+      service.newStatsEpoch();
+      await service.shutdown();
+      batches.length = 0;
+      await service.backupNow();
+      expect(batches[0][0].row_key).toBe("1:codex:epoch");
+      expect(remote.some(row => row.device_id === deviceId && row.data.backup_epoch === 1)).toBe(true);
     } finally {
       await service.shutdown();
       if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) {

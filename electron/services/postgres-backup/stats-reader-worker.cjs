@@ -15,26 +15,28 @@ try {
 
 function* rows() {
   for (const table of workerData.tables) {
-    for (const row of db.prepare(`SELECT * FROM ${table}`).iterate()) {
+    const order = table === "token_sessions" ? "id"
+      : table === "token_daily" ? "date, provider"
+        : table === "token_session_mcp_tools" ? "session_id, server_name, tool_name"
+          : table === "token_session_models" ? "session_id, model" : "session_id, name";
+    let batch = [];
+    for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).iterate()) {
       const key = table === "token_sessions" ? row.id
         : table === "token_daily" ? JSON.stringify([row.date, row.provider])
           : table === "token_session_mcp_tools" ? JSON.stringify([row.session_id, row.server_name, row.tool_name])
             : table === "token_session_models" ? JSON.stringify([row.session_id, row.model]) : JSON.stringify([row.session_id, row.name]);
-      yield { table_name: table, row_key: `${workerData.epoch}:${key}`,
-        data: { ...row, backup_epoch: workerData.epoch } };
+      batch.push({ table_name: table, row_key: `${workerData.epoch}:${key}`,
+        data: { ...row, backup_epoch: workerData.epoch } });
+      if (batch.length === workerData.batchSize) { yield batch; batch = []; }
     }
+    if (batch.length) yield batch;
   }
 }
 
 parentPort.on("message", () => {
   try {
-    const batch = [];
-    while (batch.length < workerData.batchSize) {
-      const next = iterator.next();
-      if (next.done) break;
-      batch.push(next.value);
-    }
-    if (batch.length) parentPort.postMessage({ batch });
+    const next = iterator.next();
+    if (!next.done) parentPort.postMessage({ batch: next.value });
     else {
       db.close();
       parentPort.postMessage({ done: true });

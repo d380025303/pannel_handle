@@ -46,30 +46,37 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
   const statsFile = path.join(root, "stats.sqlite3");
   const db = new DatabaseSync(statsFile);
   db.exec("BEGIN; CREATE TABLE token_sessions (id TEXT PRIMARY KEY, total_tokens INTEGER)");
-  for (const table of tables.slice(1)) db.exec(`CREATE TABLE ${table} (session_id TEXT)`);
+  db.exec(`CREATE TABLE token_session_models (session_id TEXT, model TEXT);
+    CREATE TABLE token_session_skills (session_id TEXT, name TEXT);
+    CREATE TABLE token_session_mcp_tools (session_id TEXT, server_name TEXT, tool_name TEXT);
+    CREATE TABLE token_daily (date TEXT, provider TEXT);`);
   const insert = db.prepare("INSERT INTO token_sessions VALUES (?, ?)");
   for (let i = 0; i < 100000; i++) insert.run(`codex:${i}`, i);
   db.exec("COMMIT");
   db.close();
+  const orderedIds = Array.from({ length: 100000 }, (_, i) => `codex:${i}`).sort();
   let count = 0;
+  let upserts = 0;
+  let jsonBytes = 0;
   let deletes = 0;
   let snapshot;
   const client = { release() {}, async query(sql, params = []) {
     if (sql.includes("SELECT data FROM ph_session_snapshots")) return { rows: snapshot ? [{ data: snapshot }] : [] };
     if (sql.includes("INSERT INTO ph_session_snapshots")) snapshot = params[2];
     if (sql.includes("INSERT INTO ph_stat_rows")) {
+      upserts++;
+      jsonBytes += Buffer.byteLength(params[1]);
       const batch = JSON.parse(params[1]);
       expect(batch.length).toBeLessThanOrEqual(500);
       for (const row of batch) {
-        if (row.table_name !== "token_sessions" || row.row_key !== `0:codex:${count}`
-          || row.data.id !== `codex:${count}` || row.data.total_tokens !== count || row.data.backup_epoch !== 0) {
+        if (row.table_name !== "token_sessions" || row.row_key !== `0:${orderedIds[count]}`
+          || row.data.id !== orderedIds[count] || row.data.total_tokens !== Number(orderedIds[count].split(":")[1]) || row.data.backup_epoch !== 0) {
           throw new Error(`Unexpected statistics row ${count}`);
         }
         count++;
       }
     }
     if (sql.includes("DELETE FROM ph_stat_rows")) {
-      expect(count).toBe(100000);
       expect(params[3].length).toBe(params[1] === "token_sessions" ? 100000 : 0);
       deletes++;
     }
@@ -85,6 +92,8 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
     await service.shutdown(); // Cancel the automatic timer; exercise three explicit backups.
     for (let round = 0; round < 3; round++) {
       count = 0;
+      upserts = 0;
+      jsonBytes = 0;
       deletes = 0;
       const start = performance.now();
       let lastTick = start;
@@ -102,7 +111,10 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
         maxGap = Math.max(maxGap, performance.now() - lastTick);
         const zeroDelay = await zeroTimer;
         console.log(`stats backup round ${round + 1}: ${Math.round(performance.now() - start)} ms, zero timer ${zeroDelay.toFixed(1)} ms, max timer gap ${maxGap.toFixed(1)} ms`);
-        expect(count).toBe(100000);
+        expect(count).toBe(round === 0 ? 100000 : 0);
+        expect(upserts).toBe(round === 0 ? 200 : 0);
+        if (round === 0) expect(jsonBytes).toBeGreaterThan(0);
+        else expect(jsonBytes).toBe(0);
         expect(deletes).toBe(5);
         expect(ticks).toBeGreaterThan(10);
         expect(zeroDelay).toBeLessThan(200);

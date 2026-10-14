@@ -31,6 +31,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
   let pending = false;
   let running = null;
   let interval = null;
+  let statsBatchHashes = new Map();
+  let statsCacheScope = "";
 
   function encryptLocal(value) {
     if (!value) return "";
@@ -43,6 +45,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     return safeStorage.decryptString(Buffer.from(value, "base64"));
   }
   function load() {
+    statsBatchHashes = new Map();
     try {
       const saved = readJson(dataStore, configFile, fsApi);
       state = { ...state, ...saved, password: saved.password || "", passphrase: saved.passphrase || "" };
@@ -110,6 +113,9 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     state = next;
     try { saveFile(); }
     catch (error) { state = previous; throw error; }
+    if (["host", "port", "database", "user", "ssl", "deviceId"].some(key => previous[key] !== state[key])) {
+      statsBatchHashes = new Map();
+    }
     if (pool) { await pool.end(); pool = null; }
     onChanged(publicState());
     if (state.enabled) schedule(0);
@@ -257,17 +263,32 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
   async function uploadStats(client) {
     if (!fsApi.existsSync(statsFile)) return;
     const epoch = state.statsEpoch;
+    const scope = JSON.stringify([state.host, state.port, state.database, state.user, state.ssl, state.deviceId, epoch]);
+    if (statsCacheScope !== scope) {
+      statsBatchHashes = new Map();
+      statsCacheScope = scope;
+    }
+    const nextHashes = new Map();
+    const batchIndexes = new Map();
     const keysByTable = new Map(TABLES.map(table => [table, []]));
     await client.query("BEGIN");
     try {
       for await (const batch of statsReader({ statsFile, epoch, tables: TABLES, batchSize: STATS_BATCH_SIZE })) {
         for (const row of batch) keysByTable.get(row.table_name).push(row.row_key);
+        const table = batch[0].table_name;
+        const index = batchIndexes.get(table) || 0;
+        batchIndexes.set(table, index + 1);
+        const key = `${table}:${index}`;
+        const json = JSON.stringify(batch);
+        const hash = crypto.createHash("sha256").update(json).digest("hex");
+        nextHashes.set(key, hash);
+        if (statsBatchHashes.get(key) === hash) continue;
         await client.query(`INSERT INTO ph_stat_rows(device_id,table_name,row_key,data)
           SELECT $1, batch.table_name, batch.row_key, batch.data
           FROM jsonb_to_recordset($2::jsonb) AS batch(table_name TEXT, row_key TEXT, data JSONB)
           ON CONFLICT(device_id,table_name,row_key) DO UPDATE SET data=excluded.data
           WHERE ph_stat_rows.data IS DISTINCT FROM excluded.data`,
-        [state.deviceId, JSON.stringify(batch)]);
+        [state.deviceId, json]);
       }
       for (const table of TABLES) {
         await client.query(`DELETE FROM ph_stat_rows
@@ -275,6 +296,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
             AND NOT (row_key = ANY($4::text[]))`, [state.deviceId, table, String(epoch), keysByTable.get(table)]);
       }
       await client.query("COMMIT");
+      // Publish only committed hashes; an epoch change during upload invalidates this snapshot.
+      if (state.statsEpoch === epoch && statsCacheScope === scope) statsBatchHashes = nextHashes;
     } catch (error) { await client.query("ROLLBACK"); throw error; }
   }
   async function uploadConversations(client) {
@@ -375,7 +398,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => { timer = null; void backupNow().catch(error => console.error("PostgreSQL backup failed:", error)); }, delay);
   }
-  function newStatsEpoch() { state.statsEpoch += 1; saveFile(); schedule(); }
+  function newStatsEpoch() { state.statsEpoch += 1; statsBatchHashes = new Map(); saveFile(); schedule(); }
   function start() {
     if (state.enabled) schedule(0);
     interval = setInterval(() => { if (state.enabled) schedule(0); }, 5 * 60 * 1000);
@@ -413,11 +436,13 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
   }
   async function deleteDevice(deviceId) {
     if (deviceId === state.deviceId) {
+      statsBatchHashes = new Map();
       state.enabled = false;
       if (timer) { clearTimeout(timer); timer = null; }
       saveFile(); onChanged(publicState());
     }
     if (running) await running.catch(() => {});
+    if (deviceId === state.deviceId) statsBatchHashes = new Map();
     return withClient(async client => {
       await client.query("BEGIN");
       try {
