@@ -589,7 +589,9 @@ function createAgentSessionLauncher({
       return bindCodexBridgeRuntime(session, runtime);
     } catch (error) {
       if (session) {
-        terminalManager.closeSession(session.id);
+        if (terminalManager.getSession(session.id)?.creationSource?.trigger === "automation") {
+          error.sessionId = session.id;
+        } else terminalManager.closeSession(session.id);
         if (removeSavedOnFailure && session.templateId) terminalManager.deleteSavedSession(session.templateId);
       }
       else codexModelBridgeModule?.releaseRegistration(runtime?.codexBridgeRegistration);

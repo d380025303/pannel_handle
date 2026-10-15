@@ -542,7 +542,7 @@ it("shows current model and effort and sends a Plan mode change", () => {
   expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
   const requestId = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")?.requestId;
   emit({ v: PROTOCOL_VERSION, type: "error", requestId, code: "GRAPHICAL_COMMAND_FAILED", message: "切换失败" });
-  expect(screen.getByText("切换失败")).toBeTruthy();
+  expect(screen.getByText("模式切换失败：切换失败")).toBeTruthy();
   expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(false);
 });
 
@@ -1003,18 +1003,32 @@ it("matches desktop permission entry and no-op behavior for busy or unready conv
   expect(f.send.mock.calls.some(([message]) => message.type === "graphical.permission")).toBe(false);
 });
 
-it("allows archived permission changes regardless of the permissions capability and keeps current choice a no-op", () => {
+it.each([
+  { archived: true }, { pendingPlan: { itemId: "plan-1" } }, { changingPermission: true },
+  { compacting: true }, { reviewing: true }, { sandboxSettingUp: true }, { signedOut: true },
+  { approvals: [{ requestId: 1, method: "approval", params: {} }] },
+  { questions: [{ requestId: 1, submitting: false, params: { threadId: "thread-1", turnId: "turn-1", questions: [] } }] }
+])("blocks permission changes while the service is unavailable: %j", state => {
   const f = fixture();
   f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
-    ...snapshot, archived: true, executionPermission: "askApproval", capabilities: { permissions: false }
+    ...snapshot, executionPermission: "askApproval", ...state
   } });
   const sheet = openSheet("执行权限");
-  const current = within(sheet).getByRole("button", { name: /需要确认/ });
-  expect(current).toHaveProperty("disabled", false);
-  fireEvent.click(current);
+  expect(within(sheet).getByRole("status").textContent).toBeTruthy();
+  const choice = within(sheet).getByRole("button", { name: /完全访问/ });
+  expect(choice).toHaveProperty("disabled", true);
+  fireEvent.click(choice);
   expect(f.send.mock.calls.some(([message]) => message.type === "graphical.permission")).toBe(false);
-  fireEvent.click(within(sheet).getByRole("button", { name: /完全访问/ }));
-  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.permission", permission: "fullAccess" }));
+});
+
+it.each([[/只读/, "readOnly"], [/需要确认/, "askApproval"], [/完全访问/, "fullAccess"]] as const)("routes permission %s without a mode command", (label, permission) => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, permissionProfileId: "custom", executionPermission: "askApproval", capabilities: { permissions: false }
+  } });
+  fireEvent.click(within(openSheet("执行权限")).getByRole("button", { name: label }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.permission", permission }));
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.mode")).toBe(false);
 });
 
 it("tracks mode and permission requests independently and does not close a different sheet", () => {
@@ -1037,6 +1051,23 @@ it("tracks mode and permission requests independently and does not close a diffe
   expect(modeButton("Plan")).toHaveProperty("disabled", false);
   f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: permissions[0].requestId });
   expect(screen.getByRole("dialog", { name: "更多操作" })).toBeTruthy();
+});
+
+it("identifies a delayed mode failure while the permission sheet is open", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, executionPermission: "askApproval" } });
+  fireEvent.click(modeButton("Plan"));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /执行权限/ }));
+  const sheet = screen.getByRole("dialog", { name: "执行权限" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /完全访问/ }));
+  const mode = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")!;
+  const permission = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.permission")!;
+  f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: mode.requestId, code: "GRAPHICAL_COMMAND_FAILED", message: "当前会话不可切换模式。" });
+  expect(within(sheet).getByRole("alert").textContent).toBe("模式切换失败：当前会话不可切换模式。");
+  expect(within(sheet).getByRole("button", { name: /完全访问/ })).toHaveProperty("disabled", true);
+  f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: permission.requestId, code: "GRAPHICAL_COMMAND_FAILED", message: "权限暂不可用" });
+  expect(within(sheet).getByRole("alert").textContent).toBe("执行权限切换失败：权限暂不可用");
+  expect(within(sheet).getByRole("button", { name: /完全访问/ })).toHaveProperty("disabled", false);
 });
 
 it("clears pending permissions on conversation changes and reconnect and ignores stale replies", () => {

@@ -2413,16 +2413,21 @@ it("notifies task observers with the matching final response and closure", async
   let child; const received = []; const listener = vi.fn();
   const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) }, terminalManager: { broadcastAgentStatus() {} }, broadcast() {}, spawnProcess: () => (child = fakeProcess(received)) });
   const unsubscribe = service.onTaskTurnEnded(listener);
+  const errors = vi.fn(); const unsubscribeErrors = service.onTaskError(errors);
   const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", ...params } })}\n`);
   try {
     await service.start({ id: "run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     await service.submit("run", "task");
+    emit("item/completed", { turnId: "turn-1", item: { id: "failed-command", type: "commandExecution", command: "exit 1", exitCode: 1, status: "completed" } });
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "run", turnId: "turn-1", error: expect.stringContaining("退出码 1") })));
     emit("item/completed", { turnId: "turn-1", item: { id: "comment", type: "agentMessage", phase: "commentary", text: "工作中" } });
     emit("item/completed", { turnId: "turn-1", item: { id: "answer", type: "agentMessage", phase: "final_answer", text: "最终答复" } });
     emit("turn/completed", { turn: { id: "turn-1", status: "completed" } });
     await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "run", threadId: "thread-1", turnId: "turn-1", status: "completed", output: "最终答复" })));
+    expect(service.getInjectedToolState("run")).toMatchObject({ turnId: null, completedTurnId: "turn-1" });
     service.close("run");
     expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "run", status: "stopped" }));
     unsubscribe();
+    unsubscribeErrors();
   } finally { service.shutdown(); }
 });

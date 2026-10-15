@@ -105,6 +105,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   conversationArchive = null, sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
   const turnListeners = new Set();
+  const taskErrorListeners = new Set();
   function notifyTurn(event) {
     for (const listener of turnListeners) {
       try { listener(event); } catch (error) { console.error("Turn observer failed:", error.message); }
@@ -252,7 +253,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
     if (!kind.startsWith("hook/")) entry.diagnostics.push({ id: eventId, turnId, kind, at, payload });
   }
+  function notifyTaskError(entry, value, turnId) {
+    for (const listener of taskErrorListeners) {
+      try { listener({ sessionId: entry.session.id, threadId: entry.threadId, turnId, error: String(value?.message || "Codex 运行失败。") }); } catch (error) { console.error("Task error observer failed", error); }
+    }
+  }
   function recordError(entry, value, turnId) {
+    notifyTaskError(entry, value, turnId);
     const structured = structuredError(value);
     const details = structured || { message: String(value?.message || "Codex 运行失败。") };
     entry.error = details.message;
@@ -578,6 +585,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         }
         const previous = entry.items.find(value => value.id === item.id);
         item.turnId = params.turnId || entry.turnId || previous?.turnId;
+        if (message.method === "item/completed" && (item.status === "failed" || item.error || item.success === false || item.result?.isError === true || (item.type === "commandExecution" && typeof item.exitCode === "number" && item.exitCode !== 0))) {
+          notifyTaskError(entry, { message: `执行步骤出错：${item.type}${item.exitCode != null ? `（退出码 ${item.exitCode}）` : ""}${item.error ? ` · ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}` : ""}` }, item.turnId);
+        }
         if (item.type === "commandExecution" && !item.output && previous?.output) item.output = previous.output;
         if (item.type === "userMessage" && !item.attachments?.length && previous?.attachments?.length)
           item.attachments = previous.attachments;
@@ -644,6 +654,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.injectedTools?.cancel();
       entry.turnStatus = params.turn?.status || "failed";
       const completedTurnId = params.turn?.id || entry.turnId || null;
+      entry.completedTurnId = completedTurnId;
       for (const item of entry.items) if (["reasoning", "sleep", "imageGeneration"].includes(item.type) && ["inProgress", "in_progress", "pending"].includes(item.status)
         && item.turnId === completedTurnId) item.status = entry.turnStatus;
       if (params.turn?.error) {
@@ -2023,7 +2034,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
   function getInjectedToolState(id) {
     const entry = sessions.get(id);
-    return entry ? { threadId: entry.threadId, turnId: entry.turnId, busy: entry.busy, error: entry.error,
+    return entry ? { threadId: entry.threadId, turnId: entry.turnId, completedTurnId: entry.completedTurnId, busy: entry.busy, error: entry.error,
       authorized: Boolean(entry.runtime.injectedTools && entry.injectedTools.definitions.length) } : null;
   }
   function isInjectedToolCallCurrent(id, params) {
@@ -2032,6 +2043,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   return { readConfiguration, setPermissionProfile, setSubAgentView, refreshSubAgents, start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, setSkillEnabled, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     onTaskTurnEnded: listener => { turnListeners.add(listener); return () => turnListeners.delete(listener); },
+    onTaskError: listener => { taskErrorListeners.add(listener); return () => taskErrorListeners.delete(listener); },
     getInjectedToolState, isInjectedToolCallCurrent, startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

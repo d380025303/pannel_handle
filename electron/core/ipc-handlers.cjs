@@ -457,7 +457,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("session-api:invoke", (_event, input) => sessionApiService.invoke(input));
   }
   if (moduleOwnerService) {
-    for (const method of ["listQuickPrompts", "mutateQuickPrompt", "list", "get", "preview", "execute", "markCompleted", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain", "setFollowUp"]) {
+    for (const method of ["getAutomation", "saveAutomation", "previewAutomation", "listQuickPrompts", "mutateQuickPrompt", "list", "get", "preview", "execute", "markCompleted", "listAttempts", "getAttempt", "void", "restore", "resolveUncertain", "setFollowUp"]) {
       ipcMain.handle(`work-items:${method}`, (_event, input) => moduleOwnerService.workItems[method](input));
     }
     for (const method of ["listPromptTemplates", "savePromptTemplate", "deletePromptTemplate", "previewPromptPublish", "publishPromptTemplate"]) {

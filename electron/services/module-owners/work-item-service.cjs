@@ -52,23 +52,25 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     const configuration = Object.fromEntries(["title", "cwd", "agentProvider", "modelSource", "codexBackend", "modelId", "codexAppServerModel", "codexModel"].map(key => [key, value[key]]));
     return { body, configuration };
   }
-  async function execute(input) {
+  async function execute(input, automation, onAutomationProgress) {
     const { id, version } = execution.parse(input);
     const item = database().getWorkItem(id);
     const prepared = preview(input);
     if (!getSessionApi().status().running) throw new Error("请先开启 HTTP 接口服务。");
     if (busy(item.templateId, item.ownerId) || database().workItemOwnerBusy(item.templateId, item.ownerId)) throw new Error("此负责人有创建中、执行中或待核对的任务。");
     // This transaction happens before the first await, so other windows cannot submit twice.
-    const attempt = database().startWorkItemAttempt(id, version, prepared.body, prepared.configuration);
+    const attempt = database().startWorkItemAttempt(id, version, prepared.body, prepared.configuration, automation);
+    onAutomationProgress?.(attempt);
     changed();
     let tracked = false;
     try {
       await launch(item.templateId, { mode: "default", prompt: prepared.body.prompt }, { id: attempt.id, ownerId: item.ownerId,
-        name: item.taskName, tools: item.tools, manual: true, workItemId: item.id, onProgress: job => {
+        name: item.taskName, tools: item.tools, manual: true, trigger: automation ? "automation" : "manual", workItemId: item.id, onError: automation ? error => onAutomationProgress?.(attempt, { progressError: error }) : undefined, onProgress: job => {
           tracked = true;
           database().updateWorkItemAttempt(id, attempt.id, { status: job.status, sessionId: job.sessionId, threadId: job.threadId, turnId: job.turnId,
             output: job.output || "", error: job.error || "", ...(ACTIVE.includes(job.status) ? {} : { endedAt: Date.now() }) });
           changed();
+          onAutomationProgress?.(attempt, job);
         } });
     } catch (error) {
       const saved = database().getWorkItemAttempt(id, attempt.id);
@@ -124,6 +126,6 @@ function createWorkItemService({ dataStore, template, supported, owners, busy, p
     changed();
     return records;
   }
-  return { listQuickPrompts, mutateQuickPrompt, list, get, preview, execute, markCompleted, setFollowUp, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
+  return { executeAutomation: (input, rule, progress) => execute(input, rule, progress), listQuickPrompts, mutateQuickPrompt, list, get, preview, execute: input => execute(input), markCompleted, setFollowUp, listAttempts, getAttempt, void: input => change(input, "void"), restore: input => change(input, "restore"), resolveUncertain };
 }
 module.exports = { createWorkItemService };

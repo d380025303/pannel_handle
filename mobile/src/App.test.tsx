@@ -126,27 +126,24 @@ it("shows live overviews on the home cards and returns from details", () => {
   expect(screen.getByText("构建已完成")).toBeTruthy();
 });
 
-it("keeps rename and close icon actions in the home card header without opening details", async () => {
+it("keeps duplicate and close icon actions in the home card header without opening details", async () => {
   render(<App />);
-  const rename = screen.getByRole("button", { name: "改名第一个会话" });
+  const duplicate = screen.getByRole("button", { name: "复制第一个会话" });
   const close = screen.getByRole("button", { name: "关闭第一个会话" });
-  const top = rename.closest(".mobile-home-card-top")!;
+  const top = duplicate.closest(".mobile-home-card-top")!;
   expect(within(top as HTMLElement).getByRole("button", { name: "关闭第一个会话" })).toBe(close);
   expect(within(top as HTMLElement).getByRole("button", { name: "打开第一个会话详情" })).toBeTruthy();
   expect(top.closest(".mobile-home-card")?.querySelector(".mobile-home-card-meta .mobile-home-status")).toBeTruthy();
-  expect(rename.querySelector("svg")).toBeTruthy();
+  expect(duplicate.querySelector("svg")).toBeTruthy();
   expect(close.querySelector("svg")).toBeTruthy();
 
-  fireEvent.click(rename);
-  const renameDialog = screen.getByRole("dialog", { name: "改名会话" });
-  const titleInput = within(renameDialog).getByRole("textbox", { name: "新的会话名称" });
-  expect(titleInput).toHaveProperty("value", "第一个会话");
-  expect(document.activeElement).toBe(titleInput);
-  fireEvent.change(titleInput, { target: { value: "  新名字  " } });
-  fireEvent.click(within(renameDialog).getByRole("button", { name: "保存" }));
-  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.rename", sessionId: "first", title: "新名字" }));
-  expect(renameDialog.parentElement?.getAttribute("data-closing")).toBe("true");
-  await finishDialogExit();
+  fireEvent.click(duplicate);
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.duplicate", sessionId: "first" }));
+  expect(duplicate.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(duplicate);
+  expect(remote.send).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("button", { name: /改名/ })).toBeNull();
   expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
 
   fireEvent.click(close);
@@ -162,21 +159,13 @@ it("keeps rename and close icon actions in the home card header without opening 
   expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
 });
 
-it("handles rename and close from the session drawer without browser dialogs", async () => {
+it("handles duplicate and close from the session drawer without browser dialogs", async () => {
   const prompt = vi.spyOn(window, "prompt");
   const confirm = vi.spyOn(window, "confirm");
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  fireEvent.click(screen.getAllByRole("button", { name: "改名" })[0]);
-  const dialog = screen.getByRole("dialog", { name: "改名会话" });
-  const input = within(dialog).getByRole("textbox", { name: "新的会话名称" });
-  fireEvent.change(input, { target: { value: "  " } });
-  expect(within(dialog).getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(true);
-  fireEvent.change(input, { target: { value: " 第一个会话 " } });
-  expect(within(dialog).getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(true);
-  expect(remote.send).not.toHaveBeenCalled();
-  fireEvent.keyDown(document, { key: "Escape" });
-  await finishDialogExit();
+  fireEvent.click(screen.getAllByRole("button", { name: "复制会话" })[0]);
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.duplicate", sessionId: "first" }));
   expect(screen.queryByRole("dialog", { name: "关闭会话" })).toBeNull();
   expect(screen.getByRole("dialog", { name: "会话列表" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "会话" })).toBeTruthy();
@@ -340,4 +329,37 @@ it("times out without automatically retrying", () => {
     expect(screen.getByText("关闭请求超时，请核对当前会话列表。")).toBeTruthy();
     expect(vi.mocked(remote.send).mock.calls.filter(([message]) => message.type === "sessions.close-completed")).toHaveLength(1);
   } finally { vi.useRealTimers(); }
+});
+
+it("releases duplicate pending state on replies and keeps the selected session on list updates", () => {
+  let listener: Parameters<typeof remote.onGraphicalMessage>[0] = () => {};
+  remote.onGraphicalMessage = vi.fn(callback => { listener = callback; return () => true; });
+  const page = render(<App />);
+  const button = screen.getByRole("button", { name: "复制第一个会话" });
+  fireEvent.click(button);
+  const request = vi.mocked(remote.send).mock.calls.at(-1)![0];
+  act(() => listener({ v: 8, type: "command.ok", requestId: "requestId" in request ? request.requestId : "", sessionId: launched.id }));
+  expect(button.hasAttribute("disabled")).toBe(false);
+  remote = { ...remote, sessions: [first, second, launched] };
+  page.rerender(<App />);
+  expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
+  expect(localStorage.getItem(storageKey)).toBe("first");
+  fireEvent.click(button);
+  const failed = vi.mocked(remote.send).mock.calls.at(-1)![0];
+  act(() => listener({ v: 8, type: "error", code: "COMMAND_FAILED", message: "启动失败", requestId: "requestId" in failed ? failed.requestId : "" }));
+  expect(button.hasAttribute("disabled")).toBe(false);
+  fireEvent.click(button);
+  remote = { ...remote, status: "disconnected", device: { deviceId: "phone", deviceName: "phone" } };
+  page.rerender(<App />);
+  expect(button.hasAttribute("disabled")).toBe(false);
+  expect(remote.send).toHaveBeenCalledTimes(3);
+});
+
+it("reports a failed duplicate send and allows retry", () => {
+  vi.mocked(remote.send).mockReturnValue(false);
+  render(<App />);
+  const button = screen.getByRole("button", { name: "复制第一个会话" });
+  fireEvent.click(button);
+  expect(button.hasAttribute("disabled")).toBe(false);
+  expect(screen.getByRole("alert").textContent).toContain("复制请求未发送");
 });

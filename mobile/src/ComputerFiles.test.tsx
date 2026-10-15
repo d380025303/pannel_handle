@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ComputerFiles } from "./ComputerFiles";
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "./types";
 
-type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
+type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.search.result" | "files.download.ready" | "error" }>;
 const listeners = new Set<(message: FileMessage) => void>();
 const send = vi.fn((_message: ClientMessage) => true);
 const onFileMessage = (listener: (message: FileMessage) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
@@ -48,4 +48,36 @@ it("refreshes the current folder after reconnect", () => {
   page.rerender(<ComputerFiles {...props} connectionEpoch={2} />);
   expect(requests()).toHaveLength(2);
   expect(requests()[1]).toMatchObject({ type: "files.list", path: null });
+});
+
+it("keeps the current folder on failed jumps and uses real parents", () => {
+  render(<ComputerFiles connectionEpoch={1} send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
+  emit({ v: 8, type: "files.list.result", requestId: requests()[0].requestId, path: null, entries: [] });
+  fireEvent.change(screen.getByLabelText("目录路径"), { target: { value: "C:\\deep\\folder" } });
+  fireEvent.click(screen.getByText("跳转"));
+  emit({ v: 8, type: "files.list.result", requestId: requests().at(-1)!.requestId, path: "C:\\deep\\folder", entries: [] });
+  fireEvent.change(screen.getByLabelText("目录路径"), { target: { value: "C:\\missing" } });
+  fireEvent.click(screen.getByText("跳转"));
+  emit({ v: 8, type: "error", requestId: requests().at(-1)!.requestId, code: "FILE_COMMAND_FAILED", message: "不存在" });
+  expect(screen.getByRole("navigation").textContent).toContain("folder");
+  fireEvent.click(screen.getByText("上一级"));
+  expect(requests().at(-1)).toMatchObject({ path: "C:\\deep" });
+});
+
+it("searches recursively, ignores cancelled results and clears results", () => {
+  render(<ComputerFiles connectionEpoch={1} send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
+  emit({ v: 8, type: "files.list.result", requestId: requests()[0].requestId, path: "C:\\", entries: [] });
+  fireEvent.change(screen.getByLabelText("搜索文件名"), { target: { value: "report" } });
+  fireEvent.click(screen.getByText("搜索"));
+  const first = requests().at(-1)!;
+  fireEvent.click(screen.getByText("取消"));
+  expect(requests().at(-1)).toMatchObject({ type: "files.search.cancel", requestId: first.requestId });
+  emit({ v: 8, type: "files.search.result", requestId: first.requestId, path: "C:\\", entries: [], reason: "complete", skipped: 0 });
+  expect(screen.queryByText(/找到/)).toBeNull();
+  fireEvent.click(screen.getByText("搜索"));
+  emit({ v: 8, type: "files.search.result", requestId: requests().at(-1)!.requestId, path: "C:\\", entries: [{ name: "report.txt", path: "C:\\sub\\report.txt", type: "file", size: 10 }], reason: "result-limit", skipped: 1 });
+  expect(screen.getByRole("status").textContent).toContain("结果不完整");
+  expect(screen.getByText("sub\\report.txt")).toBeTruthy();
+  fireEvent.click(screen.getByText("打开所在目录"));
+  expect(requests().at(-1)).toMatchObject({ type: "files.list", path: "C:\\sub" });
 });

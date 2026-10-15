@@ -7,6 +7,7 @@ const { graphicalSubmitError, validateGraphicalSubmitText } = require("./graphic
 function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus, getWorkItems = () => null, getMobileMinimalMode = () => false, getGraphicalMenuConfig = () => ({}) }) {
   const { getSizeState, applySize } = sizes;
   const pendingTerminalSubscriptions = new WeakMap();
+  const pendingDuplicates = new WeakMap();
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, agentSessionLauncher });
 
   function sendReady(socket) {
@@ -93,6 +94,13 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       } else if (message.type === "files.list") {
         const result = await files.list(message.path, socket);
         if (result && socket.authenticated) send(socket, { type: "files.list.result", requestId, ...result });
+      } else if (message.type === "files.search") {
+        if (!requestId) throw new Error("搜索请求无效。");
+        const result = await files.search(message.path, message.query, socket, requestId);
+        if (result && socket.authenticated) send(socket, { type: "files.search.result", requestId, ...result });
+      } else if (message.type === "files.search.cancel") {
+        if (!requestId) throw new Error("搜索请求无效。");
+        files.cancelSearch(socket, requestId);
       } else if (message.type === "files.download.prepare") {
         const result = await files.prepare(socket, message.path);
         send(socket, { type: "files.download.ready", requestId, ...result });
@@ -177,6 +185,18 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         socket.graphicalSessionId = replacement.id;
         send(socket, { type: "session.launched", sessionId: replacement.id });
         await graphical.handle(socket, { type: "graphical.subscribe", sessionId: replacement.id });
+      } else if (message.type === "session.duplicate") {
+        const sessionId = String(message.sessionId || "");
+        if (!requestId || !sessionId) throw new Error("复制会话请求无效。");
+        if (!terminalManager.getSession(sessionId)) throw new Error("源会话已关闭，无法复制。");
+        let pending = pendingDuplicates.get(socket);
+        if (!pending) { pending = new Set(); pendingDuplicates.set(socket, pending); }
+        if (pending.has(sessionId)) throw new Error("该会话正在复制，请稍候。");
+        pending.add(sessionId);
+        try {
+          const session = await agentSessionLauncher.duplicateRunningSession(sessionId);
+          send(socket, { type: "command.ok", requestId, sessionId: session.id });
+        } finally { pending.delete(sessionId); }
       } else if (message.type === "session.rename") {
         const title = String(message.title || "").trim();
         if (!title || title.length > 120) throw new Error("会话名称必须为 1 到 120 个字符。");

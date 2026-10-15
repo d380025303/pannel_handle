@@ -848,9 +848,19 @@ export function installBrowserPreview() {
   >;
 
   const workItemChanges = createChannel<void>();
+  let automationState: import("../vite-env").WorkItemAutomationState = { revision: 0, rules: [] };
   let quickPrompts: import("../vite-env").WorkItemQuickPrompt[] = [];
   const previewWorkItem = { id: "preview-work-item", sourceRunId: "preview-run", taskId: "preview-task", ownerId: "preview-owner", templateId: "preview-local-template", taskName: "预览任务", unavailable: "", output: "检查项目并修复问题。", tools: [], needsFollowUp: true, status: "pending", version: 1, createdAt: now, updatedAt: now, owner: { id: "preview-owner", version: 1, name: "开发", responsibilities: "维护项目", directories: ["src"], createdAt: now, updatedAt: now }, template: { title: "本地开发", cwd: "C:\\workspace" } } as import("../vite-env").WorkItem;
   const workItemApi: import("../vite-env").WorkItemApi = {
+    getAutomation: async () => copy(automationState),
+    saveAutomation: async input => { automationState = { revision: input.revision + 1, rules: copy(input.rules) }; workItemChanges.emit(); return copy(automationState); },
+    previewAutomation: async rule => {
+      const matches = (node: import("../vite-env").WorkItemCondition): boolean => node.kind === "group" ? (node.operator === "and" ? node.children.every(matches) : node.children.some(matches)) : ({ equals: () => String(previewWorkItem[node.field]) === node.value, notEquals: () => String(previewWorkItem[node.field]) !== node.value, contains: () => String(previewWorkItem[node.field]).includes(node.value), notContains: () => !String(previewWorkItem[node.field]).includes(node.value) })[node.operator]();
+      const matched = matches(rule.condition);
+      const variables = { output: previewWorkItem.output, taskName: previewWorkItem.taskName, ownerName: previewWorkItem.owner.name, templateName: previewWorkItem.template.title };
+      return { total: matched ? 1 : 0, samples: matched ? [{ id: previewWorkItem.id, taskName: previewWorkItem.taskName, prompt: rule.prompt.trim() ? rule.prompt.replace(/{{(output|taskName|ownerName|templateName)}}/g, (_, key: keyof typeof variables) => variables[key]) : previewWorkItem.output }] : [] };
+    },
+    onAutomationError: () => () => {},
     listQuickPrompts: async () => copy(quickPrompts),
     mutateQuickPrompt: async input => {
       const index = quickPrompts.findIndex(value => value.id === ("id" in input ? input.id : ""));
@@ -860,7 +870,7 @@ export function installBrowserPreview() {
       else quickPrompts[index] = { id: input.id, version: input.version + 1, name: input.name, prompt: input.prompt, persistent: input.persistent === true };
       workItemChanges.emit(); return copy(quickPrompts);
     },
-    list: async () => ({ records: [{ ...copy(previewWorkItem), summary: previewWorkItem.output }], total: 1, templates: [], owners: [] }),
+    list: async () => ({ records: [{ ...copy(previewWorkItem), summary: previewWorkItem.output }], total: 1, templates: [{ id: previewWorkItem.templateId, name: previewWorkItem.template.title }], owners: [{ id: previewWorkItem.ownerId, name: previewWorkItem.owner.name, templateId: previewWorkItem.templateId }] }),
     get: async () => copy(previewWorkItem),
     preview: async input => ({ body: { prompt: input.prompt ?? previewWorkItem.output }, configuration: { cwd: previewWorkItem.template.cwd } }),
     execute: async () => { previewWorkItem.status = "running"; previewWorkItem.version++; workItemChanges.emit(); return copy(previewWorkItem); },

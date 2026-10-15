@@ -1,10 +1,10 @@
 import { CloseCompletedAction, type useCloseCompleted } from "./useCloseCompleted";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Pencil, X } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import { createRequestId } from "./protocol";
 import { PROTOCOL_VERSION, type ClientMessage, type RuntimeSession, type SavedTemplate, type SessionOverview } from "./types";
 
-type SessionAction = (type: "rename" | "close", session: RuntimeSession, trigger: HTMLElement) => void;
+type SessionAction = (type: "duplicate" | "close", session: RuntimeSession, trigger: HTMLElement) => void;
 
 function kindLabel(type: RuntimeSession["type"]) {
   if (type === "windows") return "Windows";
@@ -22,8 +22,8 @@ function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
     .some(value => value?.toLowerCase().includes(query));
 }
 
-export function SessionHome({ closeCompleted, sessions, overviews, activeId, onOpen, onAction, onChooseTemplate, onOpenTasks }: {
-  closeCompleted: ReturnType<typeof useCloseCompleted>; sessions: RuntimeSession[]; overviews: Record<string, SessionOverview>; activeId: string | null;
+export function SessionHome({ closeCompleted, copyingIds, sessions, overviews, activeId, onOpen, onAction, onChooseTemplate, onOpenTasks }: {
+  closeCompleted: ReturnType<typeof useCloseCompleted>; copyingIds: ReadonlySet<string>; sessions: RuntimeSession[]; overviews: Record<string, SessionOverview>; activeId: string | null;
   onOpen: (id: string) => void; onAction: SessionAction; onChooseTemplate: () => void; onOpenTasks: () => void;
 }) {
   return <section className="mobile-home">
@@ -35,7 +35,7 @@ export function SessionHome({ closeCompleted, sessions, overviews, activeId, onO
         <div className="mobile-home-card-top">
           <button type="button" className="mobile-home-card-title" onClick={() => onOpen(session.id)} aria-label={`打开${session.title}详情`} title={session.title}>{session.title}</button>
           <div className="mobile-home-card-actions">
-            <button type="button" aria-label={`改名${session.title}`} title="改名" onClick={event => onAction("rename", session, event.currentTarget)}><Pencil aria-hidden="true" /></button>
+            <button type="button" disabled={copyingIds.has(session.id)} aria-label={`复制${session.title}`} title={copyingIds.has(session.id) ? "正在复制会话" : "复制会话"} aria-busy={copyingIds.has(session.id)} onClick={event => onAction("duplicate", session, event.currentTarget)}><Copy aria-hidden="true" /></button>
             <button type="button" className="danger" aria-label={`关闭${session.title}`} title="关闭" onClick={event => onAction("close", session, event.currentTarget)}><X aria-hidden="true" /></button>
           </div>
         </div>
@@ -48,8 +48,8 @@ export function SessionHome({ closeCompleted, sessions, overviews, activeId, onO
   </section>;
 }
 
-export function SessionDrawer({ closeCompleted, sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose }: {
-  closeCompleted: ReturnType<typeof useCloseCompleted>; sessions: RuntimeSession[]; templates: SavedTemplate[]; activeId: string | null;
+export function SessionDrawer({ closeCompleted, copyingIds, sessions, templates, activeId, tab, onTabChange, send, onOpen, onAction, onClose }: {
+  closeCompleted: ReturnType<typeof useCloseCompleted>; copyingIds: ReadonlySet<string>; sessions: RuntimeSession[]; templates: SavedTemplate[]; activeId: string | null;
   tab: "running" | "templates"; onTabChange: (tab: "running" | "templates") => void;
   send: (message: ClientMessage) => boolean; onOpen: (id: string) => void; onAction: SessionAction; onClose: () => void;
 }) {
@@ -110,7 +110,7 @@ export function SessionDrawer({ closeCompleted, sessions, templates, activeId, t
           <button className="session-main" type="button" onClick={() => onOpen(session.id)}>
             <strong>{session.title}</strong><span>{kindLabel(session.type)} · {modeLabel(session)}{session.cwd ? ` · ${session.cwd}` : ""}</span>
           </button>
-          <div className="session-actions"><button type="button" onClick={event => onAction("rename", session, event.currentTarget)}>改名</button><button className="danger" type="button" onClick={event => onAction("close", session, event.currentTarget)}>关闭</button></div>
+          <div className="session-actions"><button type="button" disabled={copyingIds.has(session.id)} aria-busy={copyingIds.has(session.id)} onClick={event => onAction("duplicate", session, event.currentTarget)}>{copyingIds.has(session.id) ? "正在复制…" : "复制会话"}</button><button className="danger" type="button" onClick={event => onAction("close", session, event.currentTarget)}>关闭</button></div>
         </article>) : filteredTemplates.map(template => <article className="session-card" key={template.id}>
           <div className="session-main static"><strong>{template.title}</strong><span>{kindLabel(template.type)} · {modeLabel(template)}{template.runningCount ? ` · 已运行 ${template.runningCount}` : ""}</span></div>
           <div className="session-actions"><button className="primary" type="button" onClick={() => launchTemplate(template.id)}>启动</button></div>

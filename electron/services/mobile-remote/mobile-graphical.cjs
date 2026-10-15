@@ -186,7 +186,9 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       }
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.permission") {
-      if (current.provider !== "codex" || !current.threadId || current.busy)
+      if (current.provider !== "codex" || !current.threadId || current.busy || current.changingPermission || current.archived
+        || current.pendingPlan || current.approvals?.length || current.questions?.length || current.elicitations?.length
+        || current.compacting || current.reviewing || current.windowsSandboxSetup?.status === "running" || current.account?.status === "signedOut")
         throw new Error("当前会话不可切换执行权限。");
       const allowed = ["readOnly", "askApproval", "fullAccess"];
       if (!allowed.includes(message.permission)

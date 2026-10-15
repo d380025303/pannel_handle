@@ -2,6 +2,7 @@ import { useWorkItemDialog } from "./useWorkItemDialog";
 import { BATCH_ACTIONS, useWorkItemBatch } from "./useWorkItemBatch";
 import { useWorkItemActions } from "./useWorkItemActions";
 import { WorkItemQuickPrompts } from "./WorkItemQuickPrompts";
+import { WorkItemAutomation } from "./WorkItemAutomation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,6 +38,8 @@ const titles = { detail: "任务详情", execute: "执行任务", attempts: "执
 
 export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean; onOpenSession: (id: string) => void }) {
   const ref = useRef<HTMLElement>(null);
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [automationWaiting, setAutomationWaiting] = useState("");
   const [data, setData] = useState<WorkItemPage>({ records: [], total: 0, templates: [], owners: [] });
   const [initialFilters] = useState(readFilters);
   const [templateId, setTemplateId] = useState(initialFilters.templateId); const [ownerId, setOwnerId] = useState(initialFilters.ownerId);
@@ -53,6 +56,13 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
   } = useWorkItemDialog(window.workItemApi, visible, reload);
 
   const batch = useWorkItemBatch(window.workItemApi, () => setReload(value => value + 1));
+  useEffect(() => {
+    if (!visible || !window.workItemApi.getAutomation) return;
+    let live = true;
+    const refresh = () => void window.workItemApi.getAutomation().then(value => { if (live) setAutomationWaiting(value.waiting || ""); }).catch(() => {});
+    refresh(); const timer = window.setInterval(refresh, 3000);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [visible]);
   const selectionFilter = JSON.stringify([templateId, ownerId, statuses, keyword, followUp]);
   useEffect(() => { batch.clear(); }, [selectionFilter]);
   useEffect(() => { if (!visible) batch.reset(); }, [visible]);
@@ -67,7 +77,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     catch { /* Filter preferences are optional. */ }
   }, [templateId, ownerId, statuses, keyword, followUp]);
   useEffect(() => {
-    if (!visible) { setDialog(null); return; }
+    if (!visible) { setDialog(null); setAutomationOpen(false); return; }
     const changed = () => setReload(value => value + 1);
     const off = window.workItemApi.onChanged(changed);
     const offOwners = window.moduleOwnerApi.onChanged(changed);
@@ -89,12 +99,12 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
     return () => { live = false; };
   }, [visible, templateId, ownerId, statuses, followUp, searchKeyword, page, reload]);
   useLayoutEffect(() => {
-    if (!ref.current || (!dialog && !batch.operation)) return;
+    if (!ref.current || (!dialog && !batch.operation && !automationOpen)) return;
     const background = ref.current;
     background.inert = true;
     background.setAttribute("aria-hidden", "true");
     return () => { background.inert = false; background.removeAttribute("aria-hidden"); };
-  }, [dialog, batch.operation]);
+  }, [dialog, batch.operation, automationOpen]);
   function open(...args: Parameters<typeof openDialog>) {
     if (batch.operation || batch.busy || busy) return;
     openDialog(...args);
@@ -115,6 +125,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       <header className="work-items-toolbar">
         <div className="work-items-heading">
           <h2>任务列表</h2><span className="work-items-count">{data.total} 条</span>
+          <button type="button" disabled={busy || batch.busy} onClick={() => setAutomationOpen(true)}>自动化配置</button>
           <button type="button" className="work-items-help" aria-label="任务生成与完成规则" title="定时任务成功且最终回复非空时自动生成；人工执行创建新会话，成功结束本轮自动记为已完成，也可手动标记完成。">?</button>
         </div>
         <div className="work-items-select-filters">
@@ -135,13 +146,14 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
         {(Object.keys(BATCH_ACTIONS) as (keyof typeof BATCH_ACTIONS)[]).map(action => <button key={action} type="button" disabled={busy || loading || batch.busy} onClick={() => void batch.open(action)}>{`批量${BATCH_ACTIONS[action]}`}</button>)}
       </div>}
       {error && <p className="module-owners-error" role="alert">{error}</p>}
+      {automationWaiting && <p role="status">自动化：{automationWaiting}</p>}
       {data.storageErrors?.map((value, index) => <p key={index} className="module-owners-error" role="alert">{value}</p>)}
       <div className="module-owners-card work-items-scroll" aria-busy={loading}>
         {!data.records.length ? <div className="work-items-empty">{loading ? <p role="status">正在查询任务…</p> : <><strong>{filtered ? "没有符合筛选条件的任务" : "暂无任务"}</strong><p>{filtered ? "尝试调整关键词或筛选条件。" : "定时任务成功并产生回复后，任务会显示在这里。"}</p>{filtered && <button type="button" onClick={resetFilters}>重置筛选</button>}</>}</div> : <table className="work-items-table" aria-label="任务列表"><thead><tr><th className="work-items-selection"><input type="checkbox" aria-label="全选当前页" disabled={loading || busy || batch.busy} checked={data.records.length > 0 && data.records.every(value => batch.selected.has(value.id))} ref={node => { if (node) node.indeterminate = data.records.some(value => batch.selected.has(value.id)) && !data.records.every(value => batch.selected.has(value.id)); }} onChange={event => batch.toggle(data.records, event.target.checked)} /></th><th>来源</th><th>回复摘要</th><th>状态</th><th>后续处理</th><th>时间</th><th>操作</th></tr></thead><tbody>{data.records.map(value => <tr key={value.id}>
           <td className="work-items-selection"><input type="checkbox" aria-label={`选择任务：${value.taskName}`} disabled={loading || busy || batch.busy} checked={batch.selected.has(value.id)} onChange={event => batch.toggle([value], event.target.checked)} /></td>
           <td><strong title={value.taskName}>{value.taskName}</strong><div className={`work-items-source-meta${value.unavailable ? " module-owners-error" : ""}`} title={[value.owner.name, value.template.title, value.unavailable].filter(Boolean).join(" · ")}>{value.owner.name} · {value.template.title}{value.unavailable && <> · <span>{value.unavailable}</span></>}</div></td>
           <td><WorkItemSummary id={value.id} version={value.version} name={value.taskName} summary={value.summary} disabled={Boolean(dialog)} resetKey={JSON.stringify([page, templateId, ownerId, followUp, searchKeyword, statuses, reload])} /></td>
-          <td><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.error && <div className="module-owners-error work-items-row-error" title={value.error}>{value.error}</div>}</td>
+          <td><span className="work-items-status" data-status={value.status}>{WORK_ITEM_STATUS[value.status]}</span>{value.automation && <div className="work-items-source-meta">自动化：{value.automation.ruleName}{value.automation.closeResult && ` · ${value.automation.closeResult}`}</div>}{(value.automation?.automationError || value.error) && <div className="module-owners-error work-items-row-error" title={value.automation?.automationError || value.error}>{value.automation?.automationError || value.error}</div>}</td>
           <td>{value.needsFollowUp ? "需要" : "不需要"}</td>
           <td className="work-items-time"><div title={`创建：${time(value.createdAt)}`}>创建：{time(value.createdAt)}</div><div title={`最近执行：${time(value.lastStartedAt)}`}>最近：{time(value.lastStartedAt)}</div></td>
           <td><div className="work-items-actions">
@@ -160,6 +172,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
       </div>
       <footer className="work-items-pagination work-items-list-pagination"><span>共 {data.total} 条 · 第 {page + 1} 页</span><button type="button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" disabled={(page + 1) * 20 >= data.total || loading} onClick={() => setPage(value => value + 1)}>下一页</button></footer>
     </section>
+    {automationOpen && <WorkItemAutomation data={data} onClose={() => setAutomationOpen(false)} />}
     {batch.operation && <OwnerDialog title={`批量${BATCH_ACTIONS[batch.operation]}`} busy={batch.busy} onClose={batch.close} wide>
       <div className="module-owners-dialog-body work-items-batch-body">
         <p role="status">{batch.busy ? "正在处理… · " : ""}可处理 {batch.entries.filter(value => value.state === "ready").length} 条 · 成功 {batch.entries.filter(value => value.state === "success").length} 条 · 跳过 {batch.entries.filter(value => value.state === "skipped").length} 条 · 失败 {batch.entries.filter(value => value.state === "failed").length} 条</p>
@@ -175,6 +188,7 @@ export function WorkItemWorkspace({ visible, onOpenSession }: { visible: boolean
         {item && <>
           {dialog.kind === "execute" ? <div className="work-items-execute-meta"><strong>{item.taskName}</strong><span>{item.owner.name} · {item.template.title}</span><span className="work-items-status" data-status={item.status}>{WORK_ITEM_STATUS[item.status]}</span><span>后续处理：{item.needsFollowUp ? "需要" : "不需要"}</span></div> : <><p>{item.taskName} · {item.owner.name} · {item.template.title} · {WORK_ITEM_STATUS[item.status]}</p><p>后续处理：{item.needsFollowUp ? "需要" : "不需要"}</p></>}
           {item.unavailable && <p className="module-owners-error">{item.unavailable}</p>}
+          {item.automation && <div><p>自动化规则：{item.automation.ruleName} · {item.automation.closeResult || "执行处理中"}</p>{item.automation.automationError && <p role="alert" className="module-owners-error">{item.automation.automationError}</p>}</div>}
           {dialog.kind === "detail" && <>
             <h3>原始最终回复</h3><pre className="work-items-content">{item.output}</pre>
             <h3>来源信息</h3><pre className="work-items-content">{JSON.stringify({ taskId: item.taskId, ownerId: item.ownerId, templateId: item.templateId, sourceRunId: item.sourceRunId,

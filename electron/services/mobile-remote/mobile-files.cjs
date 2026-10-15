@@ -12,6 +12,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   const tickets = new Map();
   const active = new Map();
   const currentListings = new Map();
+  const searches = new Map();
   const roots = getRoots || (async () => {
     const found = new Array(26);
     let nextIndex = 0;
@@ -59,6 +60,7 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   }
 
   async function list(directory, socket) {
+    cancelSearch(socket);
     let cancelled = false;
     const operation = { cancel() { cancelled = true; } };
     let operations;
@@ -111,6 +113,59 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
     if (isCancelled()) return;
     entries.sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
     return { path: target, entries };
+  }
+
+  function cancelSearch(socket, requestId) {
+    const op = searches.get(socket);
+    if (op && (!requestId || op.requestId === requestId)) op.cancelled = true;
+  }
+
+  async function search(directory, query, socket, requestId) {
+    if (typeof query !== "string" || !query.trim() || query.length > 256) throw new Error("请输入 1–256 个字符的文件名。");
+    if (typeof directory !== "string") throw new Error("请先选择搜索目录。");
+    cancelSearch(socket);
+    const op = { requestId, cancelled: false };
+    searches.set(socket, op);
+    const started = now();
+    const cancelled = () => op.cancelled || !socket.authenticated;
+    try {
+      const allowed = (await roots()).map(root => pathApi.resolve(root));
+      const { target, info } = await safePath(directory, allowed, undefined, cancelled);
+      if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
+      const queue = [target], entries = [];
+      let scanned = 0, skipped = 0, reason = "complete";
+      const needle = query.trim().toLowerCase();
+      traversal: while (queue.length && !cancelled()) {
+        if (now() - started >= 15000) { reason = "timeout"; break; }
+        const parent = queue.pop();
+        let names;
+        try {
+          await safePath(parent, allowed, undefined, cancelled);
+          names = await fsApi.promises.opendir(parent);
+        } catch (error) {
+          if (parent === target) throw error;
+          skipped++; continue;
+        }
+        for await (const item of names) {
+          if (cancelled()) return;
+          if (now() - started >= 15000) { reason = "timeout"; break traversal; }
+          if (scanned >= 50000) { reason = "scan-limit"; break traversal; }
+          scanned++;
+          const child = pathApi.join(parent, item.name);
+          let checked;
+          try { checked = await safePath(child, allowed, parent, cancelled); }
+          catch { skipped++; continue; }
+          if (cancelled()) return;
+          if (checked.info.isDirectory()) queue.push(child);
+          if ((checked.info.isDirectory() || checked.info.isFile()) && item.name.toLowerCase().includes(needle)) {
+            entries.push({ name: item.name, path: child, type: checked.info.isDirectory() ? "directory" : "file", size: checked.info.isFile() ? checked.info.size : null });
+            if (entries.length >= 500) { reason = "result-limit"; break traversal; }
+          }
+        }
+      }
+      if (!cancelled()) return { path: target, entries, reason, skipped };
+    } catch (error) { if (!cancelled()) throw error; }
+    finally { if (searches.get(socket) === op) searches.delete(socket); }
   }
 
   async function prepare(socket, filePath) {
@@ -227,13 +282,15 @@ function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.
   }
 
   function releaseSocket(socket) {
+    cancelSearch(socket);
+    searches.delete(socket);
     for (const [id, entry] of tickets) if (entry.socket === socket) tickets.delete(id);
     for (const transfer of active.get(socket) || []) transfer.cancel();
     currentListings.delete(socket);
     active.delete(socket);
   }
-  function stop() { tickets.clear(); for (const socket of active.keys()) releaseSocket(socket); }
-  return { list, prepare, download, releaseSocket, stop };
+  function stop() { for (const socket of searches.keys()) cancelSearch(socket); tickets.clear(); for (const socket of active.keys()) releaseSocket(socket); }
+  return { list, search, cancelSearch, prepare, download, releaseSocket, stop };
 }
 
 module.exports = { createMobileFiles };

@@ -87,7 +87,9 @@ function createSessionInstanceService({ sessionStore, agentSessionLauncher, term
       return { sessionId: session.id, templateId, agentProvider: session.agentProvider, mode,
         modelSource: source, modelId: actualModel, status: "started" };
     } catch (error) {
-      if (session && !submitted) terminalManager.closeSession(session.id);
+      if (creationSource?.trigger === "automation") {
+        if (!session && error.sessionId) onSessionCreated?.({ id: error.sessionId });
+      } else if (session && !submitted) terminalManager.closeSession(session.id);
       throw error;
     }
   }

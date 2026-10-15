@@ -617,3 +617,76 @@ it.each(["disconnect", "stop", "authentication", "reauthenticate", "readdir"])(
     files.stop();
   }
 );
+
+it("searches nested names case-insensitively and rejects invalid roots", async () => {
+  const { root, files, socket } = fixture();
+  fs.mkdirSync(path.join(root, "nested"));
+  fs.writeFileSync(path.join(root, "nested", "REPORT中文.txt"), "hello");
+  fs.writeFileSync(path.join(root, "other.txt"), "report");
+  const result = await files.search(root, "report中文", socket, "s1");
+  expect(result.entries.map(entry => entry.name)).toEqual(["REPORT中文.txt"]);
+  expect(result.reason).toBe("complete");
+  await expect(files.search(path.dirname(root), "report", socket, "s2")).rejects.toThrow(/本地磁盘/);
+  await expect(files.search(root, " ", socket, "s3")).rejects.toThrow();
+});
+
+it("cancels searches explicitly and on disconnect", async () => {
+  const { root, files, socket } = fixture();
+  const first = files.search(root, "report", socket, "s1");
+  files.cancelSearch(socket, "s1");
+  expect(await first).toBeUndefined();
+  const second = files.search(root, "report", socket, "s2");
+  files.releaseSocket(socket);
+  expect(await second).toBeUndefined();
+});
+
+it("bounds results and reports truncation", async () => {
+  const { root, files, socket } = fixture();
+  for (let i = 0; i < 501; i++) fs.writeFileSync(path.join(root, `match-${i}`), "");
+  const result = await files.search(root, "match", socket, "s1");
+  expect(result.entries).toHaveLength(500);
+  expect(result.reason).toBe("result-limit");
+});
+
+it("reports inaccessible descendants and skips links", async () => {
+  let denied;
+  const fsApi = { ...fs, promises: { ...fs.promises, opendir: async directory => {
+    if (directory === denied) throw Object.assign(new Error("denied"), { code: "EACCES" });
+    return fs.promises.opendir(directory);
+  } } };
+  const { root, files, socket } = fixture(() => Date.now(), fsApi);
+  denied = path.join(root, "private");
+  fs.mkdirSync(denied);
+  fs.writeFileSync(path.join(denied, "hidden.txt"), "");
+  fs.symlinkSync(denied, path.join(root, "link"), process.platform === "win32" ? "junction" : "dir");
+  const result = await files.search(root, ".txt", socket, "s1");
+  expect(result.entries).toEqual([]);
+  expect(result.skipped).toBe(2);
+  await expect(files.search(denied, "hidden", socket, "s2")).rejects.toThrow("denied");
+});
+
+it("returns a timeout and replaces previous searches", async () => {
+  let time = 0;
+  const { root, files, socket } = fixture(() => { time += 15000; return time; });
+  expect((await files.search(root, "report", socket, "s1")).reason).toBe("timeout");
+  const first = files.search(root, "report", socket, "s2");
+  const next = files.search(root, "other", socket, "s3");
+  expect(await first).toBeUndefined();
+  expect((await next).reason).toBe("timeout");
+});
+
+it("bounds scanned entries even when nothing matches", async () => {
+  const info = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false };
+  let root;
+  const fsApi = { ...fs, promises: {
+    lstat: async () => info,
+    realpath: async value => value,
+    stat: async value => value === root ? { ...info, isDirectory: () => true } : info,
+    opendir: async function* () { for (let i = 0; i < 50001; i++) yield { name: "other.txt" }; }
+  } };
+  const data = fixture(() => 0, fsApi);
+  root = data.root;
+  const result = await data.files.search(root, "missing", data.socket, "s1");
+  expect(result.reason).toBe("scan-limit");
+  expect(result.entries).toEqual([]);
+});

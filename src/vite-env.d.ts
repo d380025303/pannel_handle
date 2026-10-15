@@ -1877,15 +1877,26 @@ export type WorkItemStatus = "pending" | "creating" | "running" | "uncertain" | 
 export type WorkItem = { id: string; sourceRunId: string; taskId: string; ownerId: string; templateId: string; taskName: string;
   output: string; owner: ModuleOwnerRecord; template: { title: string; cwd: string }; tools: string[];
   needsFollowUp: boolean; status: WorkItemStatus; version: number; createdAt: number; updatedAt: number; latestAttemptId?: string; lastStartedAt?: number;
-  sessionId?: string; sourceSessionId?: string; sourceThreadId?: string; sourceTurnId?: string; error?: string; voidReason?: string; voidedAt?: number | null; unavailable: string };
+  sessionId?: string; sourceSessionId?: string; sourceThreadId?: string; sourceTurnId?: string; error?: string; voidReason?: string; voidedAt?: number | null; unavailable: string;
+  automation?: { ruleName: string; attemptId: string; hadError?: boolean; automationError?: string; closeResult?: string } };
 export type WorkItemSummary = Omit<WorkItem, "output"> & { summary: string };
 export type WorkItemAttempt = { id: string; workItemId: string; status: WorkItemStatus; startedAt: number; endedAt?: number;
-  sessionId?: string; threadId?: string; turnId?: string; input: { prompt: string; [key: string]: unknown }; configuration: Record<string, unknown>; output: string; error: string };
+  sessionId?: string; threadId?: string; turnId?: string; input: { prompt: string; [key: string]: unknown }; configuration: Record<string, unknown>; output: string; error: string;
+  automation?: WorkItemAutomationRule; hadError?: boolean; automationError?: string; closeResult?: string };
+export type WorkItemCondition = { kind: "group"; operator: "and" | "or"; children: WorkItemCondition[] } | {
+  kind: "condition"; field: "templateId" | "ownerId" | "taskName" | "output" | "needsFollowUp"; operator: "equals" | "notEquals" | "contains" | "notContains"; value: string };
+export type WorkItemAutomationRule = { id: string; name: string; enabled: boolean; condition: WorkItemCondition; prompt: string };
+export type WorkItemAutomationState = { revision: number; rules: WorkItemAutomationRule[]; waiting?: string };
+export type WorkItemAutomationError = { taskName: string; sessionId?: string; sessionName?: string; error: string };
 export type WorkItemIdentity = { id: string; version: number };
 export type WorkItemPage = { records: WorkItemSummary[]; total: number; storageErrors?: string[]; templates: { id: string; name: string }[]; owners: { id: string; name: string; templateId: string }[] };
 export type WorkItemQuickPrompt = { id: string; version: number; name: string; prompt: string; persistent?: boolean };
 export type WorkItemQuickPromptMutation = { operation: "add"; name: string; prompt: string; persistent?: boolean } | ({ operation: "update" } & WorkItemQuickPrompt) | { operation: "delete"; id: string; version: number };
 export interface WorkItemApi {
+  getAutomation(): Promise<WorkItemAutomationState>;
+  saveAutomation(input: Pick<WorkItemAutomationState, "revision" | "rules">): Promise<WorkItemAutomationState>;
+  previewAutomation(input: WorkItemAutomationRule): Promise<{ total: number; samples: { id: string; taskName: string; prompt: string }[] }>;
+  onAutomationError(callback: (value: WorkItemAutomationError) => void): () => void;
   listQuickPrompts(): Promise<WorkItemQuickPrompt[]>;
   mutateQuickPrompt(input: WorkItemQuickPromptMutation): Promise<WorkItemQuickPrompt[]>;
   list(input?: { templateId?: string; ownerId?: string; status?: WorkItemStatus; statuses?: WorkItemStatus[]; needsFollowUp?: boolean; keyword?: string; page?: number }): Promise<WorkItemPage>;

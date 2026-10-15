@@ -51,6 +51,24 @@ afterEach(async () => {
   for (const f of fixtures.splice(0)) { f.service.shutdown(); await f.api.stop(); f.db.close(); rmSync(f.userData, { recursive: true, force: true }); }
 });
 describe("scheduled replies and manual work items through HTTP", () => {
+  it.each(["failed", "stopped", "completed"])("persists unsuccessful final automation turns as failed (%s)", async status => {
+    const f = await fixture(); const item = await f.source(); const progress = vi.fn();
+    const running = await f.work.executeAutomation({ id: item.id, version: item.version }, { id: "rule", name: "rule" }, progress);
+    f.end(running.sessionId, "", status, { error: "final failure" });
+    expect(f.work.get({ id: item.id }).status).toBe("failed");
+    expect(f.db.getWorkItemAttempt(item.id, running.latestAttemptId)).toMatchObject({ status: "failed", error: "final failure" });
+    expect(f.sessions.has(running.sessionId)).toBe(true);
+  });
+  it("does not persist recoverable snapshot errors for automated execution", async () => {
+    const f = await fixture(); const item = await f.source(); const progress = vi.fn();
+    const running = await f.work.executeAutomation({ id: item.id, version: item.version }, { id: "rule", name: "rule" }, progress);
+    f.sessions.get(running.sessionId).error = "temporary tool error";
+    await f.service.tickTasks();
+    expect(progress.mock.calls.some(([, job]) => job?.progressError)).toBe(false);
+    delete f.sessions.get(running.sessionId).error;
+    f.end(running.sessionId, "recovered successfully");
+    expect(f.db.getWorkItemAttempt(item.id, running.latestAttemptId)).toMatchObject({ status: "completed", error: "", output: "recovered successfully" });
+  });
   it("creates results for legacy tasks without the new field", async () => {
     const f = await fixture();
     const legacy = { ...f.task }; delete legacy.autoCreateWorkItem;

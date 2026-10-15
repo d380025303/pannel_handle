@@ -14,7 +14,7 @@ const TOOLS = [
   tool("delete_module_owner", "删除一个负责人，必须提供最新版本", identity, Object.keys(identity))
 ];
 
-function createModuleOwnerService({ userData, dataStore, sessionStore, terminalManager, graphicalService, getSessionApi, broadcast = () => {} }) {
+function createModuleOwnerService({ userData, dataStore, sessionStore, terminalManager, graphicalService, getSessionApi, broadcast = () => {}, notifyAutomation, getAgentStatus, closeSession }) {
   const store = createModuleOwnerStore({ userData, dataStore, broadcast });
   const jobs = new Map();
   const grants = new Map();
@@ -39,7 +39,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       const progress = JSON.stringify([job.status, job.sessionId, job.threadId, job.turnId, job.output, job.error]);
       if (job.savedProgress !== progress || job.progressError) {
         try { job.onProgress(job); job.savedProgress = progress; job.progressError = ""; }
-        catch { job.progressError = "执行记录写入失败，将继续重试。"; broadcast("work-items:changed"); }
+        catch { job.progressError = "执行记录写入失败，将继续重试。"; job.onError?.(job.progressError); broadcast("work-items:changed"); }
       }
     }
     if (!job?.history) return;
@@ -57,6 +57,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     catch { job.historyError = "调用历史写入失败，请检查 SQLite 存储。"; }
   }
   function deferTaskError(job, error) {
+    if (job.trigger === "automation") error = undefined;
+    if (error) job.onError?.(error);
     if (error) job.pendingErrors = [...new Set([...(job.pendingErrors || []), error])];
     job.error = "";
     job.status = "running";
@@ -80,8 +82,17 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         continue;
       }
       // A later turn in the same session can recover an earlier failure.
+      if (event.error && job.trigger !== "automation") job.onError?.(event.error);
       if (event.status !== "completed" || !event.output?.trim()) {
-        deferTaskError(job, event.error);
+        if (job.trigger === "automation") {
+          job.turnId = event.turnId;
+          job.status = "failed"; job.error = event.error || "执行未成功结束或没有最终回复，请检查会话。";
+          job.creating = false; grants.delete(job.token);
+          persistRun(job); cleanupJob(job);
+          broadcast("module-owners:changed", { templateId: job.templateId });
+          continue;
+        }
+        deferTaskError(job, event.error || (job.onError ? "执行未成功结束或没有最终回复，请检查会话。" : undefined));
         persistRun(job);
         broadcast("module-owners:changed", { templateId: job.templateId });
         continue;
@@ -179,7 +190,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     const token = randomBytes(32).toString("hex");
     if (body.toolCallback) body.toolCallback.bearerToken = token;
     const job = { templateId: id, ownerId: task?.ownerId, taskId: task?.id, token, body, startedAt: Date.now(), status: "creating", creating: true, claimed: false, seen: new Set(),
-      runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, autoCreateWorkItem: task?.autoCreateWorkItem !== false, manual: Boolean(task?.manual), onProgress: task?.onProgress, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
+      runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, autoCreateWorkItem: task?.autoCreateWorkItem !== false, manual: Boolean(task?.manual), onProgress: task?.onProgress, onError: task?.onError, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
       ownerSnapshot: task ? structuredClone(store.get(id).records.find(owner => owner.id === task.ownerId)) : null,
       templateSnapshot: { title: template(id).title, cwd: template(id).cwd } };
     if (task?.recordHistory) {
@@ -197,7 +208,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       const result = await api.invoke({ operation: "create", body }, creationHooks(job));
       job.creating = false;
       if (result.status !== 201 && ["creating", "running", "uncertain"].includes(job.status)) {
-        if (job.taskId && job.sessionId) deferTaskError(job, result.body?.error?.message || "创建失败");
+        if (job.taskId && job.sessionId && (job.trigger !== "automation" || job.submitted)) deferTaskError(job, result.body?.error?.message || "创建失败");
         else { job.status = job.submitted ? "uncertain" : "failed"; job.error = result.body?.error?.message || "创建失败"; }
         if (!job.submitted && !(job.taskId && job.sessionId)) grants.delete(token);
       }
@@ -208,7 +219,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       if (["creating", "running", "uncertain"].includes(job.status)) {
         // An HTTP timeout does not stop the server's launch; keep its ownership until submission or failure.
         job.creating = job.claimed && !job.submitted;
-        if (job.taskId && job.sessionId) deferTaskError(job, error.message);
+        if (job.taskId && job.sessionId && (job.trigger !== "automation" || job.submitted)) deferTaskError(job, error.message);
         else { job.status = "uncertain"; job.error = error.message; }
       }
       refresh(job);
@@ -237,7 +248,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         if (!["creating", "running", "uncertain"].includes(job.status)) return;
         job.claimed = true;
         job.sessionId = session.id;
-        job.threadId = graphicalService.snapshot(session.id).threadId;
+        try { job.threadId = graphicalService.snapshot(session.id).threadId; }
+        catch (error) { if (job.trigger !== "automation") throw error; }
         persistRun(job);
       },
       onTaskSubmitted(session) {
@@ -252,7 +264,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       failed(error) {
         if (!["creating", "running", "uncertain"].includes(job.status)) return;
         job.creating = false;
-        if (job.taskId && job.sessionId) deferTaskError(job, error.message);
+        if (job.taskId && job.sessionId && (job.trigger !== "automation" || job.submitted)) deferTaskError(job, error.message);
         else { job.status = job.submitted ? "uncertain" : "failed"; job.error = error.message; }
         if (!job.submitted && !(job.taskId && job.sessionId)) grants.delete(job.token);
         persistRun(job);
@@ -314,6 +326,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       if (job) { job.status = "stopped"; grants.delete(job.token); job.onProgress = null; }
       return true;
     } });
+  const automation = require("./work-item-automation.cjs").createWorkItemAutomation({ dataStore, workItems, busy: ownerBusy, terminalManager, graphicalService, getSessionApi, broadcast, notify: notifyAutomation, getAgentStatus, closeSession });
+  Object.assign(workItems, { getAutomation: automation.getAutomation, saveAutomation: automation.saveAutomation, previewAutomation: automation.previewAutomation });
   const retryTimer = setInterval(() => {
     saveResults();
     for (const job of jobs.values()) {
@@ -338,7 +352,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     },
     listHistory: (id, input) => { template(id); return store.listHistory(id, input); },
     runTask: scheduler.runTask, copyTask: scheduler.copy, saveTask: scheduler.save, deleteTask: scheduler.remove, listTasks: scheduler.list,
-    start: () => { dataStore?.interruptTaskRuns(); dataStore?.recoverWorkItemAttempts(); scheduler.start(); }, shutdown: () => {
+    start: () => { dataStore?.interruptTaskRuns(); dataStore?.recoverWorkItemAttempts(); scheduler.start(); automation.start(); }, shutdown: () => {
+      automation.shutdown();
       clearInterval(retryTimer); saveResults();
       scheduler.shutdown();
       for (const job of jobs.values()) if (["creating", "running", "uncertain"].includes(job.status)) {

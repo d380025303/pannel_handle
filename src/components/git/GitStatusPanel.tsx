@@ -165,6 +165,8 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   const [side, setSide] = useState<DiffSearchSide>("both");
   const [activeIndex, setActiveIndex] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const rows = state.status === "ready" && state.result.kind === "text" ? state.result.rows : [];
   const { matches, searchTruncated } = useMemo(() => {
@@ -212,7 +214,32 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   const activeMatchId = matches[activeIndex]?.id;
 
   useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const keepFocusInside = (event: FocusEvent) => {
+      if (event.target instanceof Node && !dialogRef.current?.contains(event.target)) {
+        closeButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("focusin", keepFocusInside);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]'
+        ) || []).filter((element) => element.tabIndex >= 0 && !element.hidden && !element.closest("[inert], [hidden]"));
+        const index = controls.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+        return;
+      }
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -234,10 +261,10 @@ function GitDiffDialog({ state, onRetry, onClose }: {
 
   return (
     <div className="git-diff-overlay" onMouseDown={onClose}>
-      <div className="git-diff-dialog" role="dialog" aria-modal="true" aria-label={state.title} onMouseDown={(event) => event.stopPropagation()}>
+      <div ref={dialogRef} className="git-diff-dialog" role="dialog" aria-modal="true" aria-label={state.title} onMouseDown={(event) => event.stopPropagation()}>
         <div className="git-diff-header">
           <div><FileDiff aria-hidden="true" /><strong>{state.title}</strong></div>
-          <button className="icon-button" type="button" title={t("git.closeDiff")} aria-label={t("git.closeDiff")} onClick={onClose}><X aria-hidden="true" /></button>
+          <button ref={closeButtonRef} className="icon-button" type="button" title={t("git.closeDiff")} aria-label={t("git.closeDiff")} onClick={onClose}><X aria-hidden="true" /></button>
         </div>
         {state.status === "ready" && state.result.kind === "text" && state.result.rows.length > 0 && (
           <div className="git-diff-search">
@@ -327,12 +354,56 @@ function StashDialog({ stashes, busy, onCreate, onPreview, onApply, onPop, onDro
 }) {
   const { t } = useI18n();
   const [message, setMessage] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const isTopDialog = () => {
+    const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
+    return dialogs[dialogs.length - 1] === dialogRef.current;
+  };
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const keepFocusInside = (event: FocusEvent) => {
+      if (isTopDialog() && event.target instanceof Node && !dialogRef.current?.contains(event.target)) {
+        closeButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("focusin", keepFocusInside);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!isTopDialog()) return;
+      if (event.key === "Tab") {
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]'
+        ) || []).filter((element) => element.tabIndex >= 0 && !element.hidden && !element.closest("[inert], [hidden]"));
+        const index = controls.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+        return;
+      }
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [onClose]);
+
   return (
     <div className="git-stash-overlay" onMouseDown={onClose}>
-      <div className="git-stash-dialog" role="dialog" aria-modal="true" aria-label={t("git.stashes", { count: stashes.length })} onMouseDown={(event) => event.stopPropagation()}>
+      <div ref={dialogRef} className="git-stash-dialog" role="dialog" aria-modal="true" aria-label={t("git.stashes", { count: stashes.length })} onMouseDown={(event) => event.stopPropagation()}>
         <div className="git-stash-header">
           <span><Archive aria-hidden="true" />{t("git.stashManager")}</span>
-          <button className="icon-button" type="button" title={t("git.closeStashes")} onClick={onClose}><X aria-hidden="true" /></button>
+          <button ref={closeButtonRef} className="icon-button" type="button" aria-label={t("git.closeStashes")} title={t("git.closeStashes")} onClick={onClose}><X aria-hidden="true" /></button>
         </div>
         <div className="git-stash-create">
           <input value={message} placeholder={t("git.stashMessage")} disabled={busy} onChange={(event) => setMessage(event.target.value)} />

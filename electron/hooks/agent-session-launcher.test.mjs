@@ -1276,6 +1276,17 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.deleteSavedSession).toHaveBeenCalledWith("1");
   });
 
+  it("retains an automatic local instance when its App Server fails to start", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => { throw new Error("App Server failed"); }) } });
+    mocks.terminalManager.launchSession.mockImplementation((template, options) => {
+      const session = { ...template, ...options, id: "run-1" }; mocks.terminalManager.listSessions().push(session); return session;
+    });
+    await expect(mocks.launcher.launchSession({ id: "saved", type: "windows", cwd: "C:\\project", agentProvider: "codex", graphicalSessionEnabled: true }, { creationSource: { kind: "work-item", trigger: "automation" } }))
+      .rejects.toMatchObject({ message: "App Server failed", sessionId: "run-1" });
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.getSession("run-1")).toBeTruthy();
+  });
+
   it("runs OpenCode locally with inline bridge configuration and its notification plugin", async () => {
     const remoteAgentBridgeService = {
       createBinding: vi.fn(async () => ({

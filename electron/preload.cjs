@@ -661,6 +661,14 @@ contextBridge.exposeInMainWorld("sessionApi", {
 });
 
 contextBridge.exposeInMainWorld("workItemApi", {
+  getAutomation: () => ipcRenderer.invoke("work-items:getAutomation"),
+  saveAutomation: input => ipcRenderer.invoke("work-items:saveAutomation", input),
+  previewAutomation: input => ipcRenderer.invoke("work-items:previewAutomation", input),
+  onAutomationError: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("work-items:automation-error", listener);
+    return () => ipcRenderer.removeListener("work-items:automation-error", listener);
+  },
   listQuickPrompts: () => ipcRenderer.invoke("work-items:listQuickPrompts"),
   mutateQuickPrompt: input => ipcRenderer.invoke("work-items:mutateQuickPrompt", input),
   list: input => ipcRenderer.invoke("work-items:list", input),

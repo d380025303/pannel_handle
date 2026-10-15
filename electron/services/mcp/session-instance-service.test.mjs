@@ -29,6 +29,14 @@ const injection = { tools: [{ name: "lookup", description: "Lookup", inputSchema
   toolCallback: { url: "http://localhost/tools", bearerToken: "private-token" } };
 
 describe("MCP session instances", () => {
+  it("retains automatic instances when submission fails before a turn starts", async () => {
+    const f = fixture(); const created = vi.fn();
+    f.graphicalService.submitStarted.mockRejectedValue(new Error("submission failure"));
+    await expect(f.service.create(args, { creationSource: { kind: "work-item", trigger: "automation" }, onSessionCreated: created })).rejects.toThrow("submission failure");
+    expect(created).toHaveBeenCalledWith(expect.objectContaining({ id: "run-1" }));
+    expect(f.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(f.sessions.has("run-1")).toBe(true);
+  });
   it.each([
     ["codex", "cx-model"], ["codebuddy", "cb-model"], ["opencode", "oc-model"],
     ["claude", null], ["qoder", null], ["gemini", null], ["grok", null]

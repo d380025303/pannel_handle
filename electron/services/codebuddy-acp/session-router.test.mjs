@@ -4,6 +4,16 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { createGraphicalSessionRouter } = require("./session-router.cjs");
 
+it("forwards structured Codex task errors immediately", () => {
+  let receive; const off = vi.fn();
+  const codex = { onTaskError: listener => { receive = listener; return off; } };
+  const router = createGraphicalSessionRouter(codex, {}, { getSession: () => undefined });
+  const listener = vi.fn(); const unsubscribe = router.onTaskError(listener);
+  receive({ sessionId: "run", error: "exit code 1" });
+  expect(listener).toHaveBeenCalledExactlyOnceWith({ sessionId: "run", error: "exit code 1" });
+  expect(unsubscribe).toBe(off);
+});
+
 it("forwards Codex task turn events unchanged and preserves unsubscribe", () => {
   const listeners = new Set();
   const codex = { onTaskTurnEnded(listener) {

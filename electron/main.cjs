@@ -588,6 +588,18 @@ if (!gotSingleInstanceLock) {
     moduleOwnerService = require("./services/module-owners/module-owner-service.cjs").createModuleOwnerService({
       userData: app.getPath("userData"), dataStore: businessDataStore, sessionStore, terminalManager,
       graphicalService: codexAppServerSessionService, getSessionApi: () => sessionApiService,
+      getAgentStatus: id => sessionStatusServer?.getAgentStatus(id),
+      notifyAutomation: payload => {
+        const sessionName = payload.sessionId && terminalManager.getSession(payload.sessionId)?.title;
+        windowManager.broadcast("work-items:automation-error", { ...payload, sessionName });
+        try {
+          if (Notification.isSupported()) {
+            const notification = new Notification({ title: `自动任务出错：${payload.taskName}`, body: `${sessionName ? `会话：${sessionName}\n` : ""}${payload.error}` });
+            notification.on("click", () => payload.sessionId && terminalManager.getSession(payload.sessionId) ? windowManager.focusAndSelectSession(payload.sessionId) : windowManager.focusWindow());
+            notification.show();
+          }
+        } catch (error) { console.error("自动任务通知失败", error); }
+      },
       broadcast: (channel, ...args) => {
         windowManager.broadcast(channel, ...args);
         if (channel === "work-items:changed" || channel === "module-owners:changed") mobileRemoteService?.broadcastWorkItems();

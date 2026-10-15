@@ -569,3 +569,69 @@
 .work-items-quick-persistent input[type="checkbox"] {
   width: auto;
 }
+.work-items-automation {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.work-items-automation-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+}
+
+.work-items-automation-form label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.work-items-automation-form textarea {
+  width: 100%;
+}
+
+.work-items-automation-group {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+}
+
+.work-items-automation-node,
+.work-items-automation-condition,
+.work-items-automation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.work-items-automation-node > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.work-items-automation-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.work-items-automation-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1200;
+  width: min(440px, calc(100vw - 32px));
+  max-height: 50vh;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+  box-shadow: var(--shadow-dialog);
+  overflow-wrap: anywhere;
+}

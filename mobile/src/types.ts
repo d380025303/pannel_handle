@@ -139,6 +139,7 @@ export type ServerMessage =
   | { v: 8; type: "graphical.usage"; sessionId: string; threadId: string | null; requestId: string; usage: GraphicalUsage }
   | { v: 8; type: "graphical.history"; sessionId: string; threadId: string | null; requestId: string; history: GraphicalHistory }
   | { v: 8; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }
+  | { v: 8; type: "files.search.result"; requestId: string; path: string; entries: ComputerFileEntry[]; reason: "complete" | "timeout" | "scan-limit" | "result-limit"; skipped: number }
   | { v: 8; type: "files.list.result"; requestId: string; path: string | null; entries: ComputerFileEntry[] }
   | { v: 8; type: "files.download.ready"; requestId: string; url: string }
   | { v: 8; type: "command.ok"; requestId: string; sessionId?: string; threadId?: string | null }
@@ -159,6 +160,7 @@ export type ClientMessage =
   | { v: 8; type: "terminal.claim-size"; sessionId: string; cols: number; rows: number }
   | { v: 8; type: "terminal.resize"; sessionId: string; cols: number; rows: number }
   | { v: 8; type: "template.launch"; templateId: string; cols: number; rows: number; requestId: string }
+  | { v: 8; type: "session.duplicate"; sessionId: string; requestId: string }
   | { v: 8; type: "session.rename"; sessionId: string; title: string; requestId: string }
   | { v: 8; type: "session.close"; sessionId: string; requestId: string }
   | { v: 8; type: "session.switch-agent"; sessionId: string; threadId: string | null; provider: AgentProvider; requestId: string }
@@ -167,6 +169,8 @@ export type ClientMessage =
   | { v: 8; type: "graphical.submit"; sessionId: string; threadId: string | null; text: string; fileIds?: string[]; references?: CodexCapabilityReference[]; requestId: string }
   | { v: 8; type: "graphical.upload.prepare"; sessionId: string; threadId: string | null; name: string; size: number; requestId: string }
   | { v: 8; type: "graphical.upload.discard"; sessionId: string; threadId: string | null; fileIds: string[]; requestId: string }
+  | { v: 8; type: "files.search"; requestId: string; path: string; query: string }
+  | { v: 8; type: "files.search.cancel"; requestId: string }
   | { v: 8; type: "files.list"; path: string | null; requestId: string }
   | { v: 8; type: "files.download.prepare"; path: string; requestId: string }
   | { v: 8; type: "graphical.effort"; sessionId: string; threadId: string | null; effort: string; requestId: string }

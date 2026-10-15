@@ -7,7 +7,7 @@ type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
 type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
-type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
+type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.search.result" | "files.download.ready" | "error" }>;
 
 export function useRemoteConnection() {
   const [mobileGraphicalSessionMinimalMode, setMobileGraphicalSessionMinimalMode] = useState(false);
@@ -76,6 +76,7 @@ export function useRemoteConnection() {
       case "work-items.changed":
         workItemListenersRef.current.forEach(listener => listener(message));
         break;
+      case "files.search.result":
       case "files.list.result":
       case "files.download.ready":
         fileListenersRef.current.forEach(listener => listener(message));

@@ -1,5 +1,6 @@
 import { ModuleOwnerWorkspace } from "./components/module-owners/ModuleOwnerWorkspace";
 import { WorkItemWorkspace } from "./components/work-items/WorkItemWorkspace";
+import { WorkItemAutomationNotice } from "./components/work-items/WorkItemAutomationNotice";
 import { SessionApiWorkspace } from "./components/session-api/SessionApiWorkspace";
 import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -786,6 +787,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   return (
     <>
       <div className="app-frame">
+        <WorkItemAutomationNotice onOpenSession={id => { handleSelectSession(id); setShowWorkItems(false); }} />
         <TitleBar
           activeTitle={showWorkItems ? t("workItems.title") : showModuleOwners ? t("moduleOwners.title") : showApi ? t("sessionApi.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
           isMaximized={isMaximized}

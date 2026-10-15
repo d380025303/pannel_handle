@@ -1,4 +1,5 @@
 import { GraphicalActionMenu } from "../../src/components/shared/GraphicalActionMenu";
+import { graphicalPermissionSwitchError } from "./GraphicalInputPolicy";
 import type { GraphicalMenuConfig } from "../../src/utils/graphicalMenu";
 import { OpenCodePanel } from "./OpenCodePanel";
 import { CodeBuddyPanel } from "./CodeBuddyPanel";
@@ -24,6 +25,7 @@ export function GraphicalActionSheet({ snapshot, session, controller, graphicalM
   const openCodeTitles: Record<string, string> = { "opencode-auth": "登录 OpenCode", "opencode-capabilities": "Skills 和 MCP", "opencode-version": "CLI 版本", "opencode-revert": "回退与恢复" };
   const title = openCodeTitles[activeSheet] || (advanced ? codexSheetTitles[advanced] : null);
   const effectivePlan = snapshot.mode === "plan";
+  const permissionSwitchError = graphicalPermissionSwitchError(snapshot);
   const openCodeBlocked = snapshot.provider === "opencode" && (controller.codexPending || isSending || !!snapshot.pendingPlan || !!snapshot.approvals.length || !!snapshot.questions.length || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || ""));
   const addFileDisabled = openCodeBlocked || !snapshot.threadId || snapshot.archived || isSending || attachments.length >= 10
     || (snapshot.busy && snapshot.provider !== "codex");
@@ -139,8 +141,9 @@ export function GraphicalActionSheet({ snapshot, session, controller, graphicalM
           </button>)}
         </div>}
         {activeSheet === "permission" && <div className="graphical-sheet-list">
+          {permissionSwitchError && <p role="status">{permissionSwitchError}</p>}
           {permissions.map(option => <button type="button" key={option.value} aria-pressed={!snapshot.permissionProfileId && snapshot.executionPermission === option.value}
-            disabled={changingPermission || snapshot.changingPermission || snapshot.busy
+            disabled={changingPermission || Boolean(historyMutation) || Boolean(permissionSwitchError)
               || snapshot.permissionOptions?.some(value => value.id === option.value && !value.allowed)
               || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(option.value))}
             onClick={() => changePermission(option.value)}><span>{option.name}</span><small>{snapshot.permissionOptions?.find(value => value.id === option.value)?.reason || option.description}</small></button>)}

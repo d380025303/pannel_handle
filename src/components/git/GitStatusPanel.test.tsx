@@ -135,6 +135,67 @@ function renderPanel(session: TerminalSession) {
 }
 
 describe("GitStatusPanel", () => {
+  it("contains stash keyboard focus and restores the entry after closing", async () => {
+    const session = createSession("stash-focus");
+    const snapshot = createSnapshot(session.cwd, "working");
+    snapshot.stashes.stashes = [{ ref: "stash@{0}", message: "Saved work", commit: "abcdef123", relativeTime: "now" }];
+    window.gitApi = createGitApi({ [session.id]: snapshot });
+    const user = userEvent.setup();
+    renderPanel(session);
+    const entry = await screen.findByRole("button", { name: "储藏 (1)" });
+    for (const closeWithEscape of [true, false]) {
+      await user.click(entry);
+      const dialog = screen.getByRole("dialog");
+      const close = screen.getByRole("button", { name: "关闭储藏列表" });
+      expect(document.activeElement).toBe(close);
+      for (const shift of [false, true]) {
+        for (let index = 0; index < 8; index += 1) {
+          await user.tab({ shift });
+          expect(dialog.contains(document.activeElement)).toBe(true);
+        }
+      }
+      entry.focus();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      if (closeWithEscape) await user.keyboard("{Escape}");
+      else await user.click(close);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(entry);
+    }
+  }, 15000);
+
+  it("keeps diff keyboard focus inside and restores the file button on Escape", async () => {
+    const session = createSession("diff-focus");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    let resolveDiff!: (result: GitDiffResult) => void;
+    const result = await api.getDiff({ sessionId: session.id, cwd: session.cwd }, { scope: "working" });
+    api.getDiff.mockImplementation(() => new Promise((resolve) => { resolveDiff = resolve; }));
+    window.gitApi = api;
+    const user = userEvent.setup();
+    renderPanel(session);
+    const fileButton = (await screen.findByText("working.ts")).closest("button")!;
+    await user.click(fileButton);
+    const dialog = screen.getByRole("dialog");
+    const closeButton = screen.getByRole("button", { name: "关闭差异" });
+    expect(document.activeElement).toBe(closeButton);
+    await user.tab();
+    expect(document.activeElement).toBe(closeButton);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(closeButton);
+    resolveDiff(result);
+    await screen.findByRole("textbox", { name: "搜索差异" });
+    for (const shift of [false, true]) {
+      for (let index = 0; index < 14; index += 1) {
+        await user.tab({ shift });
+        expect(dialog.contains(document.activeElement)).toBe(true);
+      }
+    }
+    fileButton.focus();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(fileButton);
+  });
+
   it("closes only the diff on Escape and preserves the underlying project search", async () => {
     const session = createSession("search-diff-escape");
     window.gitApi = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });

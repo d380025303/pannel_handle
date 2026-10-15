@@ -79,6 +79,14 @@ export class PreviewSocket extends EventTarget {
       case "terminal.subscribe": this.emit({ v: 8, type: "terminal.snapshot", snapshot: { sessionId: message.sessionId, ansi: "\u001b[32mBrowser Preview\u001b[0m\r\n无需电脑服务。输入内容将在此回显。\r\nPS C:\\preview> ", seq: this.seq, cols: 80, rows: 24, owner: "desktop" } }); return;
       case "terminal.input": this.emit({ v: 8, type: "terminal.data", sessionId: message.sessionId, data: message.data, seq: ++this.seq }); return;
       case "terminal.claim-size": case "terminal.resize": this.emit({ v: 8, type: "terminal.size-owner", sessionId: message.sessionId, owner: "preview-device", cols: message.cols, rows: message.rows }); return;
+      case "session.duplicate": {
+        const source = this.sessions.find(session => session.id === message.sessionId);
+        if (!source) { this.emit({ v: 8, type: "error", code: "COMMAND_FAILED", message: "源会话已关闭，无法复制。", requestId: message.requestId }); return; }
+        const template = this.templates.find(template => template.id === source.templateId);
+        const session: RuntimeSession = { ...source, ...(template ?? {}), id: crypto.randomUUID() };
+        this.sessions = [...this.sessions, session]; changed();
+        this.emit({ v: 8, type: "command.ok", requestId: message.requestId, sessionId: session.id }); return;
+      }
       case "session.rename": this.sessions = this.sessions.map(session => session.id === message.sessionId ? { ...session, title: message.title } : session); changed(); ok(); return;
       case "session.close": this.sessions = this.sessions.filter(session => session.id !== message.sessionId); changed(); ok(); return;
       case "template.launch": {
@@ -99,6 +107,11 @@ export class PreviewSocket extends EventTarget {
           ? [{ name: "预览磁盘 (C:)", path: "C:\\", type: "drive", size: null }]
           : [{ name: "界面验收资料与长文件夹名称", path: `${path}\\资料`, type: "directory", size: null },
             { name: "移动端窄屏布局与长文本验收说明.md", path: `${path}\\验收说明.md`, type: "file", size: longText.length * 3 }] }); return;
+      }
+      case "files.search.cancel": return;
+      case "files.search": {
+        const entries = [{ name: "验收说明.md", path: `${message.path.replace(/\\$/, "")}\\资料\\验收说明.md`, type: "file" as const, size: 120 }].filter(entry => entry.name.toLowerCase().includes(message.query.toLowerCase()));
+        this.emit({ v: 8, type: "files.search.result", requestId: message.requestId, path: message.path, entries, reason: "complete", skipped: 0 }); return;
       }
       case "files.download.prepare":
         // Download a generated local artifact; never contact the real HTTP service.
@@ -159,6 +172,25 @@ export class PreviewSocket extends EventTarget {
   private workItem(message: Extract<ClientMessage, { type: "work-items.request" }>): unknown {
     const input = (message.input ?? {}) as Record<string, unknown>;
     if (message.operation === "listQuickPrompts") return this.prompts;
+    if (message.operation === "mutateQuickPrompt") {
+      const operation = input.operation;
+      if (operation !== "add" && operation !== "update" && operation !== "delete") throw new Error("不支持的常用提示词操作");
+      const index = this.prompts.findIndex(prompt => prompt.id === input.id);
+      if (operation !== "add" && (index < 0 || this.prompts[index].version !== input.version)) throw new Error("常用提示词已修改或删除，请刷新后重试。");
+      if (operation === "delete") this.prompts.splice(index, 1);
+      else {
+        if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 100
+          || typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 100000
+          || (input.persistent !== undefined && typeof input.persistent !== "boolean")) throw new Error("常用提示词名称、正文或常驻设置无效。");
+        const prompt: WorkItemQuickPrompt = { id: operation === "add" ? crypto.randomUUID() : this.prompts[index].id,
+          version: operation === "add" ? 1 : this.prompts[index].version + 1,
+          name: input.name.trim(), prompt: input.prompt, persistent: input.persistent === true };
+        if (operation === "add") this.prompts.push(prompt);
+        else this.prompts[index] = prompt;
+      }
+      this.emit({ v: 8, type: "work-items.changed" });
+      return this.prompts;
+    }
     if (message.operation === "list") {
       const records = this.tasks.filter(task => (!input.templateId || input.templateId === task.templateId) && (!input.ownerId || input.ownerId === task.ownerId)
         && (!Array.isArray(input.statuses) || input.statuses.includes(task.status)) && (!input.status || input.status === task.status)

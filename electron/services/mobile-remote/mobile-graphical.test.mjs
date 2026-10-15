@@ -348,9 +348,10 @@ describe("mobile graphical session route", () => {
 
   it("matches desktop permission gates while retaining remote request validation", async () => {
     const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [], pendingPlan: null });
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     const message = { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "fullAccess", requestId: "permission" };
-    f.snapshot.archived = true;
+    f.snapshot.archived = false;
     f.snapshot.capabilities = { permissions: false };
     await f.handlers.handle(f.socket, message);
     expect(f.graphicalService.setExecutionPermission).toHaveBeenCalledWith("graph-1", "fullAccess");
@@ -366,6 +367,20 @@ describe("mobile graphical session route", () => {
     f.snapshot.provider = "opencode";
     await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("不可切换执行权限");
     expect(f.graphicalService.setExecutionPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { archived: true }, { pendingPlan: { itemId: "plan" } }, { changingPermission: true },
+    { compacting: true }, { reviewing: true }, { windowsSandboxSetup: { status: "running" } },
+    { account: { status: "signedOut" } }, { approvals: [{}] }, { questions: [{}] }, { elicitations: [{}] }
+  ])("rejects permission changes before calling the service: %j", async state => {
+    const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [] }, state);
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await expect(f.handlers.handle(f.socket, { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "fullAccess" }))
+      .rejects.toThrow("不可切换执行权限");
+    expect(f.graphicalService.setExecutionPermission).not.toHaveBeenCalled();
+    expect(f.graphicalService.setMode).not.toHaveBeenCalled();
   });
 
   it("routes Codex permissions and advertised ACP native modes", async () => {

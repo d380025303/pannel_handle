@@ -1,3 +1,4 @@
+import { useDuplicateSession } from "./useDuplicateSession";
 import { useCloseCompleted } from "./useCloseCompleted";
 import { MobileWorkItems } from "./MobileWorkItems";
 import { useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import { SessionActionDialog, useSessionActionDialog } from "./SessionActionDial
 import { useSessionDrafts } from "./useSessionDrafts";
 import { useSessionNavigation } from "./useSessionNavigation";
 import { useRemoteConnection } from "./useRemoteConnection";
+import type { RuntimeSession } from "./types";
 
 export default function App() {
   const remote = useRemoteConnection();
@@ -16,6 +18,11 @@ export default function App() {
   const navigation = useSessionNavigation(remote.sessions, remote.status, remote.lastLaunchedId);
   const drafts = useSessionDrafts(remote.sessions, remote.status, remote.onGraphicalMessage);
   const dialog = useSessionActionDialog(remote.send);
+  const duplicate = useDuplicateSession(remote);
+  const onSessionAction = (type: "duplicate" | "close", session: RuntimeSession, trigger: HTMLElement) => {
+    if (type === "duplicate") duplicate.copy(session.id);
+    else dialog.open(type, session, trigger);
+  };
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
   const [taskSessionId, setTaskSessionId] = useState<string | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -58,14 +65,15 @@ export default function App() {
       <button type="button" className="mobile-files-button" onClick={() => setFilesOpen(current => !current)}>{filesOpen ? "会话" : "电脑文件"}</button>
       <span className="http-badge">HTTP 局域网</span>
     </header>
+    {duplicate.error && <div className="command-error" role="alert">{duplicate.error}</div>}
     {remote.commandError && <div className="command-error" role="alert">{remote.commandError}</div>}
     {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
     {drafts.recoveryNotice && <div className="command-error" role="alert">{drafts.recoveryNotice}<button type="button" onClick={() => drafts.setRecoveryNotice("")}>关闭</button></div>}
 
     {tasksOpen ? <MobileWorkItems remote={remote} onClose={() => { setTasksOpen(false); setTaskSessionId(null); }} onOpenSession={openTaskSession} />
       : filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} />
-      : view === "home" ? <SessionHome closeCompleted={closeCompleted} sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
-        onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} onOpenTasks={() => setTasksOpen(true)} />
+      : view === "home" ? <SessionHome closeCompleted={closeCompleted} copyingIds={duplicate.copyingIds} sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
+        onOpen={openSession} onAction={onSessionAction} onChooseTemplate={chooseTemplate} onOpenTasks={() => setTasksOpen(true)} />
       : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession} graphicalMenuConfig={remote.graphicalMenuConfig}
         minimalMode={remote.mobileGraphicalSessionMinimalMode}
         connectionEpoch={remote.status === "connected" ? remote.connectionEpoch : 0} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
@@ -82,9 +90,9 @@ export default function App() {
       : <section className="empty-terminal"><h2>没有运行中的会话</h2><p>从电脑已保存的模板启动一个会话。</p>
           <button className="primary large" type="button" onClick={chooseTemplate}>选择模板</button></section>}
 
-    {drawerOpen && <SessionDrawer closeCompleted={closeCompleted} sessions={remote.sessions} templates={remote.templates} activeId={activeId}
+    {drawerOpen && <SessionDrawer closeCompleted={closeCompleted} copyingIds={duplicate.copyingIds} sessions={remote.sessions} templates={remote.templates} activeId={activeId}
       tab={drawerTab} onTabChange={setDrawerTab} send={remote.send} onOpen={openTaskSession}
-      onAction={dialog.open} onClose={() => setDrawerOpen(false)} />}
+      onAction={onSessionAction} onClose={() => setDrawerOpen(false)} />}
     <SessionActionDialog dialog={dialog} />
     {remote.status !== "connected" && <div className="connection-overlay" role="status">
       <div><strong>正在恢复连接</strong><p>{remote.statusMessage}</p>

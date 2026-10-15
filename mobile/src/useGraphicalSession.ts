@@ -5,7 +5,7 @@ import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } fr
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { CodexCapabilityReference } from "../../src/vite-env";
 import { createRequestId } from "./protocol";
-import { graphicalInputPolicy } from "./GraphicalInputPolicy";
+import { graphicalInputPolicy, graphicalPermissionSwitchError } from "./GraphicalInputPolicy";
 import { codeBuddyMultitaskOption } from "./CodeBuddyOptions";
 import { canSwitchMode, modelOptions, openCodeEffortOption, openCodePlanReplyId, permissions } from "./GraphicalPresentation";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalSnapshot,
@@ -247,7 +247,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
         }
         const upload = uploadRequests.current.get(message.requestId);
         if (upload) { uploadRequests.current.delete(message.requestId); upload.reject(new Error(message.message)); }
-        setError(message.message);
+        setError(modeIdRef.current === message.requestId ? `模式切换失败：${message.message}`
+          : permissionIdRef.current === message.requestId ? `执行权限切换失败：${message.message}` : message.message);
         if (submitIdRef.current === message.requestId) { setSending(false); submitIdRef.current = null; }
         if (quickIdRef.current === message.requestId) { setSending(false); quickIdRef.current = null; quickDraftRef.current = ""; }
         if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
@@ -553,7 +554,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     if (modeIdRef.current) setChangingMode(true);
   };
   const changePermission = (permission: typeof permissions[number]["value"]) => {
-    if (!snapshot || snapshot.provider !== "codex" || !snapshot.threadId || snapshot.busy || permissionIdRef.current
+    if (!snapshot || graphicalPermissionSwitchError(snapshot) || historyMutationRef.current || permissionIdRef.current
       || snapshot.executionPermission === permission && !snapshot.permissionProfileId || snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission)) return;
     setError("");
     permissionIdRef.current = action({ type: "graphical.permission", permission }) || null;

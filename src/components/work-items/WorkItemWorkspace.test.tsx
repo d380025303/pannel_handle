@@ -18,7 +18,7 @@ function setup(overrides: Partial<WorkItem> = {}) {
     listAttempts: vi.fn(async () => ({ records: [{ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", error: "" }], total: 1 })),
     getAttempt: vi.fn(async () => ({ id: "attempt", workItemId: item.id, status: "completed" as const, startedAt: 1, sessionId: "session", input: { prompt: "实际输入" }, configuration: {}, output: "执行回复", error: "" })),
     onChanged: vi.fn(callback => { changed = callback; return () => {}; }) };
-  window.workItemApi = api as WorkItemApi;
+  window.workItemApi = { ...api, getAutomation: vi.fn(async () => ({ revision: 0, rules: [] })), saveAutomation: vi.fn(async input => input), previewAutomation: vi.fn(async () => ({ total: 0, samples: [] })), onAutomationError: vi.fn(() => () => {}) } as WorkItemApi;
   window.moduleOwnerApi = { onChanged: () => () => {} } as unknown as typeof window.moduleOwnerApi;
   window.terminalApi = { listSessions: vi.fn(async () => [{ id: "session" }]) } as unknown as typeof window.terminalApi;
   const onOpenSession = vi.fn();

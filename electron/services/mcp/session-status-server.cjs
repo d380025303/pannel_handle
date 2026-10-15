@@ -221,7 +221,7 @@ function createSessionStatusServer({ userData, terminalManager, graphicalService
   }
 
   load();
-  return { listInstances, getInstanceStatus, status, revealToken: () => token, setEnabled,
+  return { getAgentStatus: id => agentStatuses.get(id), listInstances, getInstanceStatus, status, revealToken: () => token, setEnabled,
     start: () => enqueueLifecycle(() => enabled ? start() : status()),
     stop: () => enqueueLifecycle(stop), handleDesktopEvent };
 }

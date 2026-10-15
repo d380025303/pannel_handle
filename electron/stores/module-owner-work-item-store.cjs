@@ -8,6 +8,7 @@ function createWorkItemStore(database, transaction, { search } = {}) {
     return value;
   };
   function initializeWorkItems() {
+    db().exec(`CREATE TABLE IF NOT EXISTS app_work_item_automation(id TEXT PRIMARY KEY, value_json TEXT NOT NULL)`);
     db().exec(`CREATE TABLE IF NOT EXISTS app_module_owner_work_items(
       id TEXT PRIMARY KEY, source_run_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL,
       owner_id TEXT NOT NULL, template_id TEXT NOT NULL, status TEXT NOT NULL,
@@ -63,14 +64,14 @@ function createWorkItemStore(database, transaction, { search } = {}) {
       ON CONFLICT(id) DO UPDATE SET status=excluded.status,value_json=excluded.value_json`)
       .run(value.id, value.workItemId, value.status, value.startedAt, JSON.stringify(value));
   }
-  function startWorkItemAttempt(id, version, input, configuration) {
+  function startWorkItemAttempt(id, version, input, configuration, automation) {
     return transaction(() => {
       const item = getWorkItem(id);
       if (item.version !== version) throw new Error("任务已变更，请刷新后重试。");
       if (ACTIVE.includes(item.status) || item.status === "void") throw new Error("任务正在执行、待核对或已作废，不能重复执行。");
-      const attempt = { id: randomUUID(), workItemId: id, status: "creating", startedAt: Date.now(), input, configuration, output: "", error: "" };
+      const attempt = { id: randomUUID(), workItemId: id, status: "creating", startedAt: Date.now(), input, configuration, output: "", error: "", ...(automation ? { automation } : {}) };
       writeAttempt(attempt);
-      writeItem({ ...item, status: "creating", version: item.version + 1, latestAttemptId: attempt.id, lastStartedAt: attempt.startedAt, updatedAt: Date.now() });
+      writeItem({ ...item, status: "creating", version: item.version + 1, latestAttemptId: attempt.id, lastStartedAt: attempt.startedAt, updatedAt: Date.now(), ...(automation ? { automation: { ruleName: automation.name, attemptId: attempt.id } } : {}) });
       return attempt;
     });
   }
@@ -133,7 +134,33 @@ function createWorkItemStore(database, transaction, { search } = {}) {
   function workItemTaskUnprocessed(templateId, taskId) {
     return Boolean(db().prepare("SELECT 1 FROM app_module_owner_work_items WHERE template_id=? AND task_id=? AND status NOT IN ('completed','void') LIMIT 1").get(templateId, taskId));
   }
-  return { initializeWorkItems, insertWorkItem, getWorkItem, listWorkItems, getWorkItemAttempt, startWorkItemAttempt,
+  function getAutomationState() {
+    const row = db().prepare("SELECT value_json FROM app_work_item_automation WHERE id='rules'").get();
+    return row ? JSON.parse(row.value_json) : { revision: 0, rules: [] };
+  }
+  function saveAutomationState(input) {
+    return transaction(() => {
+      if (getAutomationState().revision !== input.revision) throw new Error("规则已变更，请重新打开配置。");
+      const result = { revision: input.revision + 1, rules: input.rules };
+      db().prepare("INSERT INTO app_work_item_automation(id,value_json) VALUES('rules',?) ON CONFLICT(id) DO UPDATE SET value_json=excluded.value_json").run(JSON.stringify(result));
+      return result;
+    });
+  }
+  function automationCandidates() {
+    return db().prepare("SELECT value_json FROM app_module_owner_work_items WHERE status='pending' ORDER BY created_at,id").all().map(row => JSON.parse(row.value_json)).filter(item => !item.automation);
+  }
+  function automationUncertain() {
+    return Boolean(db().prepare("SELECT 1 FROM app_module_owner_work_items WHERE status='uncertain' AND json_type(value_json,'$.automation')='object' LIMIT 1").get());
+  }
+  function patchAutomationAttempt(workItemId, id, patch) {
+    return transaction(() => {
+      const attempt = getWorkItemAttempt(workItemId, id);
+      writeAttempt({ ...attempt, ...patch });
+      const item = getWorkItem(workItemId);
+      if (item.automation?.attemptId === id) writeItem({ ...item, automation: { ...item.automation, ...patch }, updatedAt: Date.now() });
+    });
+  }
+  return { getAutomationState, saveAutomationState, automationCandidates, automationUncertain, patchAutomationAttempt, initializeWorkItems, insertWorkItem, getWorkItem, listWorkItems, getWorkItemAttempt, startWorkItemAttempt,
     updateWorkItemAttempt, setWorkItemFollowUp, markWorkItemCompleted, changeWorkItem, listWorkItemAttempts, recoverWorkItemAttempts, workItemOwnerBusy, workItemTaskUnprocessed };
 }
 function queryWorkItems(database, { templateId, ownerId, status, statuses, needsFollowUp, keyword, page = 0 } = {}) {
