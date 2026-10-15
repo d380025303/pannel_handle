@@ -6,6 +6,7 @@ import { CodexAppServerSession, type CodexAppServerSessionHandle } from "./Codex
 type Props = {
   session: TerminalSession;
   isActive: boolean;
+  isCompleted?: boolean;
   minimalMode?: boolean;
   draft: string;
   draftReferences: CodexCapabilityReference[];
@@ -19,7 +20,7 @@ type Props = {
   sessionRefs: Map<string, CodexAppServerSessionHandle>;
 };
 
-export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ session, isActive, minimalMode = false, draft, draftReferences, onDraftChange, onDraftReferencesChange, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel, sessionRefs }: Props) {
+export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ session, isActive, isCompleted = false, minimalMode = false, draft, draftReferences, onDraftChange, onDraftReferencesChange, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel, sessionRefs }: Props) {
   const sessionId = session.id;
   const setDraft: Dispatch<SetStateAction<string>> = useCallback(value => onDraftChange(sessionId, value), [onDraftChange, sessionId]);
   const setDraftReferences: Dispatch<SetStateAction<CodexCapabilityReference[]>> = useCallback(value => onDraftReferencesChange(sessionId, value), [onDraftReferencesChange, sessionId]);
@@ -32,7 +33,7 @@ export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ sessi
   return <div className="graphical-session-panel" style={{ display: isActive ? undefined : "none" }} aria-hidden={!isActive}>
     <CodexAppServerSession ref={setSessionRef} sessionId={sessionId} session={session} sessionType={session.type}
       onSessionCreated={onSessionCreated} onReconnectModels={onReconnectModels} onSwitchCodeBuddyModel={onSwitchCodeBuddyModel} onSwitchCodexModel={onSwitchCodexModel}
-      isActive={isActive} minimalMode={minimalMode} onLinkClick={handleLinkClick} draft={draft} draftReferences={draftReferences}
+      isActive={isActive} isCompleted={isCompleted} minimalMode={minimalMode} onLinkClick={handleLinkClick} draft={draft} draftReferences={draftReferences}
       setDraft={setDraft} setDraftReferences={setDraftReferences} />
   </div>;
 });

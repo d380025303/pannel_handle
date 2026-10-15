@@ -21,3 +21,5 @@ temp/
 __pycache__/
 *.pyc
 .cache/
+/.tmp/
+/artifacts/

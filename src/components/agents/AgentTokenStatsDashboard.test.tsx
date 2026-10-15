@@ -62,6 +62,44 @@ describe("AgentTokenStatsDashboard", () => {
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ range: "7d" })));
   });
 
+  it("applies Beijing dates only on submit and rejects invalid ranges", async () => {
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
+    await screen.findByText("还没有 Token 统计");
+    fireEvent.change(screen.getByLabelText("统计时间范围"), { target: { value: "custom" } });
+    expect(getDashboard).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-10-14" } });
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-10-13" } });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+    expect(screen.getByRole("alert").textContent).toContain("开始日期不能晚于结束日期");
+    expect(getDashboard).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-10-15" } });
+    getDashboard.mockResolvedValue({ ...defaultDashboard, range: "custom", startDate: "2026-10-14", endDate: "2026-10-15", approximate: true });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ range: "custom", startDate: "2026-10-14", endDate: "2026-10-15", offset: 0 })));
+    expect(await screen.findByText(/历史数据由 UTC/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("统计时间范围"), { target: { value: "7d" } });
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith({ range: "7d", provider: "all", offset: 0, limit: 50 }));
+  });
+
+  it("resets pagination and combines custom dates with provider and remote device", async () => {
+    getDashboard.mockResolvedValue({ ...defaultDashboard, totalCount: 100 });
+    const remoteDashboard = vi.fn(async () => defaultDashboard);
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
+      listDevices: async () => [{ id: "remote", name: "Remote" }], getDashboard: remoteDashboard
+    } });
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })));
+    fireEvent.change(screen.getByLabelText("统计时间范围"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-10-14" } });
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-10-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ range: "custom", offset: 0 })));
+    fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codex" } });
+    fireEvent.change(screen.getByLabelText("来源电脑"), { target: { value: "remote" } });
+    await waitFor(() => expect(remoteDashboard).toHaveBeenLastCalledWith({ range: "custom", startDate: "2026-10-14", endDate: "2026-10-15", provider: "codex", deviceId: "remote", offset: 0, limit: 50 }));
+  });
+
   it("offers CodeBuddy as a provider filter", async () => {
     render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     await screen.findByText("CodeBuddy");

@@ -1,16 +1,27 @@
+const { customDateRange } = require("../token-usage/token-stats-range.cjs");
 const { TOKEN_FIELDS, PROVIDERS } = require("./postgres-backup-service.cjs");
 
 function emptyTokens() { return Object.fromEntries(TOKEN_FIELDS.map(field => [field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()), 0])); }
 function tokenName(field) { return field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
 function addTokens(total, row) { for (const field of TOKEN_FIELDS) total[tokenName(field)] += Number(row[field] || 0); }
 
-async function getRemoteDashboard(client, { deviceId, range = "30d", provider = "all", offset = 0, limit = 50 } = {}) {
+async function getRemoteDashboard(client, { deviceId, range = "30d", provider = "all", offset = 0, limit = 50, startDate, endDate } = {}) {
   const selectedProvider = PROVIDERS.includes(provider) ? provider : "all";
-  const startAt = range === "7d" ? Date.now() - 7 * 86400000 : range === "30d" ? Date.now() - 30 * 86400000 : 0;
+  const custom = range === "custom" ? customDateRange({ startDate, endDate }) : null;
+  const startAt = custom ? custom.startAt : range === "7d" ? Date.now() - 7 * 86400000 : range === "30d" ? Date.now() - 30 * 86400000 : 0;
   const pageSize = Math.min(200, Math.max(1, Math.trunc(Number(limit)) || 50));
   const pageOffset = Math.max(0, Math.trunc(Number(offset)) || 0);
   const selectedDevice = deviceId && deviceId !== "all" ? deviceId : null;
   const tokenSums = TOKEN_FIELDS.map(field => `'${field}', COALESCE(SUM(COALESCE((data->>'${field}')::numeric, 0)), 0)`).join(", ");
+  const dailySource = custom ? `(
+    SELECT r.device_id, r.data FROM ph_stat_rows r WHERE r.table_name='token_daily_beijing'
+    UNION ALL
+    SELECT r.device_id, r.data || '{"approximate":1}'::jsonb FROM ph_stat_rows r
+    WHERE r.table_name='token_daily' AND NOT EXISTS (
+      SELECT 1 FROM ph_stat_rows c WHERE c.table_name='token_calendar' AND c.device_id=r.device_id
+        AND c.data->>'id'='beijing'
+        AND COALESCE(c.data->>'backup_epoch','0')=COALESCE(r.data->>'backup_epoch','0'))
+  )` : "ph_stat_rows";
   // Keep filtering, aggregation and paging in one database snapshot. Only page
   // details and grouped totals cross the database connection.
   const rows = (await client.query(`WITH filtered_sessions AS (
@@ -19,6 +30,7 @@ async function getRemoteDashboard(client, { deviceId, range = "30d", provider = 
       AND (data->>'provider' IS DISTINCT FROM 'qwen')
       AND ($2::text='all' OR data->>'provider'=$2)
       AND COALESCE((data->>'updated_at')::numeric, 0) >= $3::numeric
+      ${custom ? "AND COALESCE((data->>'updated_at')::numeric, 0) < $7::numeric" : ""}
   ), page AS (
     SELECT * FROM filtered_sessions ORDER BY COALESCE((data->>'updated_at')::numeric, 0) DESC,
       device_id, row_key LIMIT $4 OFFSET $5
@@ -39,11 +51,11 @@ async function getRemoteDashboard(client, { deviceId, range = "30d", provider = 
   SELECT NULL::uuid, 'session_totals', jsonb_build_object('provider', data->>'provider',
     'session_count', COUNT(*), ${tokenSums}) FROM filtered_sessions GROUP BY data->>'provider'
   UNION ALL
-  SELECT NULL::uuid, 'token_daily', jsonb_build_object('date', data->>'date', ${tokenSums})
-    FROM ph_stat_rows WHERE table_name='token_daily' AND ($1::uuid IS NULL OR device_id=$1::uuid)
+  SELECT NULL::uuid, 'token_daily', jsonb_build_object('date', data->>'date', ${custom ? "'provider', data->>'provider', 'approximate', MAX(COALESCE((data->>'approximate')::integer,0))," : ""} ${tokenSums})
+    FROM ${dailySource} daily_source WHERE ${custom ? "TRUE" : "table_name='token_daily'"} AND ($1::uuid IS NULL OR device_id=$1::uuid)
       AND (data->>'provider' IS DISTINCT FROM 'qwen')
       AND ($2::text='all' OR data->>'provider'=$2)
-      AND (data->>'date') >= $6::text GROUP BY data->>'date'
+      AND (data->>'date') >= $6::text ${custom ? "AND (data->>'date') <= $8::text" : ""} GROUP BY data->>'date'${custom ? ", data->>'provider'" : ""}
   UNION ALL
   SELECT NULL::uuid, 'skill_totals', jsonb_build_object('name', data->>'name',
     'count', SUM(COALESCE((data->>'count')::numeric, 0))) FROM related
@@ -54,7 +66,8 @@ async function getRemoteDashboard(client, { deviceId, range = "30d", provider = 
     FROM related WHERE table_name='token_session_mcp_tools'
     GROUP BY data->>'server_name', data->>'tool_name'`,
   [selectedDevice, selectedProvider, startAt, pageSize, pageOffset,
-    new Date(Math.ceil(startAt / 86400000) * 86400000).toISOString().slice(0, 10)])).rows;
+    custom ? custom.startDate : new Date(Math.ceil(startAt / 86400000) * 86400000).toISOString().slice(0, 10),
+    ...(custom ? [custom.endAt, custom.endDate] : [])])).rows;
   const sessions = rows.filter(item => item.table_name === "token_sessions")
     .map(item => ({ ...item.data, deviceId: item.device_id }))
     .sort((a, b) => Number(b.updated_at) - Number(a.updated_at));
@@ -66,10 +79,11 @@ async function getRemoteDashboard(client, { deviceId, range = "30d", provider = 
   const totals = rows.filter(item => item.table_name === "session_totals");
   const sessionCount = totals.reduce((n, item) => n + Number(item.data.session_count), 0);
   const tokens = emptyTokens();
-  for (const item of totals) addTokens(tokens, item.data);
+  const tokenTotals = custom ? rows.filter(item => item.table_name === "token_daily") : totals;
+  for (const item of tokenTotals) addTokens(tokens, item.data);
   const providerBreakdown = PROVIDERS.filter(id => selectedProvider === "all" || id === selectedProvider).map(id => {
     const matches = totals.filter(item => item.data.provider === id); const value = emptyTokens();
-    for (const item of matches) addTokens(value, item.data);
+    for (const item of tokenTotals.filter(item => item.data.provider === id)) addTokens(value, item.data);
     return { provider: id, sessionCount: matches.reduce((n, item) => n + Number(item.data.session_count), 0), tokens: value };
   });
   const daily = new Map();
@@ -94,6 +108,8 @@ async function getRemoteDashboard(client, { deviceId, range = "30d", provider = 
   const page = sessions;
   return {
     generatedAt: Date.now(), range, provider: selectedProvider,
+    ...(custom ? { startDate, endDate, timeZone: "Asia/Shanghai",
+      approximate: tokenTotals.some(item => Number(item.data.approximate) > 0) } : {}),
     summary: { sessionCount,
       averageTokens: sessionCount ? Math.round(tokens.totalTokens / sessionCount) : 0,
       skillCalls: skillTotals.reduce((n, item) => n + Number(item.data.count || 0), 0),

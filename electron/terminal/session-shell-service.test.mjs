@@ -99,6 +99,21 @@ describe("graphical session shell", () => {
     expect(service.open("g1", "reader").history).toBe("a".repeat(1000));
   });
 
+  it.each(["w", "p"])("replaces inherited /%s for configured WSL variables", flag => {
+    const previous = process.env.WSLENV;
+    process.env.WSLENV = `OTHER/lp:TASK_VAR/${flag}:TASK_VAR/w`;
+    try {
+      const { service, pty } = setup({ id: "w1", runtimeMode: "app-server", type: "wsl", cwd: "~" });
+      service.open("w1", "owner");
+      const { env } = pty.spawn.mock.calls[0][2];
+      expect(env.WSLENV).toBe("OTHER/lp:TASK_VAR/u");
+      expect(env.TASK_VAR).toBe("value");
+    } finally {
+      if (previous === undefined) delete process.env.WSLENV;
+      else process.env.WSLENV = previous;
+    }
+  });
+
   it("uses the selected WSL distribution and working directory without an Agent command", () => {
     const { service, pty } = setup({ id: "w1", runtimeMode: "app-server", type: "wsl",
       shell: "unused", wslDistro: "Ubuntu", cwd: "/home/me/project", initialCommand: "codex" });
@@ -118,9 +133,23 @@ describe("graphical session shell", () => {
       environment: { TASK_VAR: "value" }
     }));
     for (const listener of term.listeners.data) listener("prompt");
-    expect(term.write).toHaveBeenCalledWith("cd '/srv/repo'\r");
+    expect(term.write).toHaveBeenCalledWith("cd -- '/srv/repo'\r");
     service.close("s1");
     expect(term.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["~/project", "cd -- \"$HOME\"/'project'\r"],
+    ["~/project space/it's", "cd -- \"$HOME\"/'project space/it'\\''s'\r"],
+    ["~/$(touch injected);$USER", "cd -- \"$HOME\"/'$(touch injected);$USER'\r"],
+    ["~/", "cd -- \"$HOME\"/''\r"],
+    ["/srv/project space/it's", "cd -- '/srv/project space/it'\\''s'\r"]
+  ])("safely initializes the SSH working directory %s", (cwd, command) => {
+    const { service, term } = setup({ id: "s1", runtimeMode: "app-server", type: "ssh", cwd,
+      sshConfig: { host: "example.test", username: "me" } });
+    service.open("s1", "owner");
+    for (const listener of term.listeners.data) listener("prompt");
+    expect(term.write).toHaveBeenCalledExactlyOnceWith(command);
   });
 
   it("rejects a closed or non graphical session", () => {

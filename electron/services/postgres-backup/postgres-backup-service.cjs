@@ -9,7 +9,7 @@ const { Pool } = require("pg");
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
 const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
 
-const TABLES = ["token_sessions", "token_session_models", "token_session_skills", "token_session_mcp_tools", "token_daily"];
+const TABLES = ["token_sessions", "token_session_models", "token_session_skills", "token_session_mcp_tools", "token_daily", "token_daily_beijing", "token_calendar"];
 const PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const TOKEN_FIELDS = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"];
 const STATS_BATCH_SIZE = 500;
@@ -229,11 +229,17 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     return promise;
   }
   function sourceKey(session) {
-    return JSON.stringify([session.type, session.type === "ssh" ? session.sshConfig?.host || "" : "",
+    const parts = [session.type, session.type === "ssh" ? session.sshConfig?.host || "" : "",
       session.type === "ssh" ? session.sshConfig?.username || "" : "",
       session.type === "ssh" ? session.sshConfig?.port || 22 : null,
       session.type === "wsl" ? session.wslDistro || "" : "",
-      session.type === "windows" ? String(session.cwd || "").replace(/\\/g, "/").toLowerCase() : session.cwd || ""]);
+      session.type === "windows" ? String(session.cwd || "").replace(/\\/g, "/").toLowerCase() : session.cwd || ""];
+    // Keep legacy remote keys stable; local SSH agents read history from a different filesystem.
+    if (session.type === "ssh" && session.agentLocation === "local") {
+      parts.push("local", String(session.runtimeCwd || session.localAgentCwd || session.cwd || "")
+        .replace(/\\/g, "/").toLowerCase());
+    }
+    return JSON.stringify(parts);
   }
   function trackSessions(sessions) {
     const known = new Map((state.sources || []).map(source => [sourceKey(source), source]));

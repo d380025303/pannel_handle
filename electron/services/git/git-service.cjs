@@ -153,17 +153,19 @@ function validateWslDistro(value) {
   return distro;
 }
 
-function validateRepoPath(value) {
+function validateRepoPath(value, sessionType) {
   // Whitespace is part of the filename; trimming can target a different file.
   const repoPath = value;
-  if (typeof repoPath !== "string" || !repoPath || repoPath.includes("\0") || path.isAbsolute(repoPath) || repoPath.split(/[\\/]+/).includes("..")) {
+  const pathPlatform = sessionType === "windows" ? path.win32 : path.posix;
+  const separators = sessionType === "windows" ? /[\\/]+/ : /\/+/;
+  if (typeof repoPath !== "string" || !repoPath || repoPath.includes("\0") || pathPlatform.isAbsolute(repoPath) || repoPath.split(separators).includes("..")) {
     throw new Error("A valid repository-relative path is required.");
   }
-  return repoPath.replace(/\\/g, "/");
+  return sessionType === "windows" ? repoPath.replace(/\\/g, "/") : repoPath;
 }
 
-function validateRepoPaths(values) {
-  const paths = Array.isArray(values) ? values.map(validateRepoPath) : [];
+function validateRepoPaths(values, sessionType) {
+  const paths = Array.isArray(values) ? values.map((value) => validateRepoPath(value, sessionType)) : [];
   if (!paths.length) throw new Error("At least one repository path is required.");
   return [...new Set(paths)];
 }
@@ -671,30 +673,30 @@ function createGitService({
   async function getDiff(target, request) {
     const { session, cwd } = getRepositoryTarget(target);
     const scope = request?.scope || "combined";
-    const repoPath = request?.path ? validateRepoPath(request.path) : undefined;
-    const oldPath = request?.oldPath ? validateRepoPath(request.oldPath) : undefined;
+    const repoPath = request?.path ? validateRepoPath(request.path, session.type) : undefined;
+    const oldPath = request?.oldPath ? validateRepoPath(request.oldPath, session.type) : undefined;
     const compareOurs = scope === "working" && request?.status === "U";
     let args;
     let allowExitCodes = [0];
     if (scope === "working") {
       const isUntracked = request?.indexStatus === "?" || request?.status === "?";
       args = isUntracked
-        ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
-        : ["diff", "--no-color", "--find-renames", ...(compareOurs ? ["--ours"] : []), "--", literalPathspec(repoPath)];
+        ? ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
+        : ["diff", "--no-ext-diff", "--no-color", "--find-renames", ...(compareOurs ? ["--ours"] : []), "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     } else if (scope === "staged") {
-      args = ["diff", "--cached", "--no-color", "--find-renames", "--", literalPathspec(repoPath), ...(oldPath ? [literalPathspec(oldPath)] : [])];
+      args = ["diff", "--cached", "--no-ext-diff", "--no-color", "--find-renames", "--", literalPathspec(repoPath), ...(oldPath ? [literalPathspec(oldPath)] : [])];
     } else if (scope === "commit") {
       const oid = validateCommitOid(request?.revision);
-      args = ["show", "--format=", "--no-ext-diff", "--no-color", "--find-renames", oid, ...(repoPath ? ["--", literalPathspec(repoPath)] : [])];
+      args = ["show", "--format=", "--diff-merges=first-parent", "--no-ext-diff", "--no-color", "--find-renames", oid, ...(repoPath ? ["--", literalPathspec(repoPath)] : [])];
     } else if (scope === "stash") {
       args = ["stash", "show", "-p", "--include-untracked", "--no-color", validateStashRef(request?.revision)];
     } else {
       if (!repoPath) throw new Error("A repository path is required for this diff.");
       const isUntracked = request?.status === "?";
       args = isUntracked
-        ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
-        : ["diff", "--no-color", "--find-renames", "HEAD", "--", literalPathspec(repoPath)];
+        ? ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
+        : ["diff", "--no-ext-diff", "--no-color", "--find-renames", "HEAD", "--", literalPathspec(repoPath)];
       if (isUntracked) allowExitCodes = [0, 1];
     }
     if ((scope === "working" || scope === "staged") && !repoPath) throw new Error("A repository path is required for this diff.");
@@ -811,7 +813,8 @@ function createGitService({
   }
 
   async function stageFiles(target, paths, operationId) {
-    return runOperation(target, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths).map(literalPathspec)]);
+    const { session } = getRepositoryTarget(target);
+    return runOperation(target, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths, session.type).map(literalPathspec)]);
   }
 
   async function stageAll(target, operationId) {
@@ -820,7 +823,7 @@ function createGitService({
 
   async function unstageFiles(target, paths, operationId) {
     const { session, cwd } = getRepositoryTarget(target);
-    const safePaths = validateRepoPaths(paths).map(literalPathspec);
+    const safePaths = validateRepoPaths(paths, session.type).map(literalPathspec);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", "--", ...safePaths]
       : ["rm", "--cached", "-f", "-r", "--ignore-unmatch", "--", ...safePaths];
@@ -836,7 +839,8 @@ function createGitService({
   }
 
   async function discardWorkingTree(target, request, operationId) {
-    const paths = validateRepoPaths([request?.path]).map(literalPathspec);
+    const { session } = getRepositoryTarget(target);
+    const paths = validateRepoPaths([request?.path], session.type).map(literalPathspec);
     const isUntracked = request?.indexStatus === "?" || request?.status === "?";
     const args = isUntracked ? ["clean", "-f", "--", ...paths] : ["restore", "--worktree", "--", ...paths];
     return runOperation(target, operationId, "Git discard working tree changes", args);

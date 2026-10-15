@@ -58,6 +58,66 @@ function downgradeProviderConstraints(databaseFile) {
 }
 
 describe("agent token statistics SQLite store", () => {
+  it("filters inclusive Beijing days and daily deltas independently of session lifetime", () => {
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
+    store.load();
+    const update = (id, timestamp, total, provider = "codex") => store.update({ provider,
+      agentSessionId: id, panelSessionId: id, timestamp: Date.parse(timestamp), tokens: tokens(total) });
+    try {
+      update("cross", "2026-12-31T15:59:59Z", 100);
+      update("cross", "2026-12-31T16:00:00Z", 130);
+      update("late", "2027-01-01T15:59:59.999Z", 50);
+      update("excluded", "2027-01-01T16:00:00Z", 500);
+      update("claude", "2027-01-01T00:00:00Z", 60, "claude");
+      const result = store.getDashboard({ range: "custom", startDate: "2027-01-01", endDate: "2027-01-01", provider: "codex", limit: 1 });
+      expect(result.summary.tokens.totalTokens).toBe(80);
+      expect(result.summary.sessionCount).toBe(2);
+      expect(result.totalCount).toBe(2);
+      expect(result.dailyTrend.map(row => [row.date, row.tokens.totalTokens])).toEqual([["2027-01-01", 80]]);
+      expect(result.providerBreakdown[0].tokens.totalTokens).toBe(80);
+      expect(result.approximate).toBe(false);
+      expect(result.timeZone).toBe("Asia/Shanghai");
+      expect(result.sessions[0].title).toBe("late");
+      expect(store.getDashboard({ range: "custom", startDate: "2027-01-01", endDate: "2027-01-01", provider: "codex", offset: 1 }).sessions[0].tokens.totalTokens).toBe(130);
+      store.clear();
+      expect(store.getDashboard({ range: "custom", startDate: "2027-01-01", endDate: "2027-01-01" }).summary.tokens.totalTokens).toBe(0);
+    } finally { store.close(); }
+  });
+
+  it("migrates UTC history once and keeps new Beijing deltas without double counting", () => {
+    const { store, databaseFile } = fixture();
+    store.update({ provider: "codex", agentSessionId: "old", panelSessionId: "old", timestamp: Date.parse("2026-10-14T18:00:00Z"), tokens: tokens(100) });
+    store.close();
+    const db = new DatabaseSync(databaseFile);
+    db.exec("DROP TABLE token_daily_beijing; DROP TABLE token_calendar; PRAGMA user_version=7;");
+    db.close();
+    const reopened = createAgentTokenStatsStore({ databaseFile });
+    const query = { range: "custom", startDate: "2026-10-14", endDate: "2026-10-15" };
+    try {
+      reopened.load();
+      expect(reopened.getDashboard(query)).toMatchObject({ approximate: true, summary: { tokens: { totalTokens: 100 } } });
+      reopened.update({ provider: "codex", agentSessionId: "old", panelSessionId: "old", timestamp: Date.parse("2026-10-14T19:00:00Z"), tokens: tokens(150) });
+      reopened.close(); reopened.load();
+      expect(reopened.getDashboard(query).summary.tokens.totalTokens).toBe(150);
+      const exact = reopened.getDashboard({ ...query, startDate: "2026-10-15" });
+      expect(exact.approximate).toBe(false);
+      expect(exact.summary.tokens.totalTokens).toBe(50);
+      reopened.clear();
+      expect(reopened.getDashboard(query).approximate).toBe(false);
+    } finally { reopened.close(); }
+  });
+
+  it.each([
+    {}, { startDate: "2026-02-30", endDate: "2026-03-01" },
+    { startDate: "2026-10-16", endDate: "2026-10-15" },
+    { startDate: "2026-1-01", endDate: "2026-10-15" }
+  ])("rejects invalid custom dates %j", dates => {
+    const store = createAgentTokenStatsStore({ databaseFile: ":memory:" });
+    store.load();
+    try { expect(() => store.getDashboard({ range: "custom", ...dates })).toThrow("Invalid statistics date range"); }
+    finally { store.close(); }
+  });
+
   it.each(["all", "codex", "claude"])("aggregates daily deltas across time ranges for provider %s", provider => {
     let time = Date.UTC(2026, 8, 1, 12);
     const store = createAgentTokenStatsStore({ databaseFile: ":memory:", now: () => time });

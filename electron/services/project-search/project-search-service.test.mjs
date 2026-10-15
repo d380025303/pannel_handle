@@ -495,6 +495,7 @@ describe("project-search-service", () => {
   it("falls back in WSL when rg is unavailable and enumerates non-ignored Git files", async () => {
     const rgChild = createChildProcess({ stderr: "execvpe(rg) failed: No such file or directory", code: 127 });
     const gitChild = createChildProcess({ stdout: "app.ts\0" });
+    const ignoredChild = createChildProcess({ stdout: "" });
     const spawnProcess = vi.fn()
       .mockImplementationOnce(() => {
         rgChild.start();
@@ -503,6 +504,10 @@ describe("project-search-service", () => {
       .mockImplementationOnce(() => {
         gitChild.start();
         return gitChild;
+      })
+      .mockImplementationOnce(() => {
+        ignoredChild.start();
+        return ignoredChild;
       });
     const service = createProjectSearchService({
       terminalManager: createTerminalManager({
@@ -534,6 +539,9 @@ describe("project-search-service", () => {
       "--others",
       "--exclude-standard",
       "-z"
+    ]));
+    expect(spawnProcess.mock.calls[2][1]).toEqual(expect.arrayContaining([
+      "--ignored", "--exclude-per-directory=.ignore"
     ]));
   });
 

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { TextDecoder } = require("node:util");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
@@ -36,7 +37,7 @@ const OFFICE_TYPE_BY_EXTENSION = new Map([
 ]);
 
 function normalizeRemotePath(value) {
-  const remotePath = String(value || ".").trim() || ".";
+  const remotePath = String(value ?? "") || ".";
   return remotePath.replace(/\\/g, "/");
 }
 
@@ -84,7 +85,12 @@ function createTransferProgressReporter(onProgress, initialTotalBytes) {
 
 function decodeTextBuffer(buffer) {
   const bom = buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
-  const content = buffer.subarray(bom ? 3 : 0).toString("utf-8");
+  let content;
+  try {
+    content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(bom ? 3 : 0));
+  } catch {
+    return null;
+  }
   const eol = content.includes("\r\n") ? "crlf" : content.includes("\r") ? "cr" : "lf";
   return { content, encoding: "utf-8", bom, eol };
 }
@@ -299,7 +305,7 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
       const batch = await Promise.all(dirents.slice(offset, offset + LOCAL_STAT_CONCURRENCY).map(async (dirent) => {
         const childDisplayPath = joinLocalPath(session, displayPath, dirent.name);
         const childHostPath = toLocalHostPath(session, childDisplayPath);
-        const stat = await fsApi.promises.stat(childHostPath);
+        const stat = await fsApi.promises.lstat(childHostPath);
         return {
           name: dirent.name,
           path: fromLocalHostPath(session, childHostPath),
@@ -328,10 +334,12 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
     if (isLikelyBinary(buffer)) {
       return { kind: "binary", size: buffer.length };
     }
+    const decoded = decodeTextBuffer(buffer);
+    if (!decoded) return { kind: "unsupported_encoding", size: buffer.length };
     return {
       kind: "text",
       size: buffer.length,
-      ...decodeTextBuffer(buffer),
+      ...decoded,
       version: getContentVersion(buffer)
     };
   }
@@ -364,6 +372,9 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
         return { status: "conflict" };
       }
       const currentBuffer = await fsApi.promises.readFile(hostPath);
+      if (!decodeTextBuffer(currentBuffer)) {
+        throw new Error("Unsupported text encoding. Only valid UTF-8 files can be edited.");
+      }
       if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
         return { status: "conflict" };
       }
@@ -432,10 +443,12 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
     if (isLikelyBinary(buffer)) {
       return { kind: "binary", size: buffer.length };
     }
+    const decoded = decodeTextBuffer(buffer);
+    if (!decoded) return { kind: "unsupported_encoding", size: buffer.length };
     return {
       kind: "text",
       size: buffer.length,
-      ...decodeTextBuffer(buffer),
+      ...decoded,
       version: getContentVersion(buffer)
     };
   }
@@ -567,6 +580,9 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
       }
       const currentData = await sshFileSystem.get(sessionId, normalizedPath);
       const currentBuffer = Buffer.isBuffer(currentData) ? currentData : Buffer.from(currentData);
+      if (!decodeTextBuffer(currentBuffer)) {
+        throw new Error("Unsupported text encoding. Only valid UTF-8 files can be edited.");
+      }
       if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
         return { status: "conflict" };
       }
@@ -708,19 +724,40 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
       });
     };
 
+    let temporaryPath;
+    let ownsTemporaryFile = false;
+    let sshDownload;
+    const prepareTemporaryFile = async () => {
+      temporaryPath = path.join(path.dirname(localPath), `.pannel-download-${crypto.randomUUID()}.tmp`);
+      const handle = await fsApi.promises.open(temporaryPath, "wx");
+      ownsTemporaryFile = true;
+      await handle.close();
+      if (task.canceled) await canceled;
+    };
+
     try {
       if (session.type === "ssh") {
         const normalizedPath = normalizeRemotePath(remotePath);
-        await Promise.race([
-          sshFileSystem.downloadFile(transferId, sessionId, normalizedPath, localPath, { onProgress: reportProgress }),
-          canceled
-        ]);
+        await prepareTemporaryFile();
+        sshDownload = sshFileSystem.downloadFile(transferId, sessionId, normalizedPath, temporaryPath, { onProgress: reportProgress });
+        await Promise.race([sshDownload, canceled]);
       } else {
         const sourcePath = toLocalHostPath(session, remotePath);
-        const stat = await Promise.race([fsApi.promises.stat(sourcePath), canceled]);
+        // stat follows links; bigint preserves Windows file IDs without rounding.
+        const stat = await Promise.race([fsApi.promises.stat(sourcePath, { bigint: true }), canceled]);
         const totalBytes = Number(stat?.size) || 0;
+        let targetStat;
+        try {
+          targetStat = await Promise.race([fsApi.promises.stat(localPath, { bigint: true }), canceled]);
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (stat.ino > 0 && stat.dev === targetStat?.dev && stat.ino === targetStat?.ino) {
+          return { localPath, transferId };
+        }
+        await prepareTemporaryFile();
         const source = fsApi.createReadStream(sourcePath);
-        const destination = fsApi.createWriteStream(localPath);
+        const destination = fsApi.createWriteStream(temporaryPath);
         task.streams = [source, destination];
         let transferredBytes = 0;
         source.on("data", (chunk) => {
@@ -731,8 +768,14 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
         await Promise.race([pipeline(source, destination), canceled]);
         reportProgress(totalBytes, totalBytes);
       }
+      if (task.canceled) await canceled;
+      // Once replacement starts, cancellation can no longer undo the commit.
+      activeDownloads.delete(transferId);
+      await fsApi.promises.rename(temporaryPath, localPath);
+      temporaryPath = undefined;
       return { localPath, transferId };
     } catch (err) {
+      if (sshDownload) await sshDownload.catch(() => {});
       await Promise.all(task.streams.map((stream) => new Promise((resolve) => {
         if (stream.closed) {
           resolve();
@@ -742,7 +785,7 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
         if (!stream.destroyed) stream.destroy();
       })));
       try {
-        await fsApi.promises.rm(localPath, { force: true });
+        if (ownsTemporaryFile && temporaryPath) await fsApi.promises.rm(temporaryPath, { force: true });
       } catch {
         // Ignore cleanup failures; preserve the original transfer error.
       }
@@ -824,6 +867,13 @@ function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, s
     if (target.status === "conflict" || target.status === "skipped") return target;
     if (target.status === "overwrite") {
       if (kind === "directory") return { status: "conflict", path: target.path, name: target.name };
+      const stat = session.type === "ssh"
+        ? await sshFileSystem.stat(sessionId, target.path)
+        : await fsApi.promises.lstat(toLocalHostPath(session, target.path));
+      const isDirectory = typeof stat.isDirectory === "function" ? stat.isDirectory() : stat.isDirectory;
+      if (isDirectory) {
+        throw new Error("类型冲突：不能用文件覆盖已有目录，请使用其他名称。");
+      }
       await deleteEntry(sessionId, target.path, { permanent: session.type !== "windows" });
     }
     if (session.type !== "ssh") {

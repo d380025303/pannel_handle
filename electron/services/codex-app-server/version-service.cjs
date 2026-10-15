@@ -1,6 +1,8 @@
+const { buildWslBashArgs } = require("../../core/wsl-command.cjs");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { parseCliProbe } = require("../cli-version-probe.cjs");
+const { sameInstallation } = require("../cli-version-installation.cjs");
 const { createUpdateProgress } = require("../cli-version-progress.cjs");
 
 const CHECK_TIMEOUT_MS = 15000;
@@ -94,13 +96,6 @@ function installation(probe, platform) {
   return "unknown";
 }
 
-function sameInstallation(before, after, platform) {
-  if (before.method !== after.method) return false;
-  // fnm creates a new command symlink for every login shell.
-  if (platform === "linux" && before.method === "npm") return before.resolvedPath === after.resolvedPath;
-  return before.commandPath === after.commandPath;
-}
-
 function createCodexVersionService({ terminalManager, sshAgentTransport, spawnProcess = spawn, fetchLatest = globalThis.fetch, executeCommand = null }) {
   const cache = new Map();
   const updating = new Set();
@@ -118,7 +113,7 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
     if (executeCommand) return executeCommand(targetValue, script, timeoutMs, onOutput);
     if (targetValue.session.type === "ssh" && targetValue.session.agentLocation !== "local")
       return sshAgentTransport.exec(targetValue.session.id, `bash -lic ${quoteBash(script)}`, { actionName: "Codex version update", timeoutMs, onStdout: onOutput, onStderr: onOutput });
-    if (targetValue.platform === "linux") return runProcess("wsl.exe", ["-d", targetValue.session.wslDistro, "--exec", "bash", "-lic", script], { timeoutMs, spawnProcess, onOutput });
+    if (targetValue.platform === "linux") return runProcess("wsl.exe", buildWslBashArgs(targetValue.session.wslDistro, script), { timeoutMs, spawnProcess, onOutput });
     return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs, spawnProcess, onOutput });
   }
   async function probe(targetValue) {

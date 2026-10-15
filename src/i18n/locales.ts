@@ -254,6 +254,9 @@ export type TranslationKey =
   | "settings.openRouterNotConfigured"
   | "settings.openRouterDescription"
   | "settings.openRouterKeyStored"
+  | "settings.openCodeSyncFailed"
+  | "settings.openCodeSyncRetry"
+  | "settings.openCodeSyncSuccess"
   | "settings.openRouterSaved"
   | "settings.openRouterTest"
   | "settings.openRouterTestSuccess"
@@ -589,6 +592,14 @@ export type TranslationKey =
   | "usage.workbuddyCheckinButton"
   | "usage.workbuddyCheckedInButton"
   | "usage.workbuddyCheckingIn"
+  | "tokenStats.customRange"
+  | "tokenStats.startDate"
+  | "tokenStats.endDate"
+  | "tokenStats.query"
+  | "tokenStats.beijingTime"
+  | "tokenStats.invalidDates"
+  | "tokenStats.approximateHistory"
+  | "tokenStats.sessionDateHint"
   | "tokenStats.title"
   | "tokenStats.open"
   | "tokenStats.description"
@@ -846,6 +857,7 @@ export type TranslationKey =
   | "files.selectedItems"
   | "files.cannotMoveIntoSelf"
   | "files.tooLarge"
+  | "files.unsupportedEncoding"
   | "files.binary"
   | "files.loadingOfficePreview"
   | "files.officeLoadFailed"
@@ -1362,6 +1374,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterNotConfigured": "尚未配置",
     "settings.openRouterDescription": "为 Codex、OpenCode 和 CodeBuddy 配置 OpenRouter 模型。API Key 由系统安全存储加密，只在启动进程时注入环境变量。",
     "settings.openRouterKeyStored": "已安全保存；输入新值可替换",
+    "settings.openCodeSyncFailed": "密钥操作已完成，但 OpenCode 配置同步失败：",
+    "settings.openCodeSyncRetry": "重试 OpenCode 同步",
+    "settings.openCodeSyncSuccess": "OpenCode 配置已同步。",
     "settings.openRouterSaved": "OpenRouter API Key 已安全保存。",
     "settings.openRouterTest": "测试连接",
     "settings.openRouterTestSuccess": "OpenRouter 连接成功。",
@@ -1697,6 +1712,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.workbuddyCheckinButton": "立即签到",
     "usage.workbuddyCheckedInButton": "今日已签到",
     "usage.workbuddyCheckingIn": "签到中...",
+    "tokenStats.customRange": "自定义",
+    "tokenStats.startDate": "开始日期",
+    "tokenStats.endDate": "结束日期",
+    "tokenStats.query": "查询",
+    "tokenStats.beijingTime": "北京时间（UTC+8）",
+    "tokenStats.invalidDates": "请选择有效的开始和结束日期，开始日期不能晚于结束日期。",
+    "tokenStats.approximateHistory": "历史数据由 UTC 日汇总近似转换，北京时间日期边界可能有误差。",
+    "tokenStats.sessionDateHint": "会话按最后更新时间筛选，明细与 Skill/MCP 调用展示会话累计值。",
     "tokenStats.title": "Token 统计",
     "tokenStats.open": "打开 Token 统计",
     "tokenStats.description": "查看 OpenCode 等 Agent 的会话消耗趋势和明细",
@@ -1954,6 +1977,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.selectedItems": "{count} 项",
     "files.cannotMoveIntoSelf": "无法将 {name} 移入其自身。",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
+    "files.unsupportedEncoding": "编码不受支持，仅支持编辑有效的 UTF-8 文件。请下载后使用支持原编码的编辑器查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
     "files.loadingOfficePreview": "正在加载 Office 预览...",
     "files.officeLoadFailed": "无法加载 Office 预览。",
@@ -2462,6 +2486,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterNotConfigured": "Not configured",
     "settings.openRouterDescription": "Configure OpenRouter models for Codex, OpenCode, and CodeBuddy. The API key is encrypted by the system secure store and injected only into the launched process environment.",
     "settings.openRouterKeyStored": "Stored securely; enter a new value to replace it",
+    "settings.openCodeSyncFailed": "The key operation completed, but OpenCode configuration sync failed:",
+    "settings.openCodeSyncRetry": "Retry OpenCode sync",
+    "settings.openCodeSyncSuccess": "OpenCode configuration synced.",
     "settings.openRouterSaved": "OpenRouter API key saved securely.",
     "settings.openRouterTest": "Test connection",
     "settings.openRouterTestSuccess": "OpenRouter connection succeeded.",
@@ -2797,6 +2824,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.workbuddyCheckinButton": "Check in",
     "usage.workbuddyCheckedInButton": "Checked in today",
     "usage.workbuddyCheckingIn": "Checking in...",
+    "tokenStats.customRange": "Custom",
+    "tokenStats.startDate": "Start date",
+    "tokenStats.endDate": "End date",
+    "tokenStats.query": "Apply",
+    "tokenStats.beijingTime": "Beijing time (UTC+8)",
+    "tokenStats.invalidDates": "Choose valid start and end dates. Start date must not be after end date.",
+    "tokenStats.approximateHistory": "Historical UTC daily totals are approximate; Beijing date boundaries may differ.",
+    "tokenStats.sessionDateHint": "Sessions are filtered by last update; session details and Skill/MCP calls show cumulative session values.",
     "tokenStats.title": "Token statistics",
     "tokenStats.open": "Open token statistics",
     "tokenStats.description": "Review session usage, trends, and details for OpenCode and other supported agents",
@@ -3054,6 +3089,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.selectedItems": "{count} items",
     "files.cannotMoveIntoSelf": "Cannot move {name} into itself.",
     "files.tooLarge": "File is {size}. Download it to view locally.",
+    "files.unsupportedEncoding": "Unsupported encoding. Only valid UTF-8 files can be edited. Download and open with an editor that supports the original encoding.",
     "files.binary": "Binary file. Download it to view locally.",
     "files.loadingOfficePreview": "Loading Office preview...",
     "files.officeLoadFailed": "Unable to load the Office preview.",

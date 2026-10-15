@@ -131,7 +131,8 @@ export function McpManager({ api = window.mcpApi, session, embeddedCodex = false
   const [notice, setNotice] = useState("");
   const requestRef = useRef(0);
   const dirty = Boolean(draft && draftSignature(draft) !== savedSignature);
-  const projectAvailable = Boolean(session?.cwd) && (session?.type === "windows" || embeddedCodex);
+  const projectAvailable = Boolean(session?.cwd) && (session?.type === "windows"
+    || (session?.type === "ssh" && session.agentLocation === "local") || embeddedCodex);
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);

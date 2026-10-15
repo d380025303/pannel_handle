@@ -135,6 +135,36 @@ function renderPanel(session: TerminalSession) {
 }
 
 describe("GitStatusPanel", () => {
+  it("cycles discard confirmation focus and restores its trigger on dismissal", async () => {
+    const session = createSession("discard-focus");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    window.gitApi = api;
+    const user = userEvent.setup();
+    renderPanel(session);
+    const entry = await screen.findByTitle(/放弃.*working\.ts/);
+    for (const dismissal of ["cancel", "escape", "overlay", "confirm"]) {
+      await user.click(entry);
+      const dialog = screen.getByRole("alertdialog");
+      const cancel = screen.getByRole("button", { name: "取消" });
+      const confirm = dialog.querySelector<HTMLButtonElement>("button.danger")!;
+      expect(document.activeElement).toBe(cancel);
+      for (const shift of [false, true]) {
+        for (let index = 0; index < 4; index += 1) {
+          await user.tab({ shift });
+          expect(document.activeElement).toBe(index % 2 === 0 ? confirm : cancel);
+        }
+      }
+      entry.focus();
+      expect(document.activeElement).toBe(cancel);
+      if (dismissal === "escape") await user.keyboard("{Escape}");
+      else if (dismissal === "overlay") await user.click(dialog.parentElement!);
+      else await user.click(dismissal === "confirm" ? confirm : cancel);
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      await waitFor(() => expect(document.activeElement).toBe(entry));
+      expect(api.discardWorkingTree).toHaveBeenCalledTimes(dismissal === "confirm" ? 1 : 0);
+    }
+  });
+
   it("contains stash keyboard focus and restores the entry after closing", async () => {
     const session = createSession("stash-focus");
     const snapshot = createSnapshot(session.cwd, "working");

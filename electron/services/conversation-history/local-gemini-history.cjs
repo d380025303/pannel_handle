@@ -1,3 +1,4 @@
+const { materializeGeminiMessages } = require("./gemini-message-state.cjs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { readJsonLines, timestampMs } = require("./history-values.cjs");
@@ -37,28 +38,6 @@ function parseGeminiRecords(text, filePath) {
   const records = [];
   readJsonLines(text, item => records.push(item));
   return records;
-}
-
-function materializeGeminiMessages(records) {
-  const messages = new Map();
-  for (const item of records) {
-    if (Array.isArray(item?.$set?.messages)) {
-      messages.clear();
-      for (const message of item.$set.messages) if (message?.id) messages.set(String(message.id), message);
-      continue;
-    }
-    const rewindId = item?.$rewindTo?.id ?? item?.$rewindTo;
-    if (rewindId) {
-      let remove = false;
-      for (const id of [...messages.keys()]) {
-        if (id === String(rewindId)) remove = true;
-        if (remove) messages.delete(id);
-      }
-      continue;
-    }
-    if ((item?.type === "user" || item?.type === "gemini") && item.id) messages.set(String(item.id), item);
-  }
-  return [...messages.values()];
 }
 
 function geminiMetadata(fsApi, candidate, cwd) {

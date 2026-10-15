@@ -1,3 +1,4 @@
+const { beijingDay, customDateRange } = require("./token-stats-range.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
@@ -16,7 +17,7 @@ const {
 
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const STORED_TOKEN_STATS_PROVIDERS = [...TOKEN_STATS_PROVIDERS, "qwen"];
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const LEGACY_STORE_VERSIONS = [1, 2];
 const TOKEN_COLUMNS = {
   inputTokens: "input_tokens",
@@ -144,6 +145,18 @@ function createAgentTokenStatsStore({
         provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'opencode', 'qoder', 'copilot', 'qwen', 'gemini', 'grok')),
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
         PRIMARY KEY (date, provider)
+      );
+
+      CREATE TABLE IF NOT EXISTS token_daily_beijing (
+        date TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        approximate INTEGER NOT NULL DEFAULT 0,
+        ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
+        PRIMARY KEY (date, provider)
+      );
+      CREATE TABLE IF NOT EXISTS token_calendar (
+        id TEXT PRIMARY KEY,
+        migrated_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS token_baselines (
@@ -284,9 +297,9 @@ function createAgentTokenStatsStore({
     return row ? { tokens: tokensFromRow(row), capabilities: normalizeCapabilityUsage(JSON.parse(row.capabilities_json)) } : undefined;
   }
 
-  function addDaily(date, provider, tokens) {
+  function addDaily(date, provider, tokens, table = "token_daily") {
     database.prepare(`
-      INSERT INTO token_daily(date, provider, ${tokenColumnList()}) VALUES (?, ?, ${tokenPlaceholders()})
+      INSERT INTO ${table}(date, provider, ${tokenColumnList()}) VALUES (?, ?, ${tokenPlaceholders()})
       ON CONFLICT(date, provider) DO UPDATE SET
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} = ${TOKEN_COLUMNS[field]} + excluded.${TOKEN_COLUMNS[field]}`).join(", ")}
     `).run(date, provider, ...tokenValues(tokens));
@@ -407,6 +420,12 @@ function createAgentTokenStatsStore({
       }
       createSchema();
       importLegacyJson();
+      transaction(() => {
+        if (!database.prepare("SELECT 1 FROM token_calendar WHERE id = 'beijing'").get()) {
+          database.exec(`INSERT INTO token_daily_beijing(date, provider, approximate, ${tokenColumnList()}) SELECT date, provider, 1, ${tokenColumnList()} FROM token_daily`);
+          database.prepare("INSERT INTO token_calendar(id, migrated_at) VALUES ('beijing', ?)").run(now());
+        }
+      });
       loadError = null;
     } catch (error) {
       loadError = error;
@@ -471,7 +490,10 @@ function createAgentTokenStatsStore({
     transaction(() => {
       writeRecord(nextRecord);
       database.prepare("DELETE FROM token_baselines WHERE provider = ? AND agent_session_id = ?").run(provider, agentSessionId);
-      if (delta.totalTokens > 0) addDaily(dayKey(timestamp), provider, delta);
+      if (delta.totalTokens > 0) {
+        addDaily(dayKey(timestamp), provider, delta);
+        addDaily(beijingDay(timestamp), provider, delta, "token_daily_beijing");
+      }
     });
     onChanged();
     return nextRecord;
@@ -485,9 +507,13 @@ function createAgentTokenStatsStore({
     if (Number(result.changes) > 0) onChanged();
   }
 
-  function queryFilter(provider, startAt, alias = "s") {
+  function queryFilter(provider, startAt, endAt, alias = "s") {
     const clauses = [`${alias}.updated_at >= ?`, `${alias}.provider <> 'qwen'`];
     const parameters = [startAt];
+    if (endAt !== undefined) {
+      clauses.push(`${alias}.updated_at < ?`);
+      parameters.push(endAt);
+    }
     if (provider !== "all") {
       clauses.push(`${alias}.provider = ?`);
       parameters.push(provider);
@@ -497,18 +523,20 @@ function createAgentTokenStatsStore({
 
   function getDashboard(options = {}) {
     ensureLoaded();
-    const range = ["7d", "30d", "all"].includes(options.range) ? options.range : "30d";
+    const range = ["7d", "30d", "all", "custom"].includes(options.range) ? options.range : "30d";
     const provider = TOKEN_STATS_PROVIDERS.includes(options.provider) ? options.provider : "all";
     const limit = Math.min(200, Math.max(1, safeInteger(options.limit) || 50));
     const offset = Math.max(0, safeInteger(options.offset));
     const days = range === "7d" ? 7 : range === "30d" ? 30 : null;
-    const startAt = days ? now() - days * 86400000 : 0;
-    const filter = queryFilter(provider, startAt);
-    const dailyFilter = `date >= ? AND provider <> 'qwen'${provider === "all" ? "" : " AND provider = ?"}`;
-    const dailyParameters = [dayKey(startAt), ...(provider === "all" ? [] : [provider])];
+    const custom = range === "custom" ? customDateRange(options) : null;
+    const startAt = custom ? custom.startAt : days ? now() - days * 86400000 : 0;
+    const dailyTable = custom ? "token_daily_beijing" : "token_daily";
+    const filter = queryFilter(provider, startAt, custom?.endAt);
+    const dailyFilter = `date >= ?${custom ? " AND date <= ?" : ""} AND provider <> 'qwen'${provider === "all" ? "" : " AND provider = ?"}`;
+    const dailyParameters = [custom ? custom.startDate : dayKey(startAt), ...(custom ? [custom.endDate] : []), ...(provider === "all" ? [] : [provider])];
     const tokenSums = TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ");
 
-    const totals = database.prepare(`SELECT ${tokenSums} FROM token_daily WHERE ${dailyFilter}`).get(...dailyParameters);
+    const totals = database.prepare(`SELECT ${tokenSums} FROM ${dailyTable} WHERE ${dailyFilter}`).get(...dailyParameters);
     const skillCalls = database.prepare(`SELECT COALESCE(SUM(k.count), 0) AS total FROM token_session_skills k JOIN token_sessions s ON s.id = k.session_id WHERE ${filter.sql}`).get(...filter.parameters).total;
     const mcpCalls = database.prepare(`SELECT COALESCE(SUM(m.count), 0) AS total FROM token_session_mcp_tools m JOIN token_sessions s ON s.id = m.session_id WHERE ${filter.sql}`).get(...filter.parameters).total;
     const sessionCount = safeInteger(database.prepare(`SELECT COUNT(*) AS session_count FROM token_sessions s WHERE ${filter.sql}`).get(...filter.parameters).session_count);
@@ -521,7 +549,7 @@ function createAgentTokenStatsStore({
       tokens: summaryTokens
     };
 
-    const breakdownRows = database.prepare(`SELECT provider, ${tokenSums} FROM token_daily WHERE ${dailyFilter} GROUP BY provider`).all(...dailyParameters);
+    const breakdownRows = database.prepare(`SELECT provider, ${tokenSums} FROM ${dailyTable} WHERE ${dailyFilter} GROUP BY provider`).all(...dailyParameters);
     const breakdownByProvider = new Map(breakdownRows.map(row => [row.provider, row]));
     const sessionCountRows = database.prepare(`SELECT provider, COUNT(*) AS session_count FROM token_sessions s WHERE ${filter.sql} GROUP BY provider`).all(...filter.parameters);
     const sessionCountsByProvider = new Map(sessionCountRows.map(row => [row.provider, row.session_count]));
@@ -529,7 +557,7 @@ function createAgentTokenStatsStore({
       .filter(id => provider === "all" || id === provider)
       .map(id => ({ provider: id, sessionCount: safeInteger(sessionCountsByProvider.get(id)), tokens: tokensFromRow(breakdownByProvider.get(id)) }));
 
-    const dailyRows = database.prepare(`SELECT date, ${tokenSums} FROM token_daily WHERE ${dailyFilter} GROUP BY date ORDER BY date`).all(...dailyParameters);
+    const dailyRows = database.prepare(`SELECT date, ${tokenSums} FROM ${dailyTable} WHERE ${dailyFilter} GROUP BY date ORDER BY date`).all(...dailyParameters);
     const dailyTrend = dailyRows.map(row => ({ date: row.date, tokens: tokensFromRow(row) }));
 
     const topSkills = database.prepare(`SELECT k.name, SUM(k.count) AS count FROM token_session_skills k JOIN token_sessions s ON s.id = k.session_id WHERE ${filter.sql} GROUP BY k.name ORDER BY count DESC, k.name`).all(...filter.parameters).map(row => ({ name: row.name, count: safeInteger(row.count) }));
@@ -547,7 +575,10 @@ function createAgentTokenStatsStore({
     const totalCount = sessionCount;
     const sessionRows = database.prepare(`SELECT * FROM token_sessions s WHERE ${filter.sql} ORDER BY updated_at DESC LIMIT ? OFFSET ?`).all(...filter.parameters, limit, offset);
     return {
-      generatedAt: now(), range, provider, summary, dailyTrend, providerBreakdown, topSkills, topMcpServers,
+      generatedAt: now(), range, provider,
+      ...(custom ? { startDate: custom.startDate, endDate: custom.endDate, timeZone: "Asia/Shanghai",
+        approximate: Boolean(database.prepare(`SELECT 1 FROM token_daily_beijing WHERE ${dailyFilter} AND approximate = 1 LIMIT 1`).get(...dailyParameters)) } : {}),
+      summary, dailyTrend, providerBreakdown, topSkills, topMcpServers,
       sessions: sessionRows.map(row => recordFromRow(row, { includePrivate: false, includeStatus: false })),
       totalCount, offset, limit
     };
@@ -583,7 +614,7 @@ function createAgentTokenStatsStore({
       capabilities: normalizeCapabilityUsage(JSON.parse(row.raw_capabilities_json))
     }));
     transaction(() => {
-      database.exec("DELETE FROM token_sessions; DELETE FROM token_daily; DELETE FROM token_baselines;");
+      database.exec("DELETE FROM token_sessions; DELETE FROM token_daily; DELETE FROM token_daily_beijing; DELETE FROM token_baselines;");
       for (const baseline of existingBaselines) writeBaseline(baseline.provider, baseline.agentSessionId, baseline.tokens, baseline.capabilities);
       // Active snapshots override any existing baseline for the same session.
       for (const baseline of activeBaselines) writeBaseline(baseline.provider, baseline.agentSessionId, baseline.tokens, baseline.capabilities);

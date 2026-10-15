@@ -64,7 +64,7 @@ function createAgentTokenLiveModule({
   function startTimer(tracker) {
     stopTimer(tracker);
     if (tracker.disposed) return;
-    tracker.timer = setIntervalFn(() => { void poll(tracker); }, pollIntervalMs);
+    tracker.timer = setIntervalFn(() => poll(tracker), pollIntervalMs);
   }
 
   function ensureTracker({ provider, input, session }) {
@@ -104,6 +104,7 @@ function createAgentTokenLiveModule({
         outputTokensPerSecond: 0,
         timer: null,
         pollPromise: null,
+        persistedUsageSnapshot: null,
         remote: resolved.remote,
         remoteClient: null,
         session
@@ -132,6 +133,19 @@ function createAgentTokenLiveModule({
     return eventSource === "clear";
   }
 
+  function persistCopilotUsage(tracker, result) {
+    if (tracker.provider !== "copilot" || !result) return;
+    const snapshot = JSON.stringify({
+      agentSessionId: result.agentSessionId || tracker.agentSessionId,
+      tokens: cloneTokens(result.tokens),
+      models: [...result.models].sort(),
+      capabilities: normalizeCapabilityUsage(result.capabilities)
+    });
+    if (snapshot === tracker.persistedUsageSnapshot) return;
+    onUsage({ tracker, result });
+    tracker.persistedUsageSnapshot = snapshot;
+  }
+
   async function poll(tracker, { emitChanged = true } = {}) {
     if (tracker.disposed) return null;
     if (tracker.pollPromise) return tracker.pollPromise;
@@ -146,7 +160,7 @@ function createAgentTokenLiveModule({
           tracker.rawTokens = cloneTokens(result.tokens);
           tracker.rawCapabilities = normalizeCapabilityUsage(result.capabilities);
           tracker.models = result.models;
-          if (tracker.provider === "copilot") onUsage({ tracker, result });
+          persistCopilotUsage(tracker, result);
           if (!tracker.sessionBaselineInitialized) initializeSessionBaseline(tracker, result.tokens, result.capabilities);
           if (tracker.state === "generating" && tracker.turnStartedAt) updateOutputRate(tracker, now);
           tracker.updatedAt = now();
@@ -192,7 +206,7 @@ function createAgentTokenLiveModule({
       tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
       tracker.rawCapabilities = normalizeCapabilityUsage(result?.capabilities || tracker.rawCapabilities);
       tracker.models = result?.models || tracker.models;
-      if (tracker.provider === "copilot") onUsage({ tracker, result });
+      persistCopilotUsage(tracker, result);
     }
     tracker.conversationActive = false;
     completeTurn(tracker, now);

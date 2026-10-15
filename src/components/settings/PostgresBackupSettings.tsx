@@ -24,9 +24,19 @@ export function PostgresBackupSettings() {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  function updateRuntimeStatus(next: PostgresBackupConfig) {
+    setConfig(current => current ? {
+      ...current,
+      running: next.running,
+      lastSuccessAt: next.lastSuccessAt,
+      lastError: next.lastError,
+      pendingSources: next.pendingSources
+    } : next);
+  }
+
   useEffect(() => {
     void window.postgresBackupApi.getConfig().then(setConfig).catch(error => setResult(String(error)));
-    return window.postgresBackupApi.onChanged(setConfig);
+    return window.postgresBackupApi.onChanged(updateRuntimeStatus);
   }, []);
   async function perform(work: () => Promise<unknown>, success: string) {
     setBusy(true); setResult("");
@@ -86,7 +96,7 @@ export function PostgresBackupSettings() {
       }, tr("设置已保存", "Settings saved"))}>{tr("保存设置", "Save settings")}</button>
       <button className="modal-button" type="button" disabled={busy || !config.enabled} onClick={() => void perform(async () => {
         const next = await window.postgresBackupApi.run();
-        setConfig(next);
+        updateRuntimeStatus(next);
         await loadDevices();
         return next.lastError ? tr("部分备份失败，请查看错误", "Part of the backup failed; see the error")
           : next.pendingSources.length ? tr("备份完成，部分远程来源待同步", "Backup complete; some remote sources are pending")

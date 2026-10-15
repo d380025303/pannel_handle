@@ -317,7 +317,7 @@ function createAgentTokenStatsService({
     if (!conversationSupported(provider, session)) return null;
     let state = conversations.get(panelSessionId);
     if (!state || state.provider !== provider) {
-      state = { provider, parser: createAgentConversationTranscriptParser(provider) };
+      state = { provider, parser: createAgentConversationTranscriptParser(provider, { includeUser: provider === "gemini" }) };
       conversations.set(panelSessionId, state);
     }
     return state;
@@ -325,15 +325,17 @@ function createAgentTokenStatsService({
 
   function resetConversation(tracker) {
     const state = conversations.get(tracker.panelSessionId);
-    if (state) state.parser = createAgentConversationTranscriptParser(state.provider);
+    if (state) state.parser = createAgentConversationTranscriptParser(state.provider, { includeUser: state.provider === "gemini" });
   }
 
   function consumeConversationLine(tracker, line) {
     if (tracker.disposed) return;
     const state = ensureConversation(tracker.panelSessionId, tracker.provider, tracker.session);
     if (!state) return;
-    const messages = state.parser.pushLine(line);
-    if (tracker.conversationActive && messages.length) conversationSink?.appendMessages?.(tracker.panelSessionId, messages);
+    const { messages, replace } = state.parser.pushUpdate(line);
+    if (!tracker.conversationActive) return;
+    if (replace) conversationSink?.replaceMessages?.(tracker.panelSessionId, messages);
+    else if (messages.length) conversationSink?.appendMessages?.(tracker.panelSessionId, messages);
   }
 
   function persistLiveUsage({ tracker, input, tokens, models, result }) {

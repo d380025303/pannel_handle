@@ -1,4 +1,5 @@
 const { parseVersion, isNewer } = require("./codex-app-server/version-service.cjs");
+const { sameInstallation } = require("./cli-version-installation.cjs");
 const { createUpdateProgress } = require("./cli-version-progress.cjs");
 
 // Each provider service owns its environment keys, probes, installation and messages.
@@ -41,13 +42,13 @@ function createCliVersionService({ target, probe, latestVersion, install, messag
     revisions.set(value.key, (revisions.get(value.key) || 0) + 1);
     try {
       const before = await probe(value);
-      if (before.commandPath !== cached.state.commandPath || before.currentVersion !== cached.state.currentVersion || before.method !== cached.state.method)
+      if (!sameInstallation(before, cached.state, value.platform) || before.currentVersion !== cached.state.currentVersion)
         throw new Error(messages.installationChanged);
       updateProgress.setStage("installing");
       await install(value, updateProgress.append);
       updateProgress.setStage("verifying");
       const after = await probe(value);
-      if (after.commandPath !== before.commandPath || after.method !== "npm" || !isNewer(parseVersion(before.currentVersion), parseVersion(after.currentVersion)))
+      if (!sameInstallation(before, after, value.platform) || !isNewer(parseVersion(before.currentVersion), parseVersion(after.currentVersion)))
         throw new Error(messages.verificationFailed);
       const state = { status: isNewer(parseVersion(after.currentVersion), parseVersion(cached.state.latestVersion)) ? "available" : "current",
         ...after, latestVersion: cached.state.latestVersion, environment: value.key, restartRequired: true };

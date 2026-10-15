@@ -322,6 +322,29 @@ describe("mcp-config-service", () => {
     expect(getWorkspaceCwd).toHaveBeenCalledWith(session.id);
   });
 
+  it("reads and saves SSH local CodeBuddy private MCP under the local workspace key", () => {
+    const { homeDir, projectDirectory } = setup();
+    const session = { id: "ssh-local", type: "ssh", agentLocation: "local", agentProvider: "codebuddy", cwd: "/srv/remote-project" };
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => projectDirectory } });
+    const target = { provider: "codebuddy", scope: "project-local", sessionId: session.id };
+    const first = service.list(target);
+    const filePath = path.join(homeDir, ".codebuddy.json");
+    expect(first.path).toBe(filePath);
+    expect(first.projectDirectory).toBe(projectDirectory);
+    const saved = service.save({ ...target, expectedVersion: first.version, draft: stdioDraft("local-tools") });
+    expect(saved.status).toBe("saved");
+    expect(saved.document.path).toBe(filePath);
+    expect(service.list(target).servers[0]).toMatchObject({ name: "local-tools", command: "npx" });
+    const config = JSON.parse(readFileSync(filePath, "utf-8"));
+    const keys = Object.keys(config.projects);
+    expect(keys).toHaveLength(1);
+    expect(keys[0].toLowerCase()).toBe(path.resolve(projectDirectory).toLowerCase());
+    expect(config.projects[keys[0]].mcpServers["local-tools"].command).toBe("npx");
+    expect(existsSync(path.join(projectDirectory, ".mcp.json"))).toBe(false);
+  });
+
   it.each(["codebuddy", "opencode"])("lists, saves and removes SSH local %s project MCP in its routed workspace", (provider) => {
     const { root, homeDir } = setup();
     const sessions = new Map();

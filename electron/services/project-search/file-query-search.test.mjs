@@ -6,6 +6,30 @@ import path from "node:path";
 import { createProjectSearchService } from "./project-search-service.cjs";
 
 describe("file regex worker isolation", () => {
+  it.each(["searchFiles", "searchWorkspaceEntries"])("matches Unicode whole words in %s", async (method) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-file-unicode-"));
+    try {
+      const filenames = ["中文.txt", "中文说明.txt", "a中文b.txt", "foo中文.txt"];
+      for (const name of filenames) {
+        fs.writeFileSync(path.join(dir, name), "");
+      }
+      const service = createProjectSearchService({
+        terminalManager: { getSession: () => ({ type: "windows", cwd: dir }) }
+      });
+      for (const regex of [false, true]) {
+        const fooResult = await service[method]("run-1", "foo", undefined, { regex, wholeWord: true });
+        expect(fooResult.results).toEqual([]);
+        for (const wholeWord of [true, false]) {
+          const result = await service[method]("run-1", "中文", undefined, { regex, wholeWord });
+          expect(result.results.map((entry) => entry.name).sort())
+            .toEqual(wholeWord ? ["中文.txt"] : [...filenames].sort());
+        }
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it.each(["searchFiles", "searchWorkspaceEntries"])("applies whole-word and case options together in %s", async (method) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-file-options-"));
     try {
@@ -29,7 +53,9 @@ describe("file regex worker isolation", () => {
       }
       expect(await names("foo|bar", { regex: true, wholeWord: true, caseSensitive: true }))
         .toEqual(["bar.txt", "foo+.txt", "foo.txt"]);
-      expect(await names("foo.", { wholeWord: true, caseSensitive: true })).toEqual(["foo.txt"]);
+      // The extension continues the word after the literal dot.
+      expect(await names("foo.", { wholeWord: true, caseSensitive: true })).toEqual([]);
+      expect(await names("foo.txt", { wholeWord: true, caseSensitive: true })).toEqual(["foo.txt"]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

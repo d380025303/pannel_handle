@@ -216,7 +216,39 @@ describe("session-store", () => {
     expect([readFileSync(sessionsFile, "utf8"), readFileSync(templatesFile, "utf8")]).toEqual(before);
   });
 
-  it.each([500, 1000])("prunes %i template summaries with one SQLite write and no repeat write", (count) => {
+  it("returns the full library after usage expires even when writes fail with ENOSPC", () => {
+    const sessionsFile = createTempSessionsFile();
+    let currentTime = 2_000_000_000_000;
+    const timestamp = currentTime - DEFAULT_WINDOW_MS;
+    let persisted = { "1": [timestamp] };
+    const failure = Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn(() => { throw failure; })
+    };
+    const usage = createTemplateUsageStore({ usageFile: "template-usage.json", dataStore, now: () => currentTime });
+    usage.load();
+    const store = createStore(sessionsFile, createSafeStorageMock(), usage);
+    store.importLibrary([{ title: "Used", type: "windows" }, { title: "Unused", type: "windows" }]);
+    const before = store.getLibrary();
+    expect(before[0]).toMatchObject({ recentLaunchCount: 1, lastLaunchedAt: timestamp });
+
+    currentTime++;
+    expect(store.getLibrary()).toEqual(before.map(template => ({
+      ...template, recentLaunchCount: 0, lastLaunchedAt: undefined
+    })));
+    expect(dataStore.write).not.toHaveBeenCalled();
+    expect(persisted).toEqual({ "1": [timestamp] });
+    expect(() => usage.record("1")).toThrow(expect.objectContaining({ code: "ENOSPC", cause: failure }));
+    expect(usage.getSummary("1").recentLaunchCount).toBe(0);
+
+    dataStore.write.mockImplementation((_file, value) => { persisted = structuredClone(value); });
+    usage.record("1");
+    expect(persisted).toEqual({ "1": [currentTime] });
+    expect(store.getLibrary()[0]).toMatchObject({ recentLaunchCount: 1, lastLaunchedAt: currentTime });
+  });
+
+  it.each([500, 1000])("filters %i template summaries without SQLite writes", (count) => {
     const sessionsFile = createTempSessionsFile();
     const usageFile = path.join(path.dirname(sessionsFile), "template-usage.json");
     let inserts = 0;
@@ -258,14 +290,14 @@ describe("session-store", () => {
 
       expect(library).toHaveLength(count);
       expect(library.every(template => template.recentLaunchCount === 1 && template.lastLaunchedAt === recent)).toBe(true);
-      expect(write).toHaveBeenCalledTimes(1);
-      expect(transactions).toBe(1);
-      expect(inserts).toBe(count);
-      expect(dataStore.read(usageFile)).toEqual(Object.fromEntries(templates.map(template => [template.id, [recent]])));
+      expect(write).not.toHaveBeenCalled();
+      expect(transactions).toBe(0);
+      expect(inserts).toBe(0);
+      expect(dataStore.read(usageFile)).toEqual(Object.fromEntries(templates.map(template => [template.id, [old, recent]])));
       expect(store.getLibrary()).toEqual(library);
-      expect(write).toHaveBeenCalledTimes(1);
-      expect(transactions).toBe(1);
-      expect(inserts).toBe(count);
+      expect(write).not.toHaveBeenCalled();
+      expect(transactions).toBe(0);
+      expect(inserts).toBe(0);
     } finally {
       dataStore.close();
     }

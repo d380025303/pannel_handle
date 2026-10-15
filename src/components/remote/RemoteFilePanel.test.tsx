@@ -414,6 +414,46 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.getByPlaceholderText("新建文件夹")).toBeTruthy();
   });
 
+  it.each(["file", "directory"] as const)("copies a single selected %s name with Ctrl+C", async (type) => {
+    const api = createRemoteFileApi();
+    const name = type === "file" ? "example.txt" : "examples";
+    const path = `${rootPath}\\${name}`;
+    api.list = vi.fn(async () => [{ name, path, type, size: 0, modifiedAt: 0 }]);
+    window.remoteFileApi = api;
+    const writeText = vi.fn(async () => true);
+    window.clipboardApi = { writeText } as unknown as ClipboardApi;
+    const session = { id: "copy-name", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    const { container } = render(<RemoteFilePanel session={session} />);
+    const row = (await screen.findByTitle(path)).closest("button")!;
+    fireEvent.keyDown(row, { key: "c", ctrlKey: true });
+    expect(writeText).not.toHaveBeenCalled();
+    fireEvent.click(row);
+    const input = container.querySelector(".remote-file-path input")!;
+    fireEvent.keyDown(input, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(row, { key: "c", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(row, { key: "c", ctrlKey: true, altKey: true });
+    expect(writeText).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(row, { key: "C", ctrlKey: true })).toBe(false);
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(name);
+  });
+
+  it("does not copy names when a parent and its child are both selected", async () => {
+    window.remoteFileApi = createRemoteFileApi();
+    const writeText = vi.fn(async () => true);
+    window.clipboardApi = { writeText } as unknown as ClipboardApi;
+    const session = { id: "copy-multiple", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
+    const parent = (await screen.findByTitle(childPath)).closest("button")!;
+    fireEvent.doubleClick(parent);
+    const child = (await screen.findByTitle(`${childPath}\\01_SCHEMA`)).closest("button")!;
+    fireEvent.click(parent);
+    fireEvent.click(child, { ctrlKey: true });
+    expect(parent.getAttribute("aria-selected")).toBe("true");
+    expect(child.getAttribute("aria-selected")).toBe("true");
+    expect(fireEvent.keyDown(child, { key: "c", ctrlKey: true })).toBe(true);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("copies the selected entry name from the context menu", async () => {
     window.remoteFileApi = createRemoteFileApi();
     const writeText = vi.fn(async () => true);

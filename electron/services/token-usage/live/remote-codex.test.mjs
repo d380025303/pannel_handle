@@ -43,13 +43,18 @@ function harness({ realTransport = false } = {}) {
     : { createReusableCommandClient: vi.fn(() => client) };
   const service = liveModule.createAgentTokenLiveModule({ sshAgentTransport: transport, emitSnapshot,
     setIntervalFn: callback => { callbacks.push(callback); return callback; }, clearIntervalFn: vi.fn() });
-  const event = eventName => service.handleEvent({ provider: "codex", eventName,
-    session: { id: "panel", type: "ssh", agentLocation: "remote" },
-    input: { session_id: "agent", transcript_path: "/remote/codex.jsonl" } });
+  let tracker;
+  const event = eventName => {
+    const result = service.handleEvent({ provider: "codex", eventName,
+      session: { id: "panel", type: "ssh", agentLocation: "remote" },
+      input: { session_id: "agent", transcript_path: "/remote/codex.jsonl" } });
+    tracker = result?.tracker;
+    return result;
+  };
   return { service, event, client, transport, runtime, emitSnapshot,
     append: value => { content += value; }, truncate: value => { content = value; },
     fail: value => { failure = value; }, block: value => { pending = value; },
-    tick: async () => { callbacks.at(-1)(); await settle(); }, callbacks,
+    tick: async () => { callbacks.at(-1)(); await tracker?.pollPromise; await settle(); }, callbacks,
     snapshot: () => service.getSnapshot("panel") };
 }
 
@@ -58,10 +63,10 @@ describe("remote Codex live tokens", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const h = harness({ realTransport: true });
     try {
-      h.event("UserPromptSubmit"); await settle();
+      await h.event("UserPromptSubmit").tracker.pollPromise; await settle();
       h.block(new Promise(() => {}));
-      await h.tick();
-      await h.tick();
+      h.callbacks.at(-1)(); await settle();
+      h.callbacks.at(-1)(); await settle();
       expect(h.client.exec).toHaveBeenCalledTimes(2);
       await vi.advanceTimersByTimeAsync(10000);
       expect(h.snapshot().state).toBe("unavailable");
@@ -78,8 +83,8 @@ describe("remote Codex live tokens", () => {
 
   it("streams deltas before Stop, preserves baselines across turns and ignores completion fallback", async () => {
     const h = harness();
-    h.event("SessionStart"); await settle();
-    h.event("UserPromptSubmit"); await settle();
+    await h.event("SessionStart").tracker.pollPromise; await settle();
+    await h.event("UserPromptSubmit").tracker.pollPromise; await settle();
     h.append(line(130, 25)); await h.tick();
     expect(h.snapshot()).toMatchObject({ state: "generating", tokens: { totalTokens: 35 }, turnOutputTokens: 5 });
     await h.tick();
@@ -96,7 +101,7 @@ describe("remote Codex live tokens", () => {
     h.service.setCompletedSnapshot("panel", { provider: "codex", tokens: { totalTokens: 999 }, models: [] });
     expect(h.snapshot()).toEqual(final);
     expect(h.emitSnapshot.mock.calls.at(-1)[0]).toEqual(final);
-    h.event("UserPromptSubmit"); await settle();
+    await h.event("UserPromptSubmit").tracker.pollPromise; await settle();
     h.append(line(160, 45)); await h.tick();
     expect(h.snapshot()).toMatchObject({ tokens: { totalTokens: 85 }, turnOutputTokens: 5 });
     h.service.shutdown();
@@ -104,7 +109,7 @@ describe("remote Codex live tokens", () => {
 
   it("recovers after SSH failure and transcript truncation", async () => {
     const h = harness();
-    h.event("UserPromptSubmit"); await settle();
+    await h.event("UserPromptSubmit").tracker.pollPromise; await settle();
     h.fail(true); await h.tick();
     expect(h.snapshot().state).toBe("unavailable");
     h.fail(false); h.append(line(130, 30)); await h.tick();

@@ -58,7 +58,11 @@ function harness(provider) {
     truncate: value => { bytes = Buffer.from(value); },
     disconnect: () => { fail = true; },
     hold: () => { let release; gate = new Promise(resolve => { release = resolve; }); return release; },
-    tick: async () => { for (const callback of intervals) callback(); await new Promise(resolve => setImmediate(resolve)); },
+    tick: async (wait = true) => {
+      const requests = [...intervals].map(callback => callback());
+      if (wait) await Promise.all(requests);
+      await new Promise(resolve => setImmediate(resolve));
+    },
     messages: () => manager.getSnapshot().turn?.messages || [],
     start: async () => {
       hook("SessionStart");
@@ -127,7 +131,7 @@ describe.each(["codex", "codebuddy"])("remote %s conversation", provider => {
     await h.start();
     const release = h.hold();
     h.append(message(provider, "late", "不应出现"));
-    await h.tick();
+    await h.tick(false);
     if (action === "end") h.service.markEnded("remote");
     else h.service.shutdown();
     const count = h.broadcasts.length;
@@ -144,7 +148,7 @@ describe.each(["codex", "codebuddy"])("remote %s conversation", provider => {
     try {
       await h.start();
       const release = h.hold();
-      await h.tick();
+      await h.tick(false);
       h.append(message(provider, "last", "停止前写入"));
       h.hook("Stop");
       release();

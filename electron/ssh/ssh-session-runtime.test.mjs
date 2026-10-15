@@ -49,6 +49,35 @@ function createKnownHostStoreForTest() {
 }
 
 describe("ssh-session-runtime", () => {
+  it.each([undefined, "", "input\n"])("rejects channel errors and clears timers with stdin %s", async stdin => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const client = createClient();
+      const channelError = new Error("SSH channel failed");
+      const stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      stream.end = vi.fn();
+      client.exec = vi.fn((_command, callback) => {
+        callback(undefined, stream);
+        queueMicrotask(() => stream.emit("error", channelError));
+      });
+      const runtime = createRuntime({ type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
+
+      await expect(runtime.exec("run-1", "uname -s", stdin === undefined ? {} : { stdin }))
+        .rejects.toBe(channelError);
+      expect(client.end).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+      if (stdin === undefined) expect(stream.end).not.toHaveBeenCalled();
+      else expect(stream.end).toHaveBeenCalledWith(stdin);
+
+      stream.emit("close", 0);
+      await vi.runAllTimersAsync();
+      expect(client.end).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([undefined, null, "0", NaN, 0.5])("rejects missing or invalid exit status %s and closes the client", async code => {
     const client = createClient();
     client.exec = vi.fn((_command, callback) => {

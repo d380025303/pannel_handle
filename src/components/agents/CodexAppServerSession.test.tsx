@@ -254,11 +254,15 @@ describe("CodexAppServerSession", () => {
     expect(sessionRefs.has("run-1")).toBe(false);
   });
 
-  it("scrolls a graphical conversation to the bottom when switching back to it", async () => {
+  it.each([
+    { completed: false, top: 100 },
+    { completed: true, top: 100 },
+    { completed: true, top: 0 }
+  ])("restores graphical scroll only for completed sessions ($completed, $top)", async ({ completed, top }) => {
     const sessions = ["run-1", "run-2"].map(id => ({ id, type: "windows", runtimeMode: "app-server", agentProvider: "codex" } as TerminalSession));
     const sessionRefs = new Map<string, CodexAppServerSessionHandle>();
-    const panels = (activeId: string) => sessions.map(session => <GraphicalSessionPanel key={session.id} session={session}
-      isActive={session.id === activeId} draft="" draftReferences={[]} onDraftChange={vi.fn()}
+    const panels = (activeId: string, isCompleted = completed) => sessions.map(session => <GraphicalSessionPanel key={session.id} session={session}
+      isActive={session.id === activeId} isCompleted={isCompleted} draft="" draftReferences={[]} onDraftChange={vi.fn()}
       onDraftReferencesChange={vi.fn()} onLinkClick={vi.fn()} sessionRefs={sessionRefs} />);
 
     const { container, rerender } = render(<>{panels("run-1")}</>);
@@ -267,17 +271,39 @@ describe("CodexAppServerSession", () => {
     Object.defineProperty(messages[0], "scrollHeight", { configurable: true, value: 600 });
     Object.defineProperty(messages[1], "scrollHeight", { configurable: true, value: 800 });
 
-    messages[0].scrollTop = 100;
+    messages[0].scrollTop = top;
     fireEvent.scroll(messages[0]);
     rerender(<>{panels("run-2")}</>);
     expect(messages[1].scrollTop).toBe(800);
-    expect(messages[0].scrollTop).toBe(100);
+    expect(messages[0].scrollTop).toBe(top);
 
     messages[1].scrollTop = 200;
     fireEvent.scroll(messages[1]);
     rerender(<>{panels("run-1")}</>);
-    expect(messages[0].scrollTop).toBe(600);
+    expect(messages[0].scrollTop).toBe(completed ? top : 600);
     expect(messages[1].scrollTop).toBe(200);
+
+    rerender(<>{panels("run-2")}</>);
+    expect(messages[1].scrollTop).toBe(completed ? 200 : 800);
+    // Hidden scroll events must not overwrite the saved reading position.
+    messages[0].scrollTop = 0;
+    fireEvent.scroll(messages[0]);
+    rerender(<>{panels("run-1")}</>);
+    expect(messages[0].scrollTop).toBe(completed ? top : 600);
+
+    // Starting another turn invalidates the previous completion's position.
+    rerender(<>{panels("run-1", false)}</>);
+    rerender(<>{panels("run-2", false)}</>);
+    rerender(<>{panels("run-1", true)}</>);
+    expect(messages[0].scrollTop).toBe(600);
+
+    messages[0].scrollTop = 70;
+    fireEvent.scroll(messages[0]);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "another-thread", mode: "default", busy: false,
+      error: null, approvals: [], items: [{ id: "new-thread-message", type: "agentMessage", text: "另一段对话" }] } }));
+    rerender(<>{panels("run-2", true)}</>);
+    rerender(<>{panels("run-1", true)}</>);
+    expect(messages[0].scrollTop).toBe(600);
   });
 
   it.each([

@@ -306,7 +306,7 @@ describe("git command routing", () => {
     await service.discardWorkingTree(target, { path: "src/App.tsx", status: "M", indexStatus: "M" }, "discard-1");
     await service.discardWorkingTree(target, { path: "scratch.txt", status: "?", indexStatus: "?" }, "discard-2");
     expect(spawn.calls.map((call) => call.args)).toEqual([
-      ["diff", "--cached", "--no-color", "--find-renames", "--", ":(literal)src/App.tsx"],
+      ["diff", "--cached", "--no-ext-diff", "--no-color", "--find-renames", "--", ":(literal)src/App.tsx"],
       ["stash", "apply", "--index", "stash@{0}"],
       ["stash", "pop", "--index", "stash@{1}"],
       ["restore", "--worktree", "--", ":(literal)src/App.tsx"],
@@ -325,6 +325,33 @@ describe("git command routing", () => {
     await expect(service.discardWorkingTree(target, { path: "../secret" }, "bad-path")).rejects.toThrow("repository-relative path");
     for (const invalidPath of [undefined, null, 123, {}, "", "a\0.txt", "/absolute.txt", "C:\\absolute.txt", "dir/../secret", "dir\\..\\secret"]) {
       await expect(service.discardWorkingTree(target, { path: invalidPath }, "bad-path")).rejects.toThrow("repository-relative path");
+    }
+  });
+
+  it.each(["windows", "wsl", "ssh"])("uses %s path semantics for repository file operations", async (type) => {
+    const spawn = createSpawnMock();
+    const runGit = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
+    const session = { id: type, type, cwd: type === "windows" ? "C:\\work\\repo" : "/work/repo", wslDistro: "Ubuntu" };
+    const service = createGitService({ terminalManager: createTerminalManager(session), sessionStore: {}, spawn, sshGitExecutor: { runGit } });
+    const target = repositoryTarget(type, session.cwd);
+    const lastArgs = () => type === "ssh" ? runGit.mock.calls.at(-1)[2] : spawn.calls.at(-1).args;
+    for (const repoPath of ["a\\b.txt", "dir\\..\\name.txt"]) {
+      if (type === "windows" && repoPath.includes("..")) {
+        await expect(service.discardWorkingTree(target, { path: repoPath, status: "?" }, "unsafe")).rejects.toThrow("repository-relative path");
+        continue;
+      }
+      const expected = `:(literal)${type === "windows" ? repoPath.replace(/\\/g, "/") : repoPath}`;
+      await service.stageFiles(target, [repoPath], "stage-path");
+      expect(lastArgs().at(-1)).toBe(expected);
+      await service.unstageFiles(target, [repoPath], "unstage-path");
+      expect(lastArgs().at(-1)).toBe(expected);
+      await service.getDiff(target, { scope: "staged", path: repoPath, oldPath: repoPath });
+      expect(lastArgs().slice(-2)).toEqual([expected, expected]);
+      await service.discardWorkingTree(target, { path: repoPath, status: "?" }, "discard-path");
+      expect(lastArgs().slice(-4)).toEqual(["clean", "-f", "--", expected]);
+    }
+    for (const repoPath of ["/absolute", "../secret", "dir/../secret"]) {
+      await expect(service.discardWorkingTree(target, { path: repoPath }, "unsafe")).rejects.toThrow("repository-relative path");
     }
   });
 
@@ -350,6 +377,70 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it("previews resolved merge commits against the first parent and preserves root and ordinary commits", async () => {
+    const { directory, session, service } = createRepository();
+    const target = repositoryTarget(session.id, directory);
+    git(directory, "config", "core.autocrlf", "false");
+    const file = path.join(directory, "conflict.txt");
+    fs.writeFileSync(file, "base\n");
+    git(directory, "add", ".");
+    git(directory, "commit", "-m", "Base");
+    const root = git(directory, "rev-parse", "HEAD");
+    git(directory, "checkout", "-b", "side");
+    fs.writeFileSync(file, "side\n");
+    git(directory, "commit", "-am", "Side");
+    git(directory, "checkout", "-b", "main-resolution", root);
+    fs.writeFileSync(file, "main\n");
+    git(directory, "commit", "-am", "Main");
+    const ordinary = git(directory, "rev-parse", "HEAD");
+    expect(() => git(directory, "merge", "side")).toThrow();
+    fs.writeFileSync(file, "resolved\n");
+    git(directory, "add", ".");
+    git(directory, "commit", "-m", "Resolve merge");
+    const merge = git(directory, "rev-parse", "HEAD");
+    expect(git(directory, "show", "--format=", merge)).toContain("++resolved");
+    for (const repoPath of [undefined, "conflict.txt"]) {
+      for (const [revision, oldText, newText, type] of [
+        [root, "", "base", "add"],
+        [ordinary, "base", "main", "modify"],
+        [merge, "main", "resolved", "modify"]
+      ]) {
+        const diff = await service.getDiff(target, { scope: "commit", revision, path: repoPath });
+        expect(diff).toMatchObject({ kind: "text", truncated: false, rows: [
+          { type, newText, newLineNumber: 1, ...(type === "add" ? {} : { oldText, oldLineNumber: 1 }) }
+        ] });
+      }
+    }
+    service.shutdown();
+  }, 15000);
+
+  it("previews working, staged and combined changes without invoking diff.external", async () => {
+    const { directory, session, service } = createRepository();
+    const target = repositoryTarget(session.id, directory);
+    const file = path.join(directory, "tracked.txt");
+    fs.writeFileSync(file, "before\n");
+    git(directory, "add", "tracked.txt");
+    git(directory, "commit", "-m", "Base");
+    const marker = path.join(directory, "external-diff-invoked");
+    fs.writeFileSync(path.join(directory, "external-diff.cjs"),
+      'require("node:fs").writeFileSync(require("node:path").join(__dirname, "external-diff-invoked"), "invoked");\n');
+    git(directory, "config", "diff.external", 'node ./external-diff.cjs');
+    fs.writeFileSync(file, "after\n");
+    // Confirm the configured external tool really runs for an ordinary Git diff.
+    git(directory, "diff", "--", "tracked.txt");
+    expect(fs.existsSync(marker)).toBe(true);
+    fs.unlinkSync(marker);
+    for (const scope of ["working", "combined", "staged"]) {
+      if (scope === "staged") git(directory, "add", "tracked.txt");
+      const diff = await service.getDiff(target, { scope, path: "tracked.txt" });
+      expect(diff.rows).toEqual([
+        { type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "before", newText: "after" }
+      ]);
+      expect(fs.existsSync(marker)).toBe(false);
+    }
+    service.shutdown();
+  });
+
   it.each(["asset.bin", "z-asset.bin"])("previews mixed commits with binary file %s and preserves binary-only previews", async (binaryName) => {
     const { directory, session, service } = createRepository();
     const target = repositoryTarget(session.id, directory);

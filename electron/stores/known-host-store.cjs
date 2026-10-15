@@ -15,11 +15,13 @@ function createKnownHostStore({ knownHostsFile, dataStore }) {
     }
   }
 
-  function saveKnownHosts() {
+  function saveKnownHosts(records = knownHosts) {
     try {
-      writeJson(dataStore, knownHostsFile, knownHosts);
+      writeJson(dataStore, knownHostsFile, records);
+      return { saved: true };
     } catch (err) {
       console.error("Failed to save known SSH hosts:", err);
+      return { saved: false, error: `Failed to save SSH host fingerprint: ${err.message || String(err)}` };
     }
   }
 
@@ -38,13 +40,20 @@ function createKnownHostStore({ knownHostsFile, dataStore }) {
     const now = Date.now();
 
     if (!existing) {
-      knownHosts[hostKey] = {
-        algorithm,
-        fingerprint,
-        firstSeenAt: now,
-        lastSeenAt: now
+      const candidate = {
+        ...knownHosts,
+        [hostKey]: {
+          algorithm,
+          fingerprint,
+          firstSeenAt: now,
+          lastSeenAt: now
+        }
       };
-      saveKnownHosts();
+      const result = saveKnownHosts(candidate);
+      if (!result.saved) {
+        return { accepted: false, fingerprint, error: result.error };
+      }
+      knownHosts = candidate;
       return { accepted: true, trustedFirstUse: true, fingerprint };
     }
 

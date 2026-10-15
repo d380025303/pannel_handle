@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { Worker } = require("node:worker_threads");
 const {
   createIncrementalTranscriptParser,
   getCodeBuddySubagentsDir
@@ -81,9 +82,32 @@ function createTranscriptSource({
 
   function closeRemoteClient(tracker) {
     if (!tracker?.remote) return;
+    tracker.cancelRemoteDecode?.();
     const client = tracker.remoteClient;
     tracker.remoteClient = null;
     try { client?.close?.(); } catch { /* Ignore SSH cleanup failures. */ }
+  }
+
+  function decodeRemoteDelta(tracker, output) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(path.join(__dirname, "remote-delta-worker.cjs"), {
+        workerData: { output, provider: tracker.provider }
+      });
+      let settled = false;
+      const finish = (error, result) => {
+        if (settled) return;
+        settled = true;
+        if (tracker.cancelRemoteDecode === cancel) tracker.cancelRemoteDecode = null;
+        void worker.terminate();
+        if (error) reject(error);
+        else resolve(result);
+      };
+      const cancel = () => finish(null, null);
+      tracker.cancelRemoteDecode = cancel;
+      worker.once("message", message => finish(message.error ? new Error(message.error) : null, message.result));
+      worker.once("error", error => finish(error));
+      worker.once("exit", code => finish(new Error(`Remote transcript decoder exited before returning a response (${code}).`)));
+    });
   }
 
   function reset(tracker) {
@@ -180,7 +204,8 @@ function createTranscriptSource({
       throw error;
     }
     if (tracker.disposed) return false;
-    const result = JSON.parse(output);
+    const result = await decodeRemoteDelta(tracker, output);
+    if (tracker.disposed) return false;
     const main = result?.main;
     if (!main || main.path !== tracker.hostPath || !Number.isInteger(main.offset) || !Number.isInteger(main.start)) {
       throw new Error("Remote transcript reader returned an invalid response.");
@@ -189,7 +214,7 @@ function createTranscriptSource({
     if (mainReset) reset(tracker);
     tracker.fileIdentity = main.identity;
     tracker.offset = main.offset;
-    let parsedUsage = await consumeMainBytes(tracker, Buffer.from(String(main.data || ""), "base64"));
+    let parsedUsage = await consumeMainBytes(tracker, Buffer.from(main.data.buffer, main.data.byteOffset, main.data.byteLength));
 
     if (tracker.disposed) return false;
     for (const item of tracker.provider === "codebuddy" && Array.isArray(result.subagents) ? result.subagents : []) {
@@ -208,7 +233,7 @@ function createTranscriptSource({
       reader.fileIdentity = item.identity;
       reader.offset = item.offset;
       const before = tracker.parser.getResult()?.tokens?.totalTokens;
-      await consumeSubagentBytes(tracker, reader, Buffer.from(String(item.data || ""), "base64"));
+      await consumeSubagentBytes(tracker, reader, Buffer.from(item.data.buffer, item.data.byteOffset, item.data.byteLength));
       parsedUsage = tracker.parser.getResult()?.tokens?.totalTokens !== before || parsedUsage;
     }
     return parsedUsage;

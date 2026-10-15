@@ -1,3 +1,4 @@
+const { createGeminiMessageState } = require("./gemini-message-state.cjs");
 const { getGrokChunkText } = require("./grok-chunk-text.cjs");
 
 function getText(content) {
@@ -23,6 +24,8 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
 
   const seenMessageIds = new Set();
   let recordIndex = 0;
+  const geminiState = provider === "gemini" ? createGeminiMessageState() : null;
+  let replacement = false;
 
   function parseCodex(item) {
     if (item?.type === "compacted") {
@@ -111,6 +114,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
   }
 
   function pushLine(line) {
+    replacement = false;
     recordIndex += 1;
     let item;
     try {
@@ -118,31 +122,34 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     } catch {
       return [];
     }
-    if (provider === "gemini" && Array.isArray(item?.$set?.messages)) {
-      const output = [];
-      for (const entry of item.$set.messages) {
-        const message = parseGemini(entry);
-        if (message && !seenMessageIds.has(message.id)) {
-          seenMessageIds.add(message.id);
-          output.push(message);
-        }
-      }
-      return output;
+    if (geminiState) {
+      const operation = geminiState.apply(item);
+      if (!operation) return [];
+      replacement = operation === "replace";
+      return (replacement ? geminiState.getMessages() : [item]).map(parseGemini).filter(Boolean);
     }
-    const message = provider === "codex" ? parseCodex(item) : provider === "gemini" ? parseGemini(item) : provider === "grok" ? parseGrok(item) : parseCodeBuddy(item);
+    const message = provider === "codex" ? parseCodex(item) : provider === "grok" ? parseGrok(item) : parseCodeBuddy(item);
     if (!message || seenMessageIds.has(message.id)) return [];
     seenMessageIds.add(message.id);
     return [message];
   }
 
-  return { pushLine };
+  function pushUpdate(line) {
+    const messages = pushLine(line);
+    return { messages, replace: replacement };
+  }
+
+  return { pushLine, pushUpdate };
 }
 
 function parseAgentConversationText(provider, text, options = {}) {
   const parser = createAgentConversationTranscriptParser(provider, options);
   const messages = [];
   for (const line of String(text || "").split(/\r?\n/)) {
-    if (line.trim()) messages.push(...parser.pushLine(line));
+    if (!line.trim()) continue;
+    const update = parser.pushUpdate(line);
+    if (update.replace) messages.length = 0;
+    messages.push(...update.messages);
   }
   return messages;
 }

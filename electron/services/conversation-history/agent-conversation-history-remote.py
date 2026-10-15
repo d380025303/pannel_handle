@@ -263,6 +263,7 @@ def grok_session_dirs():
 
 def grok_messages(directory):
     messages = {}
+    seen_event_ids = set()
     for item in iter_jsonl(os.path.join(directory, "updates.jsonl")):
         params = item.get("params") or {}
         update = params.get("update") or {}
@@ -274,6 +275,12 @@ def grok_messages(directory):
         if not text:
             continue
         meta = params.get("_meta") or {}
+        event_id = meta.get("eventId")
+        if event_id:
+            event_id = str(event_id)
+            if event_id in seen_event_ids:
+                continue
+            seen_event_ids.add(event_id)
         kind = "user" if update_type == "user_message_chunk" else "reply"
         prompt_id = str(meta.get("promptId") or update.get("prompt_id") or meta.get("eventId") or item.get("timestamp") or len(messages))
         key = f"{prompt_id}:{kind}"

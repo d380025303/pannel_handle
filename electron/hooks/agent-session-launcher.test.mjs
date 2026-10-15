@@ -1516,6 +1516,18 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.launchSession).toHaveBeenLastCalledWith(template, {});
   });
 
+  it("propagates usage persistence errors to the launch caller", async () => {
+    const mocks = createMocks();
+    const failure = new Error("usage persistence failed");
+    mocks.onTemplateLaunched.mockImplementation(() => { throw failure; });
+
+    await expect(mocks.launcher.launchSession(
+      { id: "template-1", type: "windows", cwd: "C:/work" },
+      { recordUsage: true }
+    )).rejects.toBe(failure);
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledTimes(1);
+  });
+
   it("does not record a failed tracked launch", async () => {
     const mocks = createMocks();
     mocks.terminalManager.launchSession.mockImplementationOnce(() => {

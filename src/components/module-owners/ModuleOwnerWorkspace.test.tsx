@@ -213,6 +213,7 @@ it("configures per-owner schedules and selected tools in the task dialog", async
   render(<ModuleOwnerWorkspace visible onOpenSession={() => {}} />);
   fireEvent.click(await screen.findByRole("button", { name: "定时任务 桌面" }));
   fireEvent.click(screen.getByRole("button", { name: "新增定时任务" }));
+  expect((screen.getByLabelText("执行完成后自动关闭实例会话") as HTMLInputElement).checked).toBe(true);
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "巡检" } });
   fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "检查模块" } });
   fireEvent.change(screen.getByLabelText("周期类型"), { target: { value: "interval" } });
@@ -224,7 +225,7 @@ it("configures per-owner schedules and selected tools in the task dialog", async
   expect((screen.getByLabelText("记录到历史记录") as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByLabelText("记录到历史记录"));
   fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
-  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenCalledWith("one", { ownerId: "owner", name: "巡检", prompt: "检查模块", mode: "default", enabled: true, recordHistory: true, autoCreateWorkItem: true,
+  await waitFor(() => expect(ownerApi.saveTask).toHaveBeenCalledWith("one", { ownerId: "owner", name: "巡检", prompt: "检查模块", mode: "default", enabled: true, recordHistory: true, autoCreateWorkItem: true, autoCloseSession: true,
     tools: ["update_module_owner"], schedule: { kind: "interval", minutes: 30, count: 10 } }));
   expect(screen.queryByRole("group", { name: "新增定时任务" })).toBeNull();
 });
@@ -286,7 +287,7 @@ it("preserves a failed task draft during list refresh and returns to the updated
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑定时任务" })).toBeNull());
   expect(screen.getByRole("dialog", { name: "桌面 · 定时任务" })).toBeTruthy();
   expect(screen.getByText("新巡检")).toBeTruthy();
-  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", { id: "task", ownerId: "owner", name: "新巡检", prompt: "检查模块", mode: "plan", enabled: true, recordHistory: false, autoCreateWorkItem: true, tools: ["update_module_owner"], schedule: task.schedule });
+  expect(ownerApi.saveTask).toHaveBeenLastCalledWith("one", { id: "task", ownerId: "owner", name: "新巡检", prompt: "检查模块", mode: "plan", enabled: true, recordHistory: false, autoCreateWorkItem: true, autoCloseSession: false, tools: ["update_module_owner"], schedule: task.schedule });
 });
 
 it("blocks duplicate task saves and dismissals while pending", async () => {
@@ -301,6 +302,7 @@ it("blocks duplicate task saves and dismissals while pending", async () => {
   for (const name of ["list_module_owners", "update_module_owner"]) {
     expect((screen.getByLabelText(name) as HTMLInputElement).checked).toBe(false);
   }
+  expect((screen.getByLabelText("执行完成后自动关闭实例会话") as HTMLInputElement).checked).toBe(true);
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "巡检" } });
   fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "检查模块" } });
   const inner = screen.getByRole("dialog", { name: "新增定时任务" });

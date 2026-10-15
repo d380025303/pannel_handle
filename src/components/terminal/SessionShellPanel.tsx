@@ -81,7 +81,7 @@ export function SessionShellPanel({ sessionId, visible, theme }: Props) {
         return;
       }
       const text = await window.clipboardApi.readText();
-      if (text) window.sessionShellApi.write(sessionId, generation, text);
+      if (text) terminal.paste(text);
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
@@ -89,7 +89,7 @@ export function SessionShellPanel({ sessionId, visible, theme }: Props) {
         void window.clipboardApi.writeText(terminal.getSelection()).then(() => terminal.clearSelection());
       } else {
         void window.clipboardApi.readText().then(text => {
-          if (text && generation) window.sessionShellApi.write(sessionId, generation, text);
+          if (text && generation) terminal.paste(text);
         });
       }
     };

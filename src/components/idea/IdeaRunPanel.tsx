@@ -23,6 +23,7 @@ function ConfigurationCard({
   runOperation: (key: string, operation: () => Promise<unknown>) => void;
 }) {
   const { t, locale } = useI18n();
+  const configurationAvailable = configuration.supportsRun || configuration.supportsDebug;
   const hasActiveInstance = configuration.instances.some((instance) => instance.status !== "terminated");
   const parallelBlocked = hasActiveInstance && !configuration.allowParallel;
   const configBusy = busy.has(`configuration:${bridgeId}:${projectId}:${configuration.id}`);
@@ -57,7 +58,7 @@ function ConfigurationCard({
           >
             <Bug aria-hidden="true" />
           </button>
-          {configuration.instances.length > 1 && (
+          {configurationAvailable && configuration.instances.length > 1 && (
             <button
               type="button"
               className="danger"
@@ -92,7 +93,7 @@ function ConfigurationCard({
                   type="button"
                   title={t("idea.restart")}
                   aria-label={`${t("idea.restart")} ${instance.name}`}
-                  disabled={instanceBusy || instance.status === "stopping"}
+                  disabled={!configurationAvailable || instanceBusy || instance.status === "stopping"}
                   onClick={() => runOperation(`instance:${bridgeId}:${instance.id}`, () => window.ideaBridgeApi.restart(bridgeId, instance.id))}
                 >
                   <RotateCw aria-hidden="true" />

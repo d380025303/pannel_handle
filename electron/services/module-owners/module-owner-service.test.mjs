@@ -11,7 +11,7 @@ const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-route
 const fixtures = [];
 const settings = { mode: "plan", prompt: "分析项目" };
 const fields = { name: "模块 A", responsibilities: "职责 A", directories: ["src"] };
-async function fixture(withHistory = false) {
+async function fixture(withHistory = false, autoCloseOptions = {}) {
   const userData = mkdtempSync(path.join(tmpdir(), "pannel-owner-api-"));
   const templates = [{ id: "one", title: "One", type: "windows", agentProvider: "codex", cwd: "C:\\repo" }, { id: "two", title: "Two", type: "windows", agentProvider: "claude", cwd: "C:\\repo" }];
   const sessions = new Map();
@@ -24,7 +24,7 @@ async function fixture(withHistory = false) {
   const terminalManager = { getSession: id => sessions.get(id) };
   const routedGraphicalService = createGraphicalSessionRouter(graphicalService, {}, terminalManager);
   const owners = createModuleOwnerService({ userData, dataStore, sessionStore: { getTemplate: id => templates.find(value => value.id === id), getLibrary: () => templates },
-    terminalManager, graphicalService: routedGraphicalService, getSessionApi: () => api });
+    terminalManager, graphicalService: routedGraphicalService, getSessionApi: () => api, ...autoCloseOptions });
   let body;
   const instances = { listTemplates: () => ({ templates: [] }), create: vi.fn(async (input, hooks) => {
     body = input;
@@ -37,7 +37,7 @@ async function fixture(withHistory = false) {
   api = createSessionApiService({ userData, instances, moduleOwners: owners, defaultPort: 0 });
   fixtures.push({ api, userData, owners, dataStore });
   await api.configure({ enabled: true });
-  const callback = (tool, args, overrides = {}) => fetch(api.status().url + CALLBACK_PATH, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${body?.toolCallback.bearerToken}` },
+  const callback = (tool, args, overrides = {}, callbackBody = body) => fetch(api.status().url + CALLBACK_PATH, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${callbackBody?.toolCallback.bearerToken}` },
     body: JSON.stringify({ sessionId: "run", threadId: "thread", turnId: "turn", callId: `${Math.random()}`, tool, arguments: args, ...overrides }) });
   return { owners, api, callback, sessions, instances, templates, dataStore, end: event => listener(event), getBody: () => body };
 }
@@ -60,6 +60,39 @@ describe("module owner generation through actual HTTP", () => {
     expect(f.owners.getGeneration("one").status).toBe("completed");
     expect(clone).not.toHaveBeenCalled();
     expect((await f.callback("add_module_owner", fields)).status).toBe(401);
+  });
+  it("continues a plan after idle or interruption, rejecting old and cancelled calls", async () => {
+    const f = await fixture(); await f.owners.generate("one", settings);
+    const state = f.sessions.get("run");
+    Object.assign(state, { busy: false, turnId: null });
+    expect(f.owners.getGeneration("one").status).toBe("completed");
+    Object.assign(state, { busy: true, turnId: "execute-plan" });
+    expect((await f.callback("list_module_owners", {})).status).toBe(401);
+    expect((await f.callback("list_module_owners", {}, { turnId: "execute-plan", callId: "canceled" })).status).toBe(401);
+    expect((await (await f.callback("add_module_owner", fields, { turnId: "execute-plan" })).json()).success).toBe(true);
+    Object.assign(state, { busy: false, turnId: null });
+    f.end({ sessionId: "run", threadId: "thread", turnId: "execute-plan", status: "interrupted", output: "" });
+    Object.assign(state, { busy: true, turnId: "continue" });
+    expect((await (await f.callback("list_module_owners", {}, { turnId: "continue" })).json()).success).toBe(true);
+    state.threadId = "other-thread";
+    expect((await f.callback("list_module_owners", {}, { turnId: "continue" })).status).toBe(401);
+    state.threadId = "thread";
+    expect((await f.callback("list_module_owners", {}, { turnId: "continue" })).status).toBe(401);
+  });
+  it.each(["stop", "shutdown", "unsupported", "missing-template"])("permanently revokes a retained grant: %s", async change => {
+    const f = await fixture(); await f.owners.generate("one", settings);
+    Object.assign(f.sessions.get("run"), { busy: false, turnId: null });
+    f.owners.getGeneration("one");
+    if (change === "stop") { await f.api.stop(); await f.api.configure({ enabled: true }); }
+    if (change === "shutdown") f.owners.shutdown();
+    if (change === "unsupported") f.templates[0].agentProvider = "claude";
+    if (change === "missing-template") f.templates.splice(0, 1);
+    Object.assign(f.sessions.get("run"), { busy: true, turnId: "continue" });
+    expect((await f.callback("list_module_owners", {}, { turnId: "continue" })).status).toBe(401);
+    if (change === "unsupported") {
+      f.templates[0].agentProvider = "codex";
+      expect((await f.callback("list_module_owners", {}, { turnId: "continue" })).status).toBe(401);
+    }
   });
   it("never accesses accumulated history during repeated generation queries", () => {
     const entry = { kind: "owner", ownerId: "owner", before: { responsibilities: "a".repeat(5000) }, after: { responsibilities: "b".repeat(5000) } };
@@ -139,7 +172,7 @@ describe("module owner generation through actual HTTP", () => {
     expect((await f.callback("add_module_owner", { ...fields, name: "late" })).status).toBe(401);
     expect(f.owners.restore("one", { historyId: state.history[0].id, revision: state.revision }).records).toHaveLength(1);
   });
-  it.each(["thread", "turn", "revoke", "close"])("revokes grants when lifecycle changes: %s", async change => {
+  it.each(["thread", "revoke", "close"])("revokes grants when lifecycle changes: %s", async change => {
     const f = await fixture(); await f.owners.generate("one", settings);
     if (change === "thread") f.sessions.get("run").threadId = "new";
     if (change === "turn") f.sessions.get("run").turnId = "next-turn";
@@ -249,6 +282,32 @@ describe("module owner scheduled HTTP sessions", () => {
     const state = f.owners.get("one");
     f.owners.restore("one", { historyId: state.history.at(-1).id, revision: state.revision });
     expect(f.owners.listTasks("one")[0].enabled).toBe(false);
+  });
+  it("retains older task-session grants across later runs and revokes all on task deletion", async () => {
+    const f = await fixture();
+    const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+    f.owners.saveTask("one", { ...scheduled(owner.id), autoCreateWorkItem: false, recordHistory: true });
+    const task = f.owners.listTasks("one")[0];
+    await f.owners.runTask("one", { id: task.id });
+    const firstBody = f.getBody();
+    Object.assign(f.sessions.get("run"), { busy: false, turnId: null });
+    f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "first result" });
+    const history = f.dataStore.listTaskRuns("one", task.id);
+    f.instances.create.mockImplementationOnce(async (body, hooks) => {
+      f.sessions.set("next", { threadId: "next-thread", turnId: null, busy: false, authorized: true });
+      hooks.onSessionCreated({ id: "next" });
+      Object.assign(f.sessions.get("next"), { busy: true, turnId: "next-turn" });
+      hooks.onTaskSubmitted({ id: "next" });
+      return { sessionId: "next", status: "started" };
+    });
+    await f.owners.runTask("one", { id: task.id });
+    Object.assign(f.sessions.get("run"), { busy: true, turnId: "followup" });
+    expect((await (await f.callback("list_module_owners", {}, { turnId: "followup" }, firstBody)).json()).success).toBe(true);
+    expect((await (await f.callback("add_module_owner", fields, { turnId: "followup" }, firstBody)).json()).success).toBe(false);
+    f.end({ sessionId: "run", threadId: "thread", turnId: "followup", status: "completed", output: "must not overwrite" });
+    expect(f.dataStore.listTaskRuns("one", task.id).records.find(row => row.id === history.records[0].id)).toEqual(history.records[0]);
+    f.owners.deleteTask("one", { id: task.id });
+    expect((await f.callback("list_module_owners", {}, { turnId: "followup" }, firstBody)).status).toBe(401);
   });
   it("supports no tools, prevents overlap across multiple tasks and keeps deleted running tasks locked", async () => {
     const f = await fixture();
@@ -500,4 +559,17 @@ it("validates template and arguments before deleting finished history", async ()
   f.dataStore.saveTaskRun({ ...f.owners.getTaskRun("one", query), status: "completed" });
   f.owners.deleteTaskRun("one", query); f.owners.deleteTaskRun("one", query);
   expect(f.owners.listTaskRuns("one", { taskId: "task" }).total).toBe(0);
+});
+
+it.each([true, false])("applies scheduled task auto close to manual execution: %s", async enabled => {
+  const closeSession = vi.fn();
+  const f = await fixture(false, { closeSession, getAgentStatus: () => ({ status: "completed" }) });
+  const owner = f.owners.mutate("one", { operation: "add", ...fields }).records[0];
+  const task = f.owners.saveTask("one", { ...scheduled(owner.id), enabled: false, autoCloseSession: enabled })[0];
+  await f.owners.runTask("one", { id: task.id });
+  Object.assign(f.sessions.get("run"), { id: "run", runtimeMode: "app-server", busy: false, turnId: null, completedTurnId: "turn" });
+  f.end({ sessionId: "run", threadId: "thread", turnId: "turn", status: "completed", output: "done" });
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  expect(closeSession).toHaveBeenCalledTimes(enabled ? 1 : 0);
+  expect(f.owners.workItems.list().total).toBe(1);
 });

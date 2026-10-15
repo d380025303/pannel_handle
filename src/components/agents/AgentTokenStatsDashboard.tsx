@@ -1,5 +1,5 @@
 import { Activity, ArrowLeftRight, BarChart3, ChevronDown, ChevronUp, Gauge, MessageSquare, RefreshCw, Trash2, Wrench } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useAgentTokenStats, type TokenStatsProvider, type TokenStatsRange } from "../../hooks/useAgentTokenStats";
 import type { AgentCapabilityUsage, AgentTokenTotals } from "../../vite-env";
@@ -9,8 +9,8 @@ function formatTokens(value: number, locale: string) {
   return new Intl.NumberFormat(locale, { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
 }
 
-function formatDate(value: number, locale: string) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(value);
+function formatDate(value: number, locale: string, beijing = false) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", ...(beijing ? { timeZone: "Asia/Shanghai" } : {}) }).format(value);
 }
 
 function providerName(provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok") {
@@ -133,6 +133,14 @@ function RankingList({ items, emptyText, nameFor = (name) => name }: { items: Ar
 
 export function AgentTokenStatsDashboard() {
   const { locale, t } = useI18n();
+  const [selectedRange, setSelectedRange] = useState<TokenStatsRange>("30d");
+  const [dates, setDates] = useState(() => {
+    const today = Date.now();
+    const day = (time: number) => new Date(time + 8 * 3600000).toISOString().slice(0, 10);
+    return { startDate: day(today - 29 * 86400000), endDate: day(today) };
+  });
+  const [appliedDates, setAppliedDates] = useState(dates);
+  const [dateError, setDateError] = useState(false);
   const [range, setRange] = useState<TokenStatsRange>("30d");
   const [provider, setProvider] = useState<TokenStatsProvider>("all");
   const [offset, setOffset] = useState(0);
@@ -141,10 +149,15 @@ export function AgentTokenStatsDashboard() {
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState("local");
   const [devices, setDevices] = useState<Array<{ id: string; name: string }>>([]);
-  const { dashboard, loading, error, refresh } = useAgentTokenStats(range, provider, offset, deviceId);
+  const { dashboard, loading, error, refresh } = useAgentTokenStats(range, provider, offset, deviceId, appliedDates);
   useEffect(() => { if (window.postgresBackupApi) void window.postgresBackupApi.listDevices().then(setDevices).catch(() => {}); }, []);
-  useEffect(() => { setOffset(0); setExpandedSessionId(null); }, [deviceId]);
-  useEffect(() => { setOffset(0); setExpandedSessionId(null); }, [provider, range]);
+  const resetPage = () => { setOffset(0); setExpandedSessionId(null); };
+  const applyDates = (event: FormEvent) => {
+    event.preventDefault();
+    if (!dates.startDate || !dates.endDate || dates.startDate > dates.endDate) { setDateError(true); return; }
+    if (range === "custom" && offset === 0 && dates.startDate === appliedDates.startDate && dates.endDate === appliedDates.endDate) void refresh();
+    setDateError(false); setAppliedDates({ ...dates }); setRange("custom"); resetPage();
+  };
   const maxProviderTokens = useMemo(() => Math.max(1, ...(dashboard?.providerBreakdown.map(item => item.tokens.totalTokens) || [])), [dashboard]);
 
   const clearAll = async () => {
@@ -158,14 +171,26 @@ export function AgentTokenStatsDashboard() {
       <header className="token-stats-header">
         <div className="token-stats-heading"><span className="token-stats-title-icon"><BarChart3 aria-hidden="true" /></span><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
-          {devices.length > 0 && <select value={deviceId} onChange={event => setDeviceId(event.target.value)} aria-label={locale === "en-US" ? "Source computer" : "来源电脑"}><option value="local">{locale === "en-US" ? "Local" : "本机"}</option><option value="all">{locale === "en-US" ? "All computers" : "全部电脑"}</option>{devices.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select>}
-          <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>
-          <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="opencode">OpenCode</option><option value="qoder">Qoder</option><option value="copilot">GitHub Copilot</option><option value="gemini">Gemini CLI</option><option value="grok">Grok CLI</option></select>
+          {devices.length > 0 && <select value={deviceId} onChange={event => { setDeviceId(event.target.value); resetPage(); }} aria-label={locale === "en-US" ? "Source computer" : "来源电脑"}><option value="local">{locale === "en-US" ? "Local" : "本机"}</option><option value="all">{locale === "en-US" ? "All computers" : "全部电脑"}</option>{devices.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select>}
+          <select value={selectedRange} onChange={(event) => { const next = event.target.value as TokenStatsRange; setSelectedRange(next); setDateError(false); if (next !== "custom") { setRange(next); resetPage(); } }} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option><option value="custom">{t("tokenStats.customRange")}</option></select>
+          {selectedRange === "custom" && <form className="token-stats-date-filter" onSubmit={applyDates} noValidate>
+            <label>{t("tokenStats.startDate")}<input type="date" value={dates.startDate} aria-invalid={dateError} onChange={event => { const startDate = event.currentTarget.value; setDates(previous => ({ ...previous, startDate })); }} /></label>
+            <label>{t("tokenStats.endDate")}<input type="date" value={dates.endDate} aria-invalid={dateError} onChange={event => { const endDate = event.currentTarget.value; setDates(previous => ({ ...previous, endDate })); }} /></label>
+            <span>{t("tokenStats.beijingTime")}</span>
+            <button type="submit">{t("tokenStats.query")}</button>
+          </form>}
+          <select value={provider} onChange={(event) => { setProvider(event.target.value as TokenStatsProvider); resetPage(); }} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="opencode">OpenCode</option><option value="qoder">Qoder</option><option value="copilot">GitHub Copilot</option><option value="gemini">Gemini CLI</option><option value="grok">Grok CLI</option></select>
           <button className="icon-button" type="button" onClick={() => void refresh()} title={t("common.refresh")} disabled={loading}><RefreshCw className={loading ? "spin" : ""} aria-hidden="true" /></button>
           {deviceId === "local" && <button className={`token-stats-clear${confirmClear ? " confirm" : ""}`} type="button" onClick={() => void clearAll()} onBlur={() => setConfirmClear(false)} disabled={clearing}><Trash2 aria-hidden="true" />{confirmClear ? t("tokenStats.confirmClear") : t("tokenStats.clear")}</button>}
         </div>
       </header>
 
+      {dateError && <p className="token-stats-date-error" role="alert">{t("tokenStats.invalidDates")}</p>}
+      {dashboard?.range === "custom" && <div className="token-stats-date-notes">
+        <p>{dashboard.startDate} — {dashboard.endDate} · {t("tokenStats.beijingTime")}</p>
+        {dashboard.approximate && <p>{t("tokenStats.approximateHistory")}</p>}
+        <p>{t("tokenStats.sessionDateHint")}</p>
+      </div>}
       {error ? <div className="token-stats-error" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>{t("common.retry")}</button></div> : dashboard && (
         <div className="token-stats-content">
           <section className="token-stats-cards">
@@ -192,7 +217,7 @@ export function AgentTokenStatsDashboard() {
             {dashboard.sessions.length === 0 ? <div className="token-stats-empty"><BarChart3 aria-hidden="true" /><strong>{t("tokenStats.noData")}</strong><span>{t("tokenStats.noDataHint")}</span></div> : <div className="token-stats-table-wrap"><table><thead><tr><th>{t("tokenStats.time")}</th><th>{t("tokenStats.provider")}</th><th>{t("tokenStats.session")}</th><th>{t("tokenStats.location")}</th><th>{t("tokenStats.model")}</th><th>{t("tokenStats.tokens")}</th><th>{t("tokenStats.skillCalls")} / {t("tokenStats.mcpCalls")}</th></tr></thead><tbody>{dashboard.sessions.map(record => {
               const expanded = expandedSessionId === record.id;
               return <Fragment key={record.id}>
-                <tr><td>{formatDate(record.updatedAt, locale)}</td><td><span className={`token-provider-pill ${record.provider}`}>{providerName(record.provider)}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><button className="token-capability-toggle" type="button" aria-expanded={expanded} aria-label={t(expanded ? "tokenStats.collapseUsage" : "tokenStats.expandUsage")} onClick={() => setExpandedSessionId(expanded ? null : record.id)}><span>{record.capabilities.skills.availability === "available" ? record.capabilities.skills.totalCalls : "—"} / {record.capabilities.mcp.availability === "available" ? record.capabilities.mcp.totalCalls : "—"}</span>{expanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button></td></tr>
+                <tr><td>{formatDate(record.updatedAt, locale, dashboard.range === "custom")}</td><td><span className={`token-provider-pill ${record.provider}`}>{providerName(record.provider)}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><button className="token-capability-toggle" type="button" aria-expanded={expanded} aria-label={t(expanded ? "tokenStats.collapseUsage" : "tokenStats.expandUsage")} onClick={() => setExpandedSessionId(expanded ? null : record.id)}><span>{record.capabilities.skills.availability === "available" ? record.capabilities.skills.totalCalls : "—"} / {record.capabilities.mcp.availability === "available" ? record.capabilities.mcp.totalCalls : "—"}</span>{expanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button></td></tr>
                 {expanded && <tr className="token-capability-row"><td colSpan={7}><CapabilityDetails capabilities={record.capabilities} /></td></tr>}
               </Fragment>;
             })}</tbody></table></div>}

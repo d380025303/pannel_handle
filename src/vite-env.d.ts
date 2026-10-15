@@ -239,6 +239,7 @@ export type RemoteFileMutationResult = {
 
 export type RemoteTextPreview =
   | { kind: "text"; size: number; content: string; version: string; encoding: "utf-8"; bom: boolean; eol: "lf" | "crlf" | "cr" }
+  | { kind: "unsupported_encoding"; size: number }
   | { kind: "binary"; size: number }
   | { kind: "too_large"; size: number; limit: number };
 
@@ -583,6 +584,7 @@ export type OpenRouterVerificationStage = {
 };
 
 export type OpenRouterConfig = {
+  openCodeSyncError?: string;
   hasApiKey: boolean;
   fetchedAt?: number;
 };
@@ -593,6 +595,7 @@ export type OpenRouterApi = {
   refreshModels: () => Promise<OpenRouterModel[]>;
   saveApiKey: (apiKey: string) => Promise<OpenRouterConfig>;
   clearApiKey: () => Promise<OpenRouterConfig>;
+  syncOpenCodeModels: () => Promise<{ openCodeSyncError?: string }>;
   test: () => Promise<{ ok: true }>;
   verifyModels: (input: { modelIds: string[]; force?: boolean }) => Promise<Array<OpenRouterModelVerification & { modelId: string }>>;
   verifyAgentModels: (input: { agent: "opencode" | "codebuddy"; modelIds: string[]; force?: boolean }) => Promise<Array<{ modelId: string; status: "passed" | "failed" | "unavailable"; checkedAt: number; error?: string }>>;
@@ -956,8 +959,12 @@ export type AgentTokenSessionRecord = {
 };
 
 export type AgentTokenDashboard = {
+  startDate?: string;
+  endDate?: string;
+  timeZone?: "Asia/Shanghai";
+  approximate?: boolean;
   generatedAt: number;
-  range: "7d" | "30d" | "all";
+  range: "7d" | "30d" | "all" | "custom";
   provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
   summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
@@ -984,7 +991,7 @@ export type AgentTokenLiveSnapshot = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all" | "custom"; startDate?: string; endDate?: string; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
@@ -1501,7 +1508,7 @@ export type PostgresBackupApi = {
   testConnection: (input?: Partial<PostgresBackupConfig> & { password?: string }) => Promise<{ ok: boolean; error?: string }>;
   run: () => Promise<PostgresBackupConfig>;
   listDevices: () => Promise<Array<{ id: string; name: string; last_seen_at: string }>>;
-  getDashboard: (options?: { deviceId?: string; range?: "7d" | "30d" | "all"; provider?: string; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { deviceId?: string; range?: "7d" | "30d" | "all" | "custom"; startDate?: string; endDate?: string; provider?: string; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   listSnapshots: (deviceId: string) => Promise<Array<{ id: string; device_id: string; created_at: string; session_count: number }>>;
   restore: (id: string, passphrase?: string) => Promise<{ importedCount: number; sessions: TerminalSession[] }>;
   listConversations: (deviceId: string, offset?: number) => Promise<Array<{ source_key: string; conversation_ref: string; metadata: AgentConversationHistoryItem }>>;
@@ -1929,7 +1936,7 @@ export type ModuleOwnerTaskRun = { id: string; templateId: string; ownerId: stri
   error: string; input: unknown; output: string };
 export type ModuleOwnerPromptTemplate = { id: string; name: string; prompt: string; version: number; createdAt: number; updatedAt: number; referenceCount: number };
 export type ModuleOwnerPromptPublish = { source: Omit<ModuleOwnerPromptTemplate, "referenceCount">; tasks: { templateId: string; templateTitle: string; ownerName: string; taskId: string; taskName: string; prompt: string; fingerprint: string; modified: boolean; appliedVersion?: number; needsUpdate: boolean }[] };
-export type ModuleOwnerTaskInput = { promptTemplateId?: string; id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean; autoCreateWorkItem?: boolean;
+export type ModuleOwnerTaskInput = { promptTemplateId?: string; id?: string; ownerId: string; name: string; prompt: string; mode: "default" | "plan"; enabled: boolean; recordHistory?: boolean; autoCreateWorkItem?: boolean; autoCloseSession?: boolean;
   tools: ("list_module_owners" | "update_module_owner")[];
   schedule: { kind: "cron"; cron: string } | { kind: "interval"; minutes: number; count: number } };
 export type ModuleOwnerTask = ModuleOwnerTaskInput & { id: string; promptTemplateVersion?: number; promptTemplateSnapshot?: string; executedCount: number; nextRunAt: number | null; lastRun?: { status: string; sessionId?: string; error: string; startedAt: number } };

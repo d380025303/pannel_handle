@@ -300,6 +300,30 @@ describe("scheduled replies and manual work items through HTTP", () => {
     expect(attempt.configuration.codexAppServerModel).toBe("new-model");
     expect(JSON.stringify(attempt)).not.toContain(body.toolCallback.bearerToken);
   });
+  it("keeps scoped tools after manual completion and cleanup without duplicating results", async () => {
+    const f = await fixture();
+    const item = await f.source("实施方案", "completed", { tools: ["list_module_owners", "update_module_owner"] });
+    const running = await f.work.execute({ id: item.id, version: item.version });
+    const body = f.instances.create.mock.calls.at(-1)[0];
+    f.end(running.sessionId, "completed result");
+    const saved = f.work.get({ id: item.id });
+    const attempt = f.work.getAttempt({ id: item.id, attemptId: running.latestAttemptId });
+    Object.assign(f.sessions.get(running.sessionId), { busy: true, turnId: "followup" });
+    const call = (tool, args) => fetch(f.api.status().url + "/api/v1/module-owner-tools", { method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${body.toolCallback.bearerToken}` },
+      body: JSON.stringify({ sessionId: running.sessionId, threadId: "thread-2", turnId: "followup", callId: String(Math.random()), tool, arguments: args }) });
+    expect((await (await call("list_module_owners", {})).json()).success).toBe(true);
+    expect((await (await call("add_module_owner", { name: "forbidden", responsibilities: "x", directories: ["src"] })).json()).success).toBe(false);
+    const owner = f.service.get("template").records[0];
+    expect((await (await call("update_module_owner", { ...owner, id: "other" })).json()).success).toBe(false);
+    f.end(running.sessionId, "do not rewrite");
+    expect(f.work.list().total).toBe(1);
+    expect(f.work.get({ id: item.id })).toEqual(saved);
+    expect(f.work.getAttempt({ id: item.id, attemptId: running.latestAttemptId })).toEqual(attempt);
+    f.service.mutate("template", { operation: "delete", id: owner.id, version: owner.version });
+    Object.assign(f.sessions.get(running.sessionId), { busy: true, turnId: "followup" });
+    expect((await call("list_module_owners", {})).status).toBe(401);
+  });
   it("normalizes outer whitespace, records edited text only for this attempt and validates it", async () => {
     const f = await fixture(); const item = await f.source();
     expect(f.instances.create.mock.calls[0][0].prompt).toContain("本次负责人的最新信息");

@@ -33,7 +33,7 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
   }
 
   function startTurn({ sessionId, sessionTitle, provider, supported, userMessage, userMessageId, timestamp = Date.now() }) {
-    if (provider !== "codex" && provider !== "codebuddy" && provider !== "grok") return;
+    if (provider !== "codex" && provider !== "codebuddy" && provider !== "gemini" && provider !== "grok") return;
     const existingTurn = turns.get(sessionId);
     const messages = existingTurn?.messages || [];
     const ids = messageIds.get(sessionId) || new Set();
@@ -77,6 +77,20 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
     }
   }
 
+  function replaceMessages(sessionId, messages) {
+    const turn = turns.get(sessionId);
+    if (!turn || !turn.supported || !Array.isArray(messages)) return;
+    const ids = new Set();
+    turn.messages = messages.filter(message => {
+      if (!message?.id || !message.text || ids.has(message.id)) return false;
+      ids.add(message.id);
+      return true;
+    }).map(message => ({ ...message }));
+    messageIds.set(sessionId, ids);
+    turn.currentTurnStartIndex = Math.min(turn.currentTurnStartIndex, turn.messages.length);
+    if (activeSessionId === sessionId) sendSnapshot();
+  }
+
   function completeTurn(sessionId, finalMessage) {
     const turn = turns.get(sessionId);
     if (!turn || !turn.supported) return;
@@ -113,6 +127,7 @@ function createAgentConversationManager({ broadcast, conversationArchive }) {
     bindThread: (id, provider, threadId) => conversationArchive?.bindThread(id, provider, threadId),
     startTurn,
     appendMessages,
+    replaceMessages,
     completeTurn,
     clearSession,
     getSnapshot,

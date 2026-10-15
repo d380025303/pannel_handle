@@ -19,11 +19,27 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   const jobs = new Map();
   const grants = new Map();
   const pendingResults = new Map();
+  const autoClose = require("./task-session-auto-close.cjs").createTaskSessionAutoClose({ terminalManager, graphicalService, getAgentStatus, closeSession, notify: notifyAutomation });
   function cleanupJob(job) {
     if (!job || !(job.manual || job.deleted) || job.creating || ["creating", "running", "uncertain"].includes(job.status)) return;
     if (job.historyDirty || job.historyError || job.progressError || pendingResults.has(job.runId)) return;
     const key = `task:${job.taskId}`;
-    if (jobs.get(key) === job) { grants.delete(job.token); jobs.delete(key); }
+    if (jobs.get(key) === job) jobs.delete(key);
+  }
+  // Grants belong to a live session/thread, independently of completed task tracking.
+  function validateGrant(token) {
+    const grant = grants.get(token);
+    if (!grant) return null;
+    let valid = false;
+    try {
+      const source = template(grant.templateId);
+      const state = grant.sessionId && terminalManager.getSession(grant.sessionId)
+        ? graphicalService.getInjectedToolState(grant.sessionId) : null;
+      valid = supported(source) && (!grant.sessionId || Boolean(state?.authorized && state.threadId === grant.threadId))
+        && (!grant.ownerId || store.getSchedulerState(grant.templateId).records.some(owner => owner.id === grant.ownerId));
+    } catch {}
+    if (!valid) { grants.delete(token); return null; }
+    return grant;
   }
   function saveResults() {
     for (const [id, pending] of pendingResults) {
@@ -31,7 +47,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         dataStore.insertWorkItem(pending.item);
         pending.job.resultError = ""; pendingResults.delete(id);
         broadcast("work-items:changed");
-      } catch { pending.job.resultError = "最终回复入任务表失败，将继续重试；请检查 SQLite 存储。"; }
+      } catch { pending.job.resultError = "最终回复入任务表失败，将继续重试；请检查 SQLite 存储。"; autoClose.error(pending.job, pending.job.resultError); }
     }
   }
   function persistRun(job) {
@@ -54,10 +70,11 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     // Avoid serializing large replies on every idle scheduler refresh.
     if (!job.historyDirty && !job.historyError) return;
     try { dataStore.saveTaskRun(job.history); job.historyDirty = false; job.historyError = ""; }
-    catch { job.historyError = "调用历史写入失败，请检查 SQLite 存储。"; }
+    catch { job.historyError = "调用历史写入失败，请检查 SQLite 存储。"; autoClose.error(job, job.historyError); }
   }
   function deferTaskError(job, error) {
     if (job.trigger === "automation") error = undefined;
+    if (error) autoClose.error(job, error);
     if (error) job.onError?.(error);
     if (error) job.pendingErrors = [...new Set([...(job.pendingErrors || []), error])];
     job.error = "";
@@ -70,6 +87,15 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     grants.delete(job.token);
   }
   const unsubscribeTurns = graphicalService.onTaskTurnEnded?.(event => {
+    for (const [token, grant] of grants) {
+      if (grant.sessionId === event.sessionId && !event.threadId && event.status === "stopped") grants.delete(token);
+    }
+    for (const job of jobs.values()) {
+      if (job.taskId || job.sessionId !== event.sessionId || !["creating", "running", "uncertain"].includes(job.status)) continue;
+      if (event.threadId && event.threadId !== job.threadId) continue;
+      job.status = event.status === "completed" ? "completed" : "failed";
+      job.creating = false; job.error = event.error || "";
+    }
     for (const job of jobs.values()) {
       if (!job.taskId || job.sessionId !== event.sessionId || job.history?.endedAt || !["creating", "running", "uncertain"].includes(job.status)) continue;
       // Close notifications have no thread; successful replies must match both identities.
@@ -81,13 +107,14 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         broadcast("module-owners:changed", { templateId: job.templateId });
         continue;
       }
+      if (event.error || event.status !== "completed" || !event.output?.trim()) autoClose.error(job, event.error || "执行未成功结束或没有最终回复，请检查会话。");
       // A later turn in the same session can recover an earlier failure.
       if (event.error && job.trigger !== "automation") job.onError?.(event.error);
       if (event.status !== "completed" || !event.output?.trim()) {
         if (job.trigger === "automation") {
           job.turnId = event.turnId;
           job.status = "failed"; job.error = event.error || "执行未成功结束或没有最终回复，请检查会话。";
-          job.creating = false; grants.delete(job.token);
+          job.creating = false;
           persistRun(job); cleanupJob(job);
           broadcast("module-owners:changed", { templateId: job.templateId });
           continue;
@@ -108,7 +135,6 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         saveResults();
       }
       if (job.history && job.history.output !== job.output) { job.history.output = job.output; job.historyDirty = true; }
-      grants.delete(job.token);
       persistRun(job);
       cleanupJob(job);
       broadcast("module-owners:changed", { templateId: job.templateId });
@@ -122,6 +148,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   }
   const supported = value => value.type === "windows" && value.agentProvider === "codex" && value.graphicalSessionEnabled !== false && Boolean(value.cwd);
   function refresh(job) {
+    if (job) validateGrant(job.token);
     if (!job || !["creating", "running", "uncertain"].includes(job.status)) { persistRun(job); cleanupJob(job); return job; }
     if (job.sessionId) {
       let snapshot;
@@ -134,11 +161,10 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         } else if (!job.creating) {
           deferTaskError(job, snapshot?.error);
         }
-      } else if (!snapshot || (job.body.tools && !snapshot.authorized) || snapshot.threadId !== job.threadId || (job.turnId && snapshot.turnId !== job.turnId) || (!job.creating && !snapshot.busy)) {
+      } else if (!snapshot || (job.body.tools && !snapshot.authorized) || snapshot.threadId !== job.threadId || (!job.creating && !snapshot.busy)) {
         job.status = snapshot?.error ? "failed" : job.taskId ? "uncertain" : "completed";
-        if (!snapshot || (job.body.tools && !snapshot.authorized) || snapshot.threadId !== job.threadId || (snapshot.busy && job.turnId && snapshot.turnId !== job.turnId)) job.status = "stopped";
+        if (!snapshot || (job.body.tools && !snapshot.authorized) || snapshot.threadId !== job.threadId) job.status = "stopped";
         job.error = snapshot?.error || "";
-        grants.delete(job.token);
       }
     } else if (!job.creating && Date.now() - job.startedAt > 130000) {
       job.status = job.taskId ? "uncertain" : "failed";
@@ -190,6 +216,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     const token = randomBytes(32).toString("hex");
     if (body.toolCallback) body.toolCallback.bearerToken = token;
     const job = { templateId: id, ownerId: task?.ownerId, taskId: task?.id, token, body, startedAt: Date.now(), status: "creating", creating: true, claimed: false, seen: new Set(),
+      autoCloseSession: Boolean(task && !task.manual && task.autoCloseSession === true),
       runId: randomUUID(), trigger: task?.trigger, workItemId: task?.workItemId, autoCreateWorkItem: task?.autoCreateWorkItem !== false, manual: Boolean(task?.manual), onProgress: task?.onProgress, onError: task?.onError, taskName: task?.name, selectedTools: task ? [...task.tools] : [],
       ownerSnapshot: task ? structuredClone(store.get(id).records.find(owner => owner.id === task.ownerId)) : null,
       templateSnapshot: { title: template(id).title, cwd: template(id).cwd } };
@@ -200,13 +227,16 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       job.history = { id: job.runId, templateId: id, ownerId: task.ownerId, taskId: task.id,
         taskName: task.name, calledAt: job.startedAt, status: "creating", input, output: "", error: "" };
     }
+    autoClose.track(job);
     jobs.set(jobKey, job);
     persistRun(job);
-    grants.set(token, job);
+    if (body.toolCallback) grants.set(token, { templateId: id, ownerId: task?.ownerId, taskId: task?.id,
+      tools: body.tools.map(tool => tool.name), seen: new Set() });
     broadcast("module-owners:changed", { templateId: id });
     try {
       const result = await api.invoke({ operation: "create", body }, creationHooks(job));
       job.creating = false;
+      if (result.status !== 201) autoClose.error(job, result.body?.error?.message || "创建失败");
       if (result.status !== 201 && ["creating", "running", "uncertain"].includes(job.status)) {
         if (job.taskId && job.sessionId && (job.trigger !== "automation" || job.submitted)) deferTaskError(job, result.body?.error?.message || "创建失败");
         else { job.status = job.submitted ? "uncertain" : "failed"; job.error = result.body?.error?.message || "创建失败"; }
@@ -216,6 +246,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       refresh(job);
       return { result, state: get(id), request: { ...body, ...(body.toolCallback ? { toolCallback: { ...body.toolCallback, bearerToken: "<本次会话临时授权>" } } : {}) } };
     } catch (error) {
+      autoClose.error(job, error.message);
       if (["creating", "running", "uncertain"].includes(job.status)) {
         // An HTTP timeout does not stop the server's launch; keep its ownership until submission or failure.
         job.creating = job.claimed && !job.submitted;
@@ -228,7 +259,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   }
   function claimCreation(body) {
     if (body.toolCallback && body.toolCallback.url !== `${getSessionApi().status().url}${CALLBACK_PATH}`) return undefined;
-    const job = body.toolCallback ? grants.get(body.toolCallback.bearerToken) : undefined;
+    const job = body.toolCallback && grants.has(body.toolCallback.bearerToken)
+      ? [...jobs.values()].find(value => value.token === body.toolCallback.bearerToken) : undefined;
     if (!body.toolCallback && !job) return undefined;
     if (!job || job.claimed || JSON.stringify(body) !== JSON.stringify(job.body)) throw new Error("负责人创建授权无效或已使用。");
     job.claimed = true;
@@ -250,6 +282,8 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         job.sessionId = session.id;
         try { job.threadId = graphicalService.snapshot(session.id).threadId; }
         catch (error) { if (job.trigger !== "automation") throw error; }
+        const grant = grants.get(job.token);
+        if (grant) { grant.sessionId = job.sessionId; grant.threadId = job.threadId; }
         persistRun(job);
       },
       onTaskSubmitted(session) {
@@ -262,6 +296,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
         persistRun(job);
       },
       failed(error) {
+        autoClose.error(job, error.message);
         if (!["creating", "running", "uncertain"].includes(job.status)) return;
         job.creating = false;
         if (job.taskId && job.sessionId && (job.trigger !== "automation" || job.submitted)) deferTaskError(job, error.message);
@@ -272,29 +307,26 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     };
   }
   async function callback(token, input) {
-    const job = grants.get(token);
-    if (!job) throw Object.assign(new Error("负责人工具授权已失效。"), { statusCode: 401 });
-    refresh(job);
-    if (!grants.has(token) || !job.sessionId || input?.sessionId !== job.sessionId || input.threadId !== job.threadId) throw Object.assign(new Error("工具不属于已授权的分析会话。"), { statusCode: 401 });
-    if (!input.turnId || typeof input.callId !== "string" || !input.callId || !graphicalService.isInjectedToolCallCurrent(job.sessionId, input)) throw Object.assign(new Error("工具不属于活动回合。"), { statusCode: 401 });
-    job.turnId ||= input.turnId;
+    const grant = validateGrant(token);
+    if (!grant) throw Object.assign(new Error("负责人工具授权已失效。"), { statusCode: 401 });
+    if (!grant.sessionId || input?.sessionId !== grant.sessionId || input.threadId !== grant.threadId) throw Object.assign(new Error("工具不属于已授权的分析会话。"), { statusCode: 401 });
+    if (!input.turnId || typeof input.callId !== "string" || !input.callId || !graphicalService.isInjectedToolCallCurrent(grant.sessionId, input)) throw Object.assign(new Error("工具不属于活动回合。"), { statusCode: 401 });
     const key = JSON.stringify([input.threadId, input.turnId, input.callId]);
-    if (job.seen.has(key)) return { success: false, output: "重复工具调用已拒绝。" };
-    job.seen.add(key);
+    if (grant.seen.has(key)) return { success: false, output: "重复工具调用已拒绝。" };
+    grant.seen.add(key);
     try {
-      if (job.taskId && !supported(template(job.templateId))) throw new Error("来源模板不再支持定时工具调用。");
-      if (!job.body.tools?.some(tool => tool.name === input.tool)) throw new Error("工具未获本次授权。");
-      if (job.ownerId && (!store.get(job.templateId).records.some(record => record.id === job.ownerId) || (input.tool === "update_module_owner" && input.arguments?.id !== job.ownerId))) throw new Error("仅允许修改本任务所属负责人。");
+      if (!grant.tools.includes(input.tool)) throw new Error("工具未获本次授权。");
+      if (grant.ownerId && input.tool === "update_module_owner" && input.arguments?.id !== grant.ownerId) throw new Error("仅允许修改本任务所属负责人。");
       const args = input.arguments;
       if (input.tool === "list_module_owners") {
         const { name } = z.object({ name: z.string().trim().min(1).max(200).optional() }).strict().parse(args);
-        const records = store.get(job.templateId).records;
+        const records = store.get(grant.templateId).records;
         return { success: true, output: JSON.stringify(name === undefined ? records : records.filter(record => record.name === name)) };
       }
       const operation = { add_module_owner: "add", update_module_owner: "update", delete_module_owner: "delete" }[input.tool];
       if (!operation || !args || typeof args !== "object" || Array.isArray(args) || Object.hasOwn(args, "operation")) throw new Error("无效的负责人工具参数。");
-      const result = store.mutate(job.templateId, { ...args, operation }, { cwd: template(job.templateId).cwd, source: "ai", sessionId: job.sessionId });
-      scheduler.reconcile(job.templateId);
+      const result = store.mutate(grant.templateId, { ...args, operation }, { cwd: template(grant.templateId).cwd, source: "ai", sessionId: grant.sessionId });
+      scheduler.reconcile(grant.templateId);
       const record = operation === "add" ? result.records.at(-1) : result.records.find(item => item.id === args.id);
       return { success: true, output: JSON.stringify({ operation, revision: result.revision, id: record?.id || args.id, record }) };
     } catch (error) { return { success: false, output: error.message }; }
@@ -308,11 +340,12 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
       return dataStore.workItemTaskUnprocessed(id, taskId) || [...pendingResults.values()].some(value => value.item.templateId === id && value.item.taskId === taskId);
     },
     revokeTask: taskId => {
+      for (const [token, grant] of grants) if (grant.taskId === taskId) grants.delete(token);
       const job = jobs.get(`task:${taskId}`);
-      if (job) { grants.delete(job.token); job.deleted = true; cleanupJob(job); }
+      if (job) { job.deleted = true; cleanupJob(job); }
     },
     ownerBusy: (id, ownerId) => ownerBusy(id, ownerId) || Boolean(dataStore?.workItemOwnerBusy(id, ownerId)),
-    revoke: ownerId => { for (const job of jobs.values()) if (job.ownerId === ownerId) grants.delete(job.token); }
+    revoke: ownerId => { for (const [token, grant] of grants) if (grant.ownerId === ownerId) grants.delete(token); }
   });
   function ownerBusy(id, ownerId) {
     return [...jobs.values()].some(value => value.templateId === id && value.ownerId === ownerId && ["creating", "running", "uncertain"].includes(refresh(value)?.status));
@@ -323,6 +356,7 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     retire: attemptId => {
       const job = jobs.get(`task:${attemptId}`);
       if (job?.creating) return false;
+      for (const [token, grant] of grants) if (grant.taskId === attemptId) grants.delete(token);
       if (job) { job.status = "stopped"; grants.delete(job.token); job.onProgress = null; }
       return true;
     } });
@@ -330,10 +364,12 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
   Object.assign(workItems, { getAutomation: automation.getAutomation, saveAutomation: automation.saveAutomation, previewAutomation: automation.previewAutomation });
   const retryTimer = setInterval(() => {
     saveResults();
+    for (const token of grants.keys()) validateGrant(token);
     for (const job of jobs.values()) {
       if (job.manual || job.deleted || job.historyError) refresh(job);
       cleanupJob(job);
     }
+    void autoClose.tick();
   }, 1000);
   retryTimer.unref?.();
   function runQuery(id, input, detail = false) {
@@ -353,9 +389,11 @@ function createModuleOwnerService({ userData, dataStore, sessionStore, terminalM
     listHistory: (id, input) => { template(id); return store.listHistory(id, input); },
     runTask: scheduler.runTask, copyTask: scheduler.copy, saveTask: scheduler.save, deleteTask: scheduler.remove, listTasks: scheduler.list,
     start: () => { dataStore?.interruptTaskRuns(); dataStore?.recoverWorkItemAttempts(); scheduler.start(); automation.start(); }, shutdown: () => {
+      autoClose.shutdown();
       automation.shutdown();
       clearInterval(retryTimer); saveResults();
       scheduler.shutdown();
+      grants.clear();
       for (const job of jobs.values()) if (["creating", "running", "uncertain"].includes(job.status)) {
         job.status = job.manual ? "uncertain" : "stopped"; job.error = "应用退出，调用跟踪已中断。"; persistRun(job);
       }

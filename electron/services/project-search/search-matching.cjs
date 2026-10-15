@@ -1,5 +1,8 @@
 const { DEFAULT_EXCLUDED_DIRS } = require("./search-limits.cjs");
 
+// Match ripgrep's Unicode word characters, including combining marks and join controls.
+const wordCharacter = "[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\u200c\\u200d]";
+
 function isExcludedDirectory(name) {
   return DEFAULT_EXCLUDED_DIRS.has(String(name || "").toLowerCase());
 }
@@ -23,15 +26,16 @@ function isLikelyBinary(buffer) {
   return false;
 }
 
-function getLineMatches(content, query, limit, options = {}) {
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = options.regex ? query : escaped;
-  // Match ripgrep's Unicode word characters, including combining marks and join controls.
-  const wordCharacter = "[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\u200c\\u200d]";
-  const matcher = new RegExp(
+function createQueryMatcher(query, options, global = false) {
+  const pattern = options.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
     options.wholeWord ? `(?<!${wordCharacter})(?:${pattern})(?!${wordCharacter})` : pattern,
-    `${options.caseSensitive ? "g" : "gi"}${options.wholeWord ? "u" : ""}`
+    `${global ? "g" : ""}${options.caseSensitive ? "" : "i"}${options.wholeWord ? "u" : ""}`
   );
+}
+
+function getLineMatches(content, query, limit, options = {}) {
+  const matcher = createQueryMatcher(query, options, true);
   const lines = content.split(/\r?\n/);
   const matches = [];
   for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
@@ -74,8 +78,7 @@ function isOrderedSubsequence(candidate, query, caseSensitive = false) {
 }
 
 function createFileQueryMatcher(query, options = {}) {
-  const pattern = options.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(options.wholeWord ? `\\b(?:${pattern})\\b` : pattern, options.caseSensitive ? "" : "i");
+  return createQueryMatcher(query, options);
 }
 
 function matchesFileQuery(candidate, query, options = {}) {

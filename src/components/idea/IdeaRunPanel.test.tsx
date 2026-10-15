@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
@@ -58,6 +58,26 @@ describe("IdeaRunPanel", () => {
     expect(await screen.findByText("DemoApplication")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "运行 DemoApplication" }));
     await waitFor(() => expect(window.ideaBridgeApi.start).toHaveBeenCalledWith("bridge-1", "project-1", "config-1", "run"));
+  });
+
+  it("keeps stop available for a removed configuration", async () => {
+    const value = structuredClone(snapshot);
+    const configuration = value.connections[0].projects[0].configurations[0];
+    configuration.supportsRun = false;
+    configuration.supportsDebug = false;
+    configuration.instances = [{ id: "instance-1", executionId: 1, name: "process-1",
+      mode: "run", status: "running", startedAt: Date.now() }];
+    window.ideaBridgeApi = api({ getSnapshot: vi.fn(async () => value) });
+    const user = userEvent.setup();
+    const view = render(<I18nProvider locale="zh-CN"><IdeaRunPanel /></I18nProvider>);
+    await within(view.container).findByText("process-1");
+    const panel = within(view.container);
+    for (const name of ["\u8fd0\u884c DemoApplication", "\u8c03\u8bd5 DemoApplication", "\u91cd\u542f process-1"]) {
+      expect((panel.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    await user.click(panel.getByRole("button", { name: "\u505c\u6b62 process-1" }));
+    expect(window.ideaBridgeApi.stop).toHaveBeenCalledWith("bridge-1", "instance-1");
+    expect(window.ideaBridgeApi.restart).not.toHaveBeenCalled();
   });
 
   it("explains how to connect when no bridge is available", async () => {

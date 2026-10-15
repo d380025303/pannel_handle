@@ -49,6 +49,65 @@ function fixture(overrides = {}) {
 
 describe("openrouter-service", () => {
 
+  it.each(["saveApiKey", "clearApiKey"])("discards in-flight model results after %s", async method => {
+    let resolveResponse;
+    const fetchImpl = vi.fn().mockImplementationOnce(() => new Promise(resolve => { resolveResponse = resolve; }))
+      .mockImplementation(async () => completedResponse());
+    const { service, store, model } = fixture({ verifications: {}, fetchImpl });
+    const pending = service.verifyModels({ modelIds: [model.id], force: true });
+    const outcome = expect(pending).rejects.toThrow("API Key 已变更");
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe("Bearer sk-secret");
+    await service[method]("key-b");
+    store.getApiKey.mockReturnValue("key-b");
+    resolveResponse(completedResponse());
+    await outcome;
+    expect(store.setModelVerification).not.toHaveBeenCalled();
+    expect(service.listModels()[0].verification).toBeUndefined();
+    await expect(service.verifyModels({ modelIds: [model.id] })).resolves.toMatchObject([{ status: "passed" }]);
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe("Bearer key-b");
+  });
+
+  it("does not cache a stale rate limit or carry an existing cooldown to a new key", async () => {
+    let resolveResponse;
+    const rateLimited = () => new Response('{"error":{"message":"Rate exceeded"}}', { status: 429 });
+    const fetchImpl = vi.fn().mockImplementationOnce(() => new Promise(resolve => { resolveResponse = resolve; }))
+      .mockImplementationOnce(async () => rateLimited()).mockImplementation(async () => completedResponse());
+    const { service, store, model } = fixture({ verifications: {}, fetchImpl });
+    const pending = service.verifyModels({ modelIds: [model.id] });
+    const outcome = expect(pending).rejects.toThrow("API Key 已变更");
+    await service.saveApiKey("key-b");
+    resolveResponse(rateLimited());
+    await outcome;
+    expect(store.setModelVerification).not.toHaveBeenCalled();
+    await expect(service.verifyModels({ modelIds: [model.id] })).resolves.toMatchObject([{ status: "unavailable" }]);
+    await service.saveApiKey("key-c");
+    // The real store clears persisted verification state when credentials change.
+    store.getModelVerifications.mockReturnValue({});
+    await expect(service.verifyModels({ modelIds: [model.id] })).resolves.toMatchObject([{ status: "passed" }]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["opencode", "codebuddy"])("discards stale %s probes after changing credentials", async agent => {
+    const probe = require("../model-sources/agent-model-probe.cjs");
+    let resolveProbe;
+    const spy = vi.spyOn(probe, "runAgentModelProbe").mockImplementationOnce(() => new Promise(resolve => { resolveProbe = resolve; }))
+      .mockResolvedValue({ status: "passed", checkedAt: 100000 });
+    try {
+      const setAgentModelVerification = vi.fn((_agent, _id, result) => result);
+      const { service, model } = fixture({ store: { setAgentModelVerification } });
+      const pending = service.verifyAgentModels({ agent, modelIds: [model.id] });
+      const outcome = expect(pending).rejects.toThrow("API Key 已变更");
+      await service.saveApiKey("key-b");
+      resolveProbe({ status: "passed", checkedAt: 100000 });
+      await outcome;
+      expect(setAgentModelVerification).not.toHaveBeenCalled();
+      await expect(service.verifyAgentModels({ agent, modelIds: [model.id] })).resolves.toMatchObject([{ status: "passed" }]);
+      expect(setAgentModelVerification).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it.each(["openrouter", "nararouter", "minimax"])("keeps timers responsive during %s launch subprocesses", async providerId => {
     const ticks = [];
     const started = performance.now();
@@ -100,7 +159,9 @@ describe("openrouter-service", () => {
     });
     let settled = false;
     const pending = service[method](method === "verifyAgentModels" ? { agent: "opencode", modelIds: [model.id] } : "key");
-    const outcome = expect(pending).rejects.toThrow("sync failed");
+    const outcome = ["saveApiKey", "clearApiKey"].includes(method)
+      ? expect(pending).resolves.toMatchObject({ openCodeSyncError: "sync failed" })
+      : expect(pending).rejects.toThrow("sync failed");
     pending.then(() => { settled = true; }, () => { settled = true; });
     await vi.waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
     expect(settled).toBe(false);

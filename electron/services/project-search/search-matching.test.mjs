@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { rgPath } from "@vscode/ripgrep";
-import { getLineMatches } from "./search-matching.cjs";
+import { createFileQueryMatcher, getLineMatches } from "./search-matching.cjs";
+
+describe("shared whole-word matching", () => {
+  it.each([false, true])("uses Unicode boundaries without file matcher state (regex=%s)", (regex) => {
+    for (const [query, candidates, expected] of [
+      ["中文", ["中文.txt", "foo中文.txt"], [true, false]],
+      ["foo", ["foo.txt", "foo中文.txt"], [true, false]]
+    ]) {
+      const options = { wholeWord: true, regex };
+      const matcher = createFileQueryMatcher(query, options);
+      expect(matcher.global).toBe(false);
+      for (let run = 0; run < 2; run += 1) {
+        expect(candidates.map((candidate) => matcher.test(candidate))).toEqual(expected);
+      }
+      expect(candidates.map((candidate) => getLineMatches(candidate, query, 10, options).length > 0))
+        .toEqual(expected);
+    }
+  });
+});
 
 describe("fallback Unicode whole-word matching", () => {
   it("finds only independent Chinese words and preserves unrestricted matches", () => {

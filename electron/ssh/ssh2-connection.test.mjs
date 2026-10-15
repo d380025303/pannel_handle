@@ -67,9 +67,8 @@ describe("ssh2 connection config", () => {
 
   it("saves first host fingerprint and rejects later mismatches", () => {
     vi.spyOn(Date, "now").mockReturnValue(123);
-    const knownHostStore = createKnownHostStore({
-      knownHostsFile: path.join(createTempDir(), "known-hosts.json")
-    });
+    const knownHostsFile = path.join(createTempDir(), "known-hosts.json");
+    const knownHostStore = createKnownHostStore({ knownHostsFile });
     knownHostStore.loadKnownHosts();
     const seen = [];
     const firstConfig = buildSsh2ConnectionConfig({
@@ -84,12 +83,40 @@ describe("ssh2 connection config", () => {
       trustedFirstUse: true
     });
 
+    const reloadedStore = createKnownHostStore({ knownHostsFile });
+    reloadedStore.loadKnownHosts();
     const secondConfig = buildSsh2ConnectionConfig({
       sshConfig: { host: "example.com", port: 22 },
-      knownHostStore
+      knownHostStore: reloadedStore
     });
 
     expect(secondConfig.hostVerifier(Buffer.from("host-key-a"))).toBe(true);
     expect(secondConfig.hostVerifier(Buffer.from("host-key-b"))).toBe(false);
+  });
+
+  it("rejects first use when persistence fails without trusting the key in memory", () => {
+    const write = vi.fn(() => { throw new Error("ENOSPC: no space left on device"); });
+    const dataStore = { read: () => ({}), write };
+    const store = createKnownHostStore({ knownHostsFile: "known-hosts.json", dataStore });
+    store.loadKnownHosts();
+    const seen = [];
+    const config = buildSsh2ConnectionConfig({
+      sshConfig: { host: "example.com" },
+      knownHostStore: store,
+      onHostVerification: (result) => seen.push(result)
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(config.hostVerifier(Buffer.from("host-key-a"))).toBe(false);
+      expect(config.hostVerifier(Buffer.from("host-key-a"))).toBe(false);
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(seen[0]).toMatchObject({ accepted: false, error: expect.stringContaining("ENOSPC") });
+      write.mockImplementation(() => {});
+      expect(config.hostVerifier(Buffer.from("host-key-b"))).toBe(true);
+      expect(seen[2]).toMatchObject({ accepted: true, trustedFirstUse: true });
+      expect(config.hostVerifier(Buffer.from("host-key-a"))).toBe(false);
+    } finally {
+      log.mockRestore();
+    }
   });
 });

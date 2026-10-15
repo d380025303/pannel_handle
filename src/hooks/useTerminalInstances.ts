@@ -131,8 +131,8 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme, sessi
     }
 
     window.clipboardApi.readText().then((text) => {
-      if (text && activeId) {
-        window.terminalApi.write(activeId, text);
+      if (text) {
+        entry.terminal.paste(text);
       }
     });
     entry.terminal.focus();
@@ -232,7 +232,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme, sessi
 
       const text = await window.clipboardApi.readText();
       if (text) {
-        window.terminalApi.write(sessionId, text);
+        terminal.paste(text);
       }
     } catch (err) {
       console.error("Failed to paste clipboard image:", err);

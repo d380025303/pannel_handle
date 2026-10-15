@@ -69,6 +69,7 @@ export function OpenRouterSettings({ provider = "openrouter", onConfigChange, ap
   const providerName = isNaraRouter ? "NaraRouter" : isMiniMax ? "MiniMax" : "OpenRouter";
   const routerApi = isNaraRouter ? window.naraRouterApi : isMiniMax ? window.miniMaxApi : window.openRouterApi;
   const [config, setConfig] = useState<OpenRouterConfig>({ hasApiKey: false });
+  const [syncError, setSyncError] = useState("");
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [localApiKey, setLocalApiKey] = useState("");
@@ -121,12 +122,13 @@ export function OpenRouterSettings({ provider = "openrouter", onConfigChange, ap
     return `${t("settings.openRouterVerificationFailed")}：${stage}${verification.error || ""}`;
   };
 
-  const run = async (action: () => Promise<void>, successMessage: string, area: "connection" | "catalog") => {
+  const run = async (action: () => Promise<void | { openCodeSyncError?: string }>, successMessage: string, area: "connection" | "catalog") => {
     setBusy(true);
     const setResult = area === "connection" ? setConnectionResult : setCatalogResult;
     setResult(null);
     try {
-      await action();
+      const result = await action();
+      if (result) setSyncError(result.openCodeSyncError || "");
       await load();
       setResult({ kind: "success", message: successMessage });
     } catch (error) {
@@ -173,10 +175,11 @@ export function OpenRouterSettings({ provider = "openrouter", onConfigChange, ap
       <div className="model-step-heading"><span className="model-step-number">1</span><div><h3 id="model-connection-heading">{t("settings.modelConnectionTitle")}</h3><p>{t(isNaraRouter ? "settings.naraRouterDescription" : isMiniMax ? "settings.miniMaxDescription" : "settings.openRouterDescription")}</p></div><span className={`model-step-state${config.hasApiKey ? " ready" : ""}`}>{loading ? t("common.loading") : config.hasApiKey ? t("settings.openRouterConfigured") : t("settings.openRouterNotConfigured")}</span></div>
       <label className="settings-field"><span className="modal-label">{providerName} API Key</span><input className="modal-input" type="password" autoComplete="off" disabled={busy} value={apiKey} placeholder={config.hasApiKey ? t("settings.openRouterKeyStored") : isNaraRouter ? "sk-nry-..." : isMiniMax ? "sk-cp-... / sk-api-..." : "sk-or-v1-..."} onChange={event => setApiKey(event.target.value)} /></label>
       <div className="settings-actions">
-        <button className="modal-button primary" type="button" disabled={busy || !apiKey.trim()} onClick={() => void run(async () => { await routerApi.saveApiKey(apiKey.trim()); setApiKey(""); }, t(isNaraRouter ? "settings.naraRouterSaved" : isMiniMax ? "settings.miniMaxSaved" : "settings.openRouterSaved"), "connection")}>{t("common.save")}</button>
+        <button className="modal-button primary" type="button" disabled={busy || !apiKey.trim()} onClick={() => void run(async () => { const result = await routerApi.saveApiKey(apiKey.trim()); setApiKey(""); return result; }, t(isNaraRouter ? "settings.naraRouterSaved" : isMiniMax ? "settings.miniMaxSaved" : "settings.openRouterSaved"), "connection")}>{t("common.save")}</button>
         <button className="modal-button" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await routerApi.test(); }, t(isNaraRouter ? "settings.naraRouterTestSuccess" : isMiniMax ? "settings.miniMaxTestSuccess" : "settings.openRouterTestSuccess"), "connection")}>{t("settings.openRouterTest")}</button>
-        <button className="modal-button danger" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await routerApi.clearApiKey(); }, t(isNaraRouter ? "settings.naraRouterCleared" : isMiniMax ? "settings.miniMaxCleared" : "settings.openRouterCleared"), "connection")}>{t("settings.openRouterClear")}</button>
+        <button className="modal-button danger" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { return routerApi.clearApiKey(); }, t(isNaraRouter ? "settings.naraRouterCleared" : isMiniMax ? "settings.miniMaxCleared" : "settings.openRouterCleared"), "connection")}>{t("settings.openRouterClear")}</button>
       </div>
+      {syncError && <div><p className="settings-result error" role="status">{t("settings.openCodeSyncFailed")} {syncError}</p><button className="modal-button" type="button" disabled={busy} onClick={() => void run(() => routerApi.syncOpenCodeModels(), t("settings.openCodeSyncSuccess"), "connection")}>{t("settings.openCodeSyncRetry")}</button></div>}
       {connectionResult && <p className={`settings-result ${connectionResult.kind}`} role="status">{connectionResult.message}</p>}
     </section>
     <section className="settings-section model-service-step" aria-labelledby="model-catalog-heading">

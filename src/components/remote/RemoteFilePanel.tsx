@@ -1892,6 +1892,13 @@ function RemoteFilePanelComponent({
       : <FileText aria-hidden="true" />;
 
   const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, node: VisibleTreeNode, index: number) => {
+    if (event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "c") {
+      if (selectedPaths.size !== 1 || !selectedEntry || !selectedPaths.has(selectedEntry.path)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void window.clipboardApi.writeText(selectedEntry.name).catch(() => {});
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       selectPaths(new Set([node.entry.path]), node.entry.path, node.entry.path);
@@ -2375,6 +2382,8 @@ function RemoteFilePanelComponent({
                   </div>
                 </>
               )
+            ) : activePreview.preview.kind === "unsupported_encoding" ? (
+              <div className="remote-file-empty">{t("files.unsupportedEncoding")}</div>
             ) : activePreview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
                 {t("files.tooLarge", { size: formatSize(activePreview.preview.size) })}

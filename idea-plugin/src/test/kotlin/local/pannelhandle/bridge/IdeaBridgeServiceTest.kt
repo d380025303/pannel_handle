@@ -1,6 +1,7 @@
 package local.pannelhandle.bridge
 
 import com.intellij.execution.RunManager
+import com.intellij.execution.RunnerAndConfigurationSettings
 import com.intellij.execution.compound.CompoundRunConfigurationType
 import com.intellij.execution.configurations.ConfigurationTypeUtil
 import com.intellij.execution.executors.DefaultRunExecutor
@@ -43,6 +44,25 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
         assertEquals(1, handler.destroyCount)
     }
 
+    fun testSnapshotAfterConfigurationDeletedKeepsStopTarget() {
+        val (settings, handler) = registerConfigurationExecution()
+        RunManager.getInstance(project).removeConfiguration(settings)
+        val operation = IdeaBridgeService::class.java.getDeclaredMethod(
+            "projectSnapshot", com.intellij.openapi.project.Project::class.java,
+        ).apply { isAccessible = true }
+        fun snapshot() = operation.invoke(bridge, project) as ProjectSnapshot
+        val configuration = snapshot().configurations.single { it.id == settings.uniqueID }
+        assertFalse(configuration.supportsRun)
+        assertFalse(configuration.supportsDebug)
+        assertEquals(settings.name, configuration.name)
+        val instance = configuration.instances.single()
+        assertEquals("instance", instance.id)
+        assertEquals("running", instance.status)
+        invokeBridge("stopExecution", instance.id)
+        assertEquals(1, handler.destroyCount)
+        assertEquals("stopping", snapshot().configurations.single { it.id == settings.uniqueID }.instances.single().status)
+    }
+
     fun testRestartAfterConfigurationDeleted() {
         val handler = registerDeletedConfigurationExecution()
 
@@ -55,6 +75,48 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
     fun testStopUnknownInstance() {
         val error = expectNotFound("stopExecution", "missing")
         assertEquals("The IDEA execution instance no longer exists", error.message)
+    }
+
+    fun testStartWithRetainedTerminatedInstance() {
+        val (settings, handler) = registerConfigurationExecution()
+        handler.terminate()
+
+        // Keep the record in activeExecutions, just as during the three-second grace period.
+        invokeStart(settings)
+    }
+
+    fun testStartWithRunningInstanceIsRejected() {
+        val (settings, _) = registerConfigurationExecution()
+        assertStartRejected(settings)
+    }
+
+    fun testStartWithStoppingInstanceIsRejected() {
+        val (settings, handler) = registerConfigurationExecution()
+        handler.destroyProcess()
+        assertTrue(handler.isProcessTerminating)
+        assertStartRejected(settings)
+    }
+
+    private fun invokeStart(settings: RunnerAndConfigurationSettings) {
+        val projectId = IdeaBridgeService::class.java.getDeclaredMethod("projectId", com.intellij.openapi.project.Project::class.java)
+            .apply { isAccessible = true }.invoke(bridge, project) as String
+        val operation = IdeaBridgeService::class.java.getDeclaredMethod(
+            "startConfiguration", String::class.java, String::class.java, String::class.java,
+        ).apply { isAccessible = true }
+        try {
+            operation.invoke(bridge, projectId, settings.uniqueID, "run")
+        } catch (error: InvocationTargetException) {
+            throw error.targetException
+        }
+    }
+
+    private fun assertStartRejected(settings: RunnerAndConfigurationSettings) {
+        try {
+            invokeStart(settings)
+            fail("Expected non-parallel start to be rejected")
+        } catch (error: IllegalStateException) {
+            assertEquals("${settings.name} does not allow parallel execution", error.message)
+        }
     }
 
     fun testIdleUnauthenticatedClientsDoNotStarveMaintenance() {
@@ -123,12 +185,21 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
     }
 
     private fun registerDeletedConfigurationExecution(): RecordingProcessHandler {
+        val (settings, handler) = registerConfigurationExecution()
+        val manager = RunManager.getInstance(project)
+        manager.removeConfiguration(settings)
+        assertFalse(manager.allSettings.any { it.uniqueID == settings.uniqueID })
+        return handler
+    }
+
+    private fun registerConfigurationExecution(): Pair<RunnerAndConfigurationSettings, RecordingProcessHandler> {
         val manager = RunManager.getInstance(project)
         val settings = manager.createConfiguration(
             "deleted configuration",
             ConfigurationTypeUtil.findConfigurationType(CompoundRunConfigurationType::class.java).configurationFactories.first(),
         )
         manager.addConfiguration(settings)
+        settings.configuration.isAllowRunningInParallel = false
         val handler = RecordingProcessHandler().apply { startNotify() }
         // Seed the listener's retained execution record with a real project and handler.
         val executionClass = Class.forName("local.pannelhandle.bridge.ActiveExecution")
@@ -141,9 +212,7 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
         @Suppress("UNCHECKED_CAST")
         val executions = field.get(bridge) as MutableMap<String, Any>
         executions["instance"] = execution
-        manager.removeConfiguration(settings)
-        assertFalse(manager.allSettings.any { it.uniqueID == settings.uniqueID })
-        return handler
+        return settings to handler
     }
 
     private fun invokeBridge(method: String, instanceId: String) {
@@ -177,5 +246,7 @@ class IdeaBridgeServiceTest : BasePlatformTestCase() {
         override fun detachProcessImpl() { notifyProcessDetached() }
         override fun detachIsDefault() = false
         override fun getProcessInput(): OutputStream? = null
+
+        fun terminate() { notifyProcessTerminated(0) }
     }
 }

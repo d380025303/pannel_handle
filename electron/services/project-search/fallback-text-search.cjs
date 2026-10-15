@@ -60,7 +60,23 @@ async function listWslGitFiles({ spawnProcess, session, displayRoot, task }) {
     task
   });
   if (!output) return null;
-  return output.toString("utf-8").split("\0").filter((entry) => entry && !hasExcludedPathSegment(entry));
+  // --exclude-standard does not read .ignore. List its exclusions separately
+  // so the same rules also apply to tracked files, with nested/negated rules
+  // interpreted by Git rather than a second glob implementation.
+  const ignoredOutput = await collectProcessOutput({
+    spawnProcess,
+    command: "wsl.exe",
+    args: [
+      "-d", String(session.wslDistro || "").trim(),
+      "--cd", displayRoot, "--exec", "git", "ls-files",
+      "--cached", "--others", "--ignored", "--exclude-per-directory=.ignore", "-z"
+    ],
+    task
+  });
+  if (!ignoredOutput) return null;
+  const ignoredFiles = new Set(ignoredOutput.toString("utf-8").split("\0"));
+  return output.toString("utf-8").split("\0")
+    .filter((entry) => entry && !hasExcludedPathSegment(entry) && !ignoredFiles.has(entry));
 }
 
 async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task, options, matchLines = getLineMatches }) {

@@ -1,3 +1,4 @@
+const { mergeWslEnv } = require("../core/wsl-env.cjs");
 const { mergeEnvironment } = require("../services/environment/index.cjs");
 const os = require("node:os");
 const { normalizeAdditionalDirectories } = require("../services/opencode-acp/additional-directories.cjs");
@@ -215,23 +216,6 @@ async function listWslDistros(runFile = execFile) {
     console.error("Failed to list WSL distros:", err);
     return [];
   }
-}
-
-function appendWslEnv(existingValue, variableNames) {
-  const entries = String(existingValue || "")
-    .split(":")
-    .map(entry => entry.trim())
-    .filter(Boolean);
-  const knownNames = new Set(entries.map(entry => entry.split("/")[0]));
-
-  for (const variableName of variableNames) {
-    if (!knownNames.has(variableName)) {
-      entries.push(`${variableName}/u`);
-      knownNames.add(variableName);
-    }
-  }
-
-  return entries.join(":");
 }
 
 function stripAnsi(value) {
@@ -729,6 +713,8 @@ function createTerminalManager({
         onHostVerification: (result) => {
           if (result.trustedFirstUse) {
             appendTerminalData(session, `\r\nSSH host key trusted: ${result.fingerprint}\r\n`);
+          } else if (result.accepted === false && result.error) {
+            appendTerminalData(session, `\r\n${result.error}\r\n`);
           } else if (result.accepted === false) {
             appendTerminalData(session, `\r\nSSH host key mismatch. Expected ${result.expectedFingerprint}, got ${result.fingerprint}.\r\n`);
           }
@@ -775,7 +761,7 @@ function createTerminalManager({
 
     if (session.type === "wsl") {
       const externalCodeBuddy = session.agentProvider === "codebuddy" && session.modelSource && session.modelSource !== "native";
-      env.WSLENV = appendWslEnv(String(env.WSLENV || "").split(":").filter(entry => !Object.hasOwn(configuredEnv, entry.split("/")[0]) && !(externalCodeBuddy && entry.split("/")[0] === "CODEBUDDY_AUTH_TOKEN")).join(":"), [
+      env.WSLENV = mergeWslEnv(env.WSLENV, [
         ...Object.keys(configuredEnv).filter(name => !(externalCodeBuddy && name === "CODEBUDDY_AUTH_TOKEN")),
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
@@ -787,7 +773,7 @@ function createTerminalManager({
           "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
           "OTEL_RESOURCE_ATTRIBUTES"
         ] : [])
-      ]);
+      ], externalCodeBuddy ? ["CODEBUDDY_AUTH_TOKEN"] : []);
     }
 
     session.runtimeCwd = options.runtimeCwd || (session.type === "wsl" ? os.homedir() : session.cwd);

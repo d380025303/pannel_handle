@@ -14,7 +14,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
   }
   function list(id) {
     template(id);
-    return (store.getSchedulerState(id).tasks || []).map(task => ({ ...task, lastRun: visibleRun(task) }));
+    return (store.getSchedulerState(id).tasks || []).map(task => ({ ...task, autoCloseSession: task.autoCloseSession === true, lastRun: visibleRun(task) }));
   }
   function write(id, tasks) { store.tasks(id, tasks, { returnSnapshot: false }); return list(id); }
   function save(id, input) {
@@ -25,7 +25,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     if (parsed.enabled && !supported(template(id))) throw new Error("仅支持本机 Windows Codex 图形模板且须配置项目目录。");
     const next = nextRun(parsed.schedule, now());
     const reenabled = old && !old.enabled && parsed.enabled;
-    const task = { ...old, ...parsed, id: old?.id || randomUUID(), executedCount: reenabled ? 0 : old?.executedCount || 0 };
+    const task = { ...old, ...parsed, autoCloseSession: parsed.autoCloseSession ?? (old ? old.autoCloseSession === true : true), id: old?.id || randomUUID(), executedCount: reenabled ? 0 : old?.executedCount || 0 };
     if (parsed.promptTemplateId) {
       const source = store.promptTemplates().find(value => value.id === parsed.promptTemplateId);
       if (!source) throw new Error("提示词模板不存在，请刷新后重试。");
@@ -56,7 +56,7 @@ function createModuleOwnerScheduler({ store, template, supported, launch, job, s
     const copies = targets.map(ownerId => ({
       id: randomUUID(), ownerId, name: source.name, prompt: source.prompt, mode: source.mode,
       ...(source.promptTemplateId ? { promptTemplateId: source.promptTemplateId, promptTemplateVersion: source.promptTemplateVersion, promptTemplateSnapshot: source.promptTemplateSnapshot } : {}),
-      enabled: parsed.enabled, recordHistory: source.recordHistory === true, autoCreateWorkItem: source.autoCreateWorkItem !== false,
+      autoCloseSession: source.autoCloseSession === true, enabled: parsed.enabled, recordHistory: source.recordHistory === true, autoCreateWorkItem: source.autoCreateWorkItem !== false,
       tools: structuredClone(source.tools), schedule: structuredClone(source.schedule), executedCount: 0, nextRunAt
     }));
     return write(id, [...tasks, ...copies]);

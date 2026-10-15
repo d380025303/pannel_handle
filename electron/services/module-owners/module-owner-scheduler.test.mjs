@@ -129,7 +129,7 @@ it("copies latest configuration to distinct targets without carrying runtime sta
   expect(new Set(result.map(task => task.id)).size).toBe(4);
   for (const [index, ownerId] of ["second", "third"].entries()) {
     expect(f.getState().tasks[index + 2]).toEqual({ id: expect.any(String), ownerId, name: source.name, prompt: "最新提示词", mode: "plan", enabled: false,
-      recordHistory: true, autoCreateWorkItem: false, tools: ["update_module_owner"], schedule: source.schedule, executedCount: 0, nextRunAt: null });
+      recordHistory: true, autoCreateWorkItem: false, autoCloseSession: true, tools: ["update_module_owner"], schedule: source.schedule, executedCount: 0, nextRunAt: null });
   }
 });
 
@@ -215,4 +215,13 @@ it("does not count a manual uncertain run after late submission confirmation and
   await f.service.runTask("one", { id: task.id });
   expect(f.launch).toHaveBeenCalledTimes(2);
   await expect(f.service.runTask("one", { id: "missing" })).rejects.toThrow("不存在");
+});
+
+it("defaults new tasks on while legacy tasks and omitted edits stay off", () => {
+  const f = fixture(); const task = f.service.save("one", f.input)[0];
+  expect(task.autoCloseSession).toBe(true);
+  delete f.getState().tasks[0].autoCloseSession;
+  expect(f.service.list("one")[0].autoCloseSession).toBe(false);
+  expect(f.service.save("one", { ...f.input, id: task.id })[0].autoCloseSession).toBe(false);
+  expect(f.service.save("one", { ...f.input, id: task.id, autoCloseSession: true })[0].autoCloseSession).toBe(true);
 });

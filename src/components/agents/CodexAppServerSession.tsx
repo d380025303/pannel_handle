@@ -125,6 +125,7 @@ export type CodexAppServerSessionHandle = {
 type CodexAppServerSessionProps = {
   sessionId: string;
   isActive?: boolean;
+  isCompleted?: boolean;
   minimalMode?: boolean;
   session?: TerminalSession;
   sessionType?: "windows" | "wsl" | "ssh";
@@ -139,7 +140,7 @@ type CodexAppServerSessionProps = {
   onSwitchCodexModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, minimalMode = false, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, isCompleted = false, minimalMode = false, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -233,6 +234,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const messagesRef = useRef<HTMLDivElement>(null);
   const wasActiveRef = useRef(false);
   const followMessagesRef = useRef(true);
+  const completedScrollRef = useRef<{ sessionId: string; threadId: string | null; top: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileSearchRequestRef = useRef(0);
@@ -459,16 +461,23 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     if (fileMention && fileResults[selectedFileIndex]) fileResultRefs.current[selectedFileIndex]?.scrollIntoView?.({ block: "nearest" });
   }, [fileMention, fileResults, selectedFileIndex]);
   useLayoutEffect(() => {
+    const savedScroll = completedScrollRef.current;
+    if (!isCompleted || savedScroll && (savedScroll.sessionId !== sessionId || savedScroll.threadId !== snapshot.threadId)) {
+      completedScrollRef.current = null;
+    }
     if (!isActive) { wasActiveRef.current = false; return; }
     const messages = messagesRef.current;
     if (!messages) return;
     const becameActive = !wasActiveRef.current;
     wasActiveRef.current = true;
-    if (becameActive || followMessagesRef.current) {
+    if (becameActive && completedScrollRef.current) {
+      messages.scrollTop = completedScrollRef.current.top;
+      followMessagesRef.current = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
+    } else if (becameActive || followMessagesRef.current) {
       followMessagesRef.current = true;
       messages.scrollTop = messages.scrollHeight;
     }
-  }, [isActive, snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
+  }, [isActive, isCompleted, sessionId, snapshot.threadId, snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
     if (!previewFile || !snapshot.threadId) return;
     let active = true;
@@ -1432,7 +1441,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite" onScroll={event => {
-      if (isActive) followMessagesRef.current = event.currentTarget.scrollHeight - event.currentTarget.clientHeight - event.currentTarget.scrollTop <= 32;
+      if (!isActive) return;
+      const messages = event.currentTarget;
+      followMessagesRef.current = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
+      if (isCompleted) completedScrollRef.current = { sessionId, threadId: snapshot.threadId, top: messages.scrollTop };
     }}>
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><div className="codex-app-server-empty-welcome"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>我是 {agentName}，有什么需要完成？</h2></div>{canCheckVersion && <CodexVersionControl key={`${sessionId}:${snapshot.threadId}:${versionProvider}`} sessionId={sessionId} provider={versionProvider!} />}</div>}
       {timeline.map(entry => {

@@ -270,6 +270,49 @@ describe("agent token live statistics", () => {
     expect(harness.service.getLive("panel-1")).toBeNull();
   });
 
+  it("keeps live Gemini checkpoint revisions, deletions and rewinds aligned with history", async () => {
+    const { createAgentConversationManager } = require("../../core/agent-conversation-manager.cjs");
+    const { materializeGeminiMessages } = require("../conversation-history/local-gemini-history.cjs");
+    const { parseAgentConversationText } = require("../conversation-history/agent-conversation-transcript.cjs");
+    const events = [];
+    const sink = createAgentConversationManager({ broadcast: (channel, payload) => events.push({ channel, payload }) });
+    sink.setActiveSession("panel-1");
+    const harness = createHarness({ conversationSink: sink });
+    const session = { ...harness.session, agentProvider: "gemini" };
+    harness.service.handleHook({ provider: "gemini", session,
+      input: { ...harness.input, hook_event_name: "BeforeAgent" } });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+    const message = (id, content) => ({ id, type: "gemini", content, timestamp: 1 });
+    const records = [];
+    try {
+      for (const record of [
+        { id: "u", type: "user", content: "问题", timestamp: 1 },
+        message("a", "旧回复"),
+        { $set: { messages: [{ id: "u", type: "user", content: "问题", timestamp: 1 }, message("a", "修订回复")] } },
+        message("b", "待删除"),
+        { $set: { messages: [message("a", "修订回复")] } },
+        message("b", "再次添加"), message("c", "后续回复"),
+        { $rewindTo: { id: "b" } }, message("b", "回退后重写"),
+        { $rewindTo: "missing" }, message("a", "直接修订"),
+        { $rewindTo: "a" }, { $set: { messages: [] } }
+      ]) {
+        records.push(record);
+        const eventCount = events.length;
+        harness.files.append(JSON.stringify(record) + "\n");
+        await harness.intervals[0]();
+        await vi.waitFor(() => expect(events.length).toBeGreaterThan(eventCount));
+        const expected = materializeGeminiMessages(records).map(item => [item.id, item.content]);
+        await vi.waitFor(() => expect(sink.getTurn("panel-1").messages.map(item => [item.id, item.text])).toEqual(expected));
+        expect(parseAgentConversationText("gemini", records.map(item => JSON.stringify(item)).join("\n"), { includeUser: true })
+          .map(item => [item.id, item.text])).toEqual(expected);
+        if (record.$set || record.$rewindTo || record.content === "直接修订") {
+          expect(events.at(-1).channel).toBe("agent-conversation:snapshot");
+          expect(events.at(-1).payload.turn.messages.map(item => [item.id, item.text])).toEqual(expected);
+        }
+      }
+    } finally { harness.service.shutdown(); }
+  });
+
   it("emits only current-turn Codex conversation messages through the live reader", async () => {
     const oldMessage = `${JSON.stringify({ type: "response_item", payload: { type: "message", id: "old", role: "assistant", phase: "final", content: [{ type: "output_text", text: "old" }] } })}\n`;
     const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn(), clearSession: vi.fn() };

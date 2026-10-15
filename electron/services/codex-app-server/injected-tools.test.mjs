@@ -31,6 +31,32 @@ describe("injected tool callbacks", () => {
     const f = fixture(vi.fn(async () => response)); await f.tools.call(1, params);
     expect(f.respond.mock.calls[0][1].success).toBe(false);
   });
+  it("reports HTTP callback errors without exposing the bearer token", async () => {
+    const f = fixture(vi.fn(async () => new Response(JSON.stringify({ error: { code: "tool_callback_failed", message: "负责人工具授权已失效。 private-token" } }), { status: 401 })));
+    await f.tools.call(1, params);
+    const output = f.respond.mock.calls[0][1].contentItems[0].text;
+    expect(output).toContain("HTTP 401"); expect(output).toContain("负责人工具授权已失效");
+    expect(output).not.toContain("private-token");
+  });
+  it.each([
+    [async () => { throw new Error("private-token"); }, "网络请求失败"],
+    [async () => new Response("bad json"), "响应格式无效"],
+    [async () => new Response("bad gateway private-token", { status: 502 }), "HTTP 502"]
+  ])("distinguishes transport failures without exposing raw payloads", async (fetchRequest, message) => {
+    const f = fixture(vi.fn(fetchRequest)); await f.tools.call(1, params);
+    expect(f.respond.mock.calls[0][1].contentItems[0].text).toContain(message);
+    expect(JSON.stringify(f.respond.mock.calls)).not.toContain("private-token");
+  });
+  it("cancels the old turn but allows a new turn with the same tool permissions", async () => {
+    let resolve;
+    const f = fixture(vi.fn().mockImplementationOnce(() => new Promise(done => { resolve = done; }))
+      .mockImplementationOnce(async () => new Response(JSON.stringify({ success: true, output: "continued" }))));
+    const first = f.tools.call(1, params); f.tools.cancel();
+    resolve(new Response(JSON.stringify({ success: true, output: "late" }))); await first;
+    expect(f.respond).not.toHaveBeenCalled();
+    await f.tools.call(2, { ...params, turnId: "next-turn" });
+    expect(f.respond).toHaveBeenCalledWith(2, expect.objectContaining({ success: true }));
+  });
   it("returns business errors without treating them as transport failures", async () => {
     const f = fixture(vi.fn(async () => new Response(JSON.stringify({ success: false, output: "missing order" }))));
     await f.tools.call(1, params); expect(f.respond.mock.calls[0][1]).toMatchObject({ success: false, contentItems: [{ text: "missing order" }] });

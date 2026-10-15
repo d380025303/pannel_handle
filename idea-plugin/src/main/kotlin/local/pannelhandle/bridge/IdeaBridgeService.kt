@@ -297,7 +297,9 @@ class IdeaBridgeService : Disposable {
         if (ProgramRunner.getRunner(executor.id, settings.configuration) == null) {
             throw IllegalStateException("${settings.name} does not support ${mode.uppercase()}")
         }
-        val running = activeExecutions.values.any { it.project == project && it.configurationId == settings.uniqueID }
+        val running = activeExecutions.values.any {
+            it.project == project && it.configurationId == settings.uniqueID && !it.handler.isProcessTerminated
+        }
         if (!settings.configuration.isAllowRunningInParallel && running) {
             throw IllegalStateException("${settings.name} does not allow parallel execution")
         }
@@ -351,12 +353,15 @@ class IdeaBridgeService : Disposable {
     private fun projectSnapshot(project: Project): ProjectSnapshot {
         val projectId = projectId(project)
         val manager = RunManager.getInstance(project)
-        val configurations = manager.allSettings.mapNotNull { settings ->
+        val settingsList = manager.allSettings
+        val executionsByConfiguration = activeExecutions.values
+            .filter { it.project == project }
+            .groupBy { it.configurationId }
+        val configurations = settingsList.mapNotNull { settings ->
             val supportsRun = ProgramRunner.getRunner(DefaultRunExecutor.EXECUTOR_ID, settings.configuration) != null
             val supportsDebug = ProgramRunner.getRunner(DefaultDebugExecutor.EXECUTOR_ID, settings.configuration) != null
             if (!supportsRun && !supportsDebug) return@mapNotNull null
-            val executions = activeExecutions.values
-                .filter { it.project == project && it.configurationId == settings.uniqueID }
+            val executions = executionsByConfiguration[settings.uniqueID].orEmpty()
             ConfigurationSnapshot(
                 id = settings.uniqueID,
                 name = settings.name,
@@ -366,26 +371,46 @@ class IdeaBridgeService : Disposable {
                 allowParallel = settings.configuration.isAllowRunningInParallel,
                 supportsRun = supportsRun,
                 supportsDebug = supportsDebug,
-                instances = executions.map { execution ->
-                    val handler = execution.handler
-                    val mode = if (execution.executor.id == DefaultDebugExecutor.EXECUTOR_ID) "debug" else "run"
-                    ExecutionInstanceSnapshot(
-                        id = execution.id,
-                        executionId = execution.executionId,
-                        name = execution.configurationName,
-                        mode = mode,
-                        status = when {
-                            handler.isProcessTerminated -> "terminated"
-                            handler.isProcessTerminating -> "stopping"
-                            handler.isStartNotified -> "running"
-                            else -> "starting"
-                        },
-                        startedAt = execution.startedAt,
-                    )
-                }.sortedBy { it.startedAt },
+                instances = executions.map(::executionSnapshot).sortedBy { it.startedAt },
             )
-        }.sortedWith(compareBy({ it.folderName ?: "" }, { it.name.lowercase() }))
-        return ProjectSnapshot(projectId, project.name, project.basePath ?: "", configurations)
+        }
+        // Processes outlive deleted settings. Keep their individual stop controls reachable.
+        val settingsIds = settingsList.map { it.uniqueID }.toSet()
+        val orphanedConfigurations = executionsByConfiguration
+            .filterKeys { it !in settingsIds }
+            .map { (configurationId, executions) ->
+                ConfigurationSnapshot(
+                    id = configurationId,
+                    name = executions.first().configurationName,
+                    type = "Configuration removed",
+                    folderName = null,
+                    temporary = false,
+                    allowParallel = false,
+                    supportsRun = false,
+                    supportsDebug = false,
+                    instances = executions.map(::executionSnapshot).sortedBy { it.startedAt },
+                )
+            }
+        val visibleConfigurations = (configurations + orphanedConfigurations)
+            .sortedWith(compareBy({ it.folderName ?: "" }, { it.name.lowercase() }))
+        return ProjectSnapshot(projectId, project.name, project.basePath ?: "", visibleConfigurations)
+    }
+
+    private fun executionSnapshot(execution: ActiveExecution): ExecutionInstanceSnapshot {
+        val handler = execution.handler
+        return ExecutionInstanceSnapshot(
+            id = execution.id,
+            executionId = execution.executionId,
+            name = execution.configurationName,
+            mode = if (execution.executor.id == DefaultDebugExecutor.EXECUTOR_ID) "debug" else "run",
+            status = when {
+                handler.isProcessTerminated -> "terminated"
+                handler.isProcessTerminating -> "stopping"
+                handler.isStartNotified -> "running"
+                else -> "starting"
+            },
+            startedAt = execution.startedAt,
+        )
     }
 
     private fun findExecution(instanceId: String): ActiveExecution {

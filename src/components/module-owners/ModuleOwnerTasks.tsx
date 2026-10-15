@@ -3,7 +3,7 @@ import { TaskRunHistory } from "./TaskRunHistory";
 import { OwnerDialog } from "./OwnerDialog";
 import type { ModuleOwnerPromptTemplate, ModuleOwnerRecord, ModuleOwnerTask, ModuleOwnerTaskInput } from "../../vite-env";
 
-const blank = (ownerId: string): ModuleOwnerTaskInput => ({ ownerId, name: "", prompt: "", mode: "default", enabled: false, recordHistory: false, autoCreateWorkItem: true,
+const blank = (ownerId: string): ModuleOwnerTaskInput => ({ ownerId, name: "", prompt: "", mode: "default", enabled: false, recordHistory: false, autoCreateWorkItem: true, autoCloseSession: true,
   tools: [], schedule: { kind: "cron", cron: "0 * * * *" } });
 const labels: Record<string, string> = { creating: "创建中", running: "运行中", uncertain: "创建结果待确认", failed: "失败", completed: "已结束", stopped: "已停止", skipped: "已跳过" };
 
@@ -38,7 +38,7 @@ export function ModuleOwnerTasks({ templateId, ownerId, owners, supported, busy,
     return () => { live = false; clearInterval(timer); unsubscribe(); };
   }, [templateId]);
   function input(task: ModuleOwnerTask): ModuleOwnerTaskInput {
-    return { id: task.id, ownerId: task.ownerId, name: task.name, prompt: task.prompt, ...(task.promptTemplateId ? { promptTemplateId: task.promptTemplateId } : {}), mode: task.mode, enabled: task.enabled, recordHistory: task.recordHistory === true, autoCreateWorkItem: task.autoCreateWorkItem !== false, tools: task.tools, schedule: task.schedule };
+    return { id: task.id, ownerId: task.ownerId, name: task.name, prompt: task.prompt, ...(task.promptTemplateId ? { promptTemplateId: task.promptTemplateId } : {}), mode: task.mode, enabled: task.enabled, autoCloseSession: task.autoCloseSession === true, recordHistory: task.recordHistory === true, autoCreateWorkItem: task.autoCreateWorkItem !== false, tools: task.tools, schedule: task.schedule };
   }
   return <><div className="module-owners-dialog-body module-owners-task-list">
     <div className="module-owners-task-toolbar">
@@ -140,11 +140,12 @@ export function ModuleOwnerTasks({ templateId, ownerId, owners, supported, busy,
         </div>
         </div>
         <div className="module-owners-task-full module-owners-task-options">
+        <label className="module-owners-check"><input type="checkbox" checked={draft.autoCloseSession === true} onChange={event => setDraft({ ...draft, autoCloseSession: event.target.checked })} />执行完成后自动关闭实例会话</label>
         <label className="module-owners-check"><input type="checkbox" checked={draft.autoCreateWorkItem !== false} onChange={event => setDraft({ ...draft, autoCreateWorkItem: event.target.checked })} />自动生成任务</label>
         <label className="module-owners-check"><input type="checkbox" checked={draft.recordHistory === true} onChange={event => setDraft({ ...draft, recordHistory: event.target.checked })} />记录到历史记录</label>
         <label className="module-owners-check"><input type="checkbox" checked={draft.enabled} disabled={!supported} onChange={event => setDraft({ ...draft, enabled: event.target.checked })} />启用任务</label>
         </div>
-        <p className="module-owners-task-full module-owners-task-hint">关闭自动生成任务后仍按周期执行，最终回复不进入任务列表；历史记录由上方开关独立控制。</p>
+        <p className="module-owners-task-full module-owners-task-hint">仅成功完成且全过程无错误时自动关闭；发生错误保留会话并提醒。关闭自动生成任务后仍按周期执行，最终回复不进入任务列表；历史记录由上方开关独立控制。</p>
       </fieldset>
       </div>
       <footer className="module-owners-dialog-footer"><button type="button" disabled={busy} onClick={closeEditor}>取消编辑</button><button type="submit" disabled={busy}>{busy ? "保存中…" : "保存任务"}</button></footer>

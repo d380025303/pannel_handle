@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PostgresBackupSettings } from "./PostgresBackupSettings";
+import type { PostgresBackupConfig } from "../../vite-env";
 
 const config = { deviceId: "device-a", deviceName: "办公电脑", enabled: false,
   host: "localhost", port: 5432, database: "backups", user: "backup_user", ssl: false,
@@ -9,6 +10,43 @@ const config = { deviceId: "device-a", deviceName: "办公电脑", enabled: fals
 
 describe("PostgresBackupSettings", () => {
   afterEach(cleanup);
+
+  it("preserves unsaved fields through backup start and finish notifications", async () => {
+    const saved = { ...config, host: "saved-host", enabled: true };
+    let notify!: (next: PostgresBackupConfig) => void;
+    const saveConfig = vi.fn(async input => ({ ...saved, ...input }));
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
+      getConfig: async () => saved, saveConfig,
+      onChanged: (callback: typeof notify) => { notify = callback; return () => undefined; }
+    } });
+    render(<PostgresBackupSettings />);
+    await screen.findByLabelText("主机");
+    fireEvent.change(screen.getByLabelText("主机"), { target: { value: "new-host" } });
+    fireEvent.change(screen.getByLabelText("数据库"), { target: { value: "new-database" } });
+    fireEvent.click(screen.getByLabelText("启用自动备份"));
+    const expectDraft = () => {
+      expect((screen.getByLabelText("主机") as HTMLInputElement).value).toBe("new-host");
+      expect((screen.getByLabelText("数据库") as HTMLInputElement).value).toBe("new-database");
+      expect((screen.getByLabelText("启用自动备份") as HTMLInputElement).checked).toBe(false);
+    };
+    act(() => notify({ ...saved, running: true, pendingSources: ["remote-source"] }));
+    expect(screen.getByText("正在备份")).toBeTruthy();
+    expect(screen.getByText("1 个远程来源待重连后同步")).toBeTruthy();
+    expectDraft();
+    const lastSuccessAt = Date.now();
+    act(() => notify({ ...saved, lastSuccessAt, lastError: "backup error" }));
+    expect(screen.queryByText("正在备份")).toBeNull();
+    expect(screen.queryByText("1 个远程来源待重连后同步")).toBeNull();
+    expect(screen.getByText(new Date(lastSuccessAt).toLocaleString())).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("backup error");
+    expectDraft();
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      host: "new-host", database: "new-database", enabled: false
+    })));
+    expect(await screen.findByText("设置已保存")).toBeTruthy();
+    expectDraft();
+  });
 
   it("saves connection and passphrase, then restores a selected snapshot as a copy", async () => {
     const saveConfig = vi.fn(async input => ({ ...config, ...input, hasPassword: true, hasPassphrase: true }));

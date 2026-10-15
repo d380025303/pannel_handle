@@ -18,6 +18,7 @@ describe("model services settings", () => {
     listModels: vi.fn().mockImplementation(async () => models.map(model => model.id === "vendor/model" ? { ...model, verification: { ...verification } } : model)),
     refreshModels: vi.fn().mockImplementation(async () => models),
     saveApiKey: vi.fn().mockResolvedValue({ hasApiKey: true }),
+    syncOpenCodeModels: vi.fn().mockResolvedValue({}),
     clearApiKey: vi.fn().mockResolvedValue({ hasApiKey: false }),
     test: vi.fn().mockResolvedValue({ ok: true }),
     verifyModels: vi.fn().mockImplementation(async () => {
@@ -36,6 +37,44 @@ describe("model services settings", () => {
     for (const name of ["openRouterApi", "naraRouterApi", "miniMaxApi"] as const) Object.defineProperty(window, name, { configurable: true, value: makeApi() });
   });
   afterEach(cleanup);
+
+  it.each(["openrouter", "nararouter", "minimax"] as const)("refreshes %s credentials after sync failure and retries independently", async provider => {
+    const api = provider === "openrouter" ? window.openRouterApi : provider === "nararouter" ? window.naraRouterApi : window.miniMaxApi;
+    vi.mocked(api.clearApiKey).mockImplementation(async () => {
+      vi.mocked(api.getConfig).mockResolvedValue({ hasApiKey: false });
+      return { hasApiKey: false, openCodeSyncError: "invalid JSON" };
+    });
+    renderSettings(provider);
+    const region = await screen.findByRole("region", { name: "配置连接" });
+    await screen.findByText("API Key 已配置");
+    const buttons = within(region).getAllByRole("button");
+    fireEvent.click(buttons[2]);
+    await screen.findByText(/invalid JSON/);
+    expect(screen.getByText("尚未配置")).toBeTruthy();
+    expect((buttons[2] as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "重试 OpenCode 同步" }));
+    await screen.findByText("OpenCode 配置已同步。");
+    expect(screen.queryByText(/invalid JSON/)).toBeNull();
+    expect(api.clearApiKey).toHaveBeenCalledTimes(1);
+    expect(api.saveApiKey).not.toHaveBeenCalled();
+    expect(api.syncOpenCodeModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes saved credentials even when OpenCode sync fails", async () => {
+    vi.mocked(window.openRouterApi.getConfig).mockResolvedValue({ hasApiKey: false });
+    vi.mocked(window.openRouterApi.saveApiKey).mockImplementation(async () => {
+      vi.mocked(window.openRouterApi.getConfig).mockResolvedValue({ hasApiKey: true });
+      return { hasApiKey: true, openCodeSyncError: "sync failed" };
+    });
+    renderSettings("openrouter");
+    await screen.findByText("尚未配置");
+    fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await screen.findByText(/sync failed/);
+    expect(screen.getByText("API Key 已配置")).toBeTruthy();
+    expect((screen.getByLabelText("OpenRouter API Key") as HTMLInputElement).value).toBe("");
+    expect(screen.getByText("OpenRouter API Key 已安全保存。")).toBeTruthy();
+  });
 
   it("switches provider without mixing credentials or catalogs", async () => {
     renderSettings();

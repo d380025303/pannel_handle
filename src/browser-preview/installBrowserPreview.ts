@@ -125,11 +125,38 @@ const initialTransfers: FileTransferTask[] = [
   }
 ];
 
-const remoteEntries: RemoteFileEntry[] = [
-  { name: "src", path: "/srv/pannel-handle/src", type: "directory", size: 0, modifiedAt: now - 60_000 },
-  { name: "package.json", path: "/srv/pannel-handle/package.json", type: "file", size: 2_846, modifiedAt: now - 120_000 },
-  { name: "README.md", path: "/srv/pannel-handle/README.md", type: "file", size: 6_420, modifiedAt: now - 300_000 }
-];
+const previewEntries = [
+  { relativePath: "src", type: "directory", size: 0 },
+  { relativePath: "src/App.tsx", type: "file", size: 31_220 },
+  { relativePath: "src/components", type: "directory", size: 0 },
+  { relativePath: "src/components/agents", type: "directory", size: 0 },
+  { relativePath: "src/components/agents/CodexAppServerSession.tsx", type: "file", size: 12_480 },
+  { relativePath: "electron", type: "directory", size: 0 },
+  { relativePath: "package.json", type: "file", size: 2_846 },
+  { relativePath: "README.md", type: "file", size: 6_420 }
+] as const;
+
+function normalizePreviewPath(path: string) {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function workspaceEntries(rootPath: string) {
+  const root = normalizePreviewPath(rootPath);
+  return previewEntries.map((entry) => ({
+    ...entry,
+    name: entry.relativePath.split("/").pop()!,
+    path: `${root}/${entry.relativePath}`,
+    modifiedAt: now
+  }));
+}
+
+function listPreviewDirectory(path: string): RemoteFileEntry[] {
+  const normalized = normalizePreviewPath(path);
+  const directory = previewEntries.find((entry) => entry.type === "directory"
+    && normalized.endsWith(`/${entry.relativePath}`));
+  const root = directory ? normalized.slice(0, -directory.relativePath.length - 1) : normalized;
+  return workspaceEntries(root).filter((entry) => entry.path.slice(0, entry.path.lastIndexOf("/")) === normalized);
+}
 
 const gitStatusFile = {
   status: " M",
@@ -290,6 +317,7 @@ export function installBrowserPreview() {
       listModels: async () => copy(state.models),
       refreshModels: async () => copy(state.models),
       saveApiKey: async () => ({ ...state.config, hasApiKey: true }),
+      syncOpenCodeModels: async () => ({}),
       clearApiKey: async () => ({ ...state.config, hasApiKey: false }),
       test: async () => ({ ok: true }),
       verifyModels: async ({ modelIds }) => modelIds.map((id) => ({ modelId: id, status: "passed", checkedAt: Date.now() })),
@@ -411,7 +439,7 @@ export function installBrowserPreview() {
 
   const remoteFileApi: Window["remoteFileApi"] = {
     getHome: async (sessionId) => sessions.find((session) => session.id === sessionId)?.type === "ssh" ? "/home/deploy" : "C:\\workspace\\pannel-handle",
-    list: async (_sessionId, remotePath) => remotePath.endsWith("/src") ? [{ name: "App.tsx", path: `${remotePath}/App.tsx`, type: "file", size: 31_220, modifiedAt: now }] : copy(remoteEntries),
+    list: async (_sessionId, remotePath) => listPreviewDirectory(remotePath),
     readText: async (_sessionId, remotePath) => ({ kind: "text", size: 160, content: `# ${remotePath.split(/[\\/]/).pop()}\n\n这是浏览器预览中的示例文件。\n`, version: "preview-v1", encoding: "utf-8", bom: false, eol: "lf" }),
     previewFile: async (_sessionId, remotePath) => ({ kind: "text", size: 160, content: `# ${remotePath}\n\n浏览器预览内容。\n`, version: "preview-v1", encoding: "utf-8", bom: false, eol: "lf" }),
     releasePreview: async () => true,
@@ -763,7 +791,7 @@ export function installBrowserPreview() {
       claim: async () => { checkClaim("codebuddy"); const alreadyCheckedIn = workBuddyCheckedIn; workBuddyCheckedIn = true; return { alreadyCheckedIn, status: workBuddyStatus() }; }
     } satisfies Window["workBuddyCheckinApi"],
     agentTokenStatsApi: {
-      getDashboard: async (options) => { const tokens = { inputTokens: 48_000, cachedInputTokens: 12_000, cacheWriteInputTokens: 0, outputTokens: 8_000, reasoningOutputTokens: 2_400, totalTokens: 58_400 }; return { generatedAt: Date.now(), range: options?.range || "7d", provider: options?.provider || "all", summary: { sessionCount: 3, averageTokens: 19_467, skillCalls: 4, mcpCalls: 7, tokens }, dailyTrend: [{ date: new Date(now).toISOString().slice(0, 10), tokens }], providerBreakdown: [{ provider: "codex", sessionCount: 3, tokens }], topSkills: [{ name: "UI Review", count: 4 }], topMcpServers: [{ name: "filesystem", count: 7, tools: [{ name: "read_file", count: 7 }] }], sessions: [], totalCount: 3, offset: options?.offset || 0, limit: options?.limit || 20 }; },
+      getDashboard: async (options) => { const tokens = { inputTokens: 48_000, cachedInputTokens: 12_000, cacheWriteInputTokens: 0, outputTokens: 8_000, reasoningOutputTokens: 2_400, totalTokens: 58_400 }; return { generatedAt: Date.now(), range: options?.range || "7d", ...(options?.range === "custom" ? { startDate: options.startDate, endDate: options.endDate, timeZone: "Asia/Shanghai" as const, approximate: true } : {}), provider: options?.provider || "all", summary: { sessionCount: 3, averageTokens: 19_467, skillCalls: 4, mcpCalls: 7, tokens }, dailyTrend: [{ date: options?.range === "custom" ? options.startDate! : new Date(now).toISOString().slice(0, 10), tokens }], providerBreakdown: [{ provider: "codex", sessionCount: 3, tokens }], topSkills: [{ name: "UI Review", count: 4 }], topMcpServers: [{ name: "filesystem", count: 7, tools: [{ name: "read_file", count: 7 }] }], sessions: [], totalCount: 3, offset: options?.offset || 0, limit: options?.limit || 20 }; },
       getLive: async (sessionId) => ({ panelSessionId: sessionId, provider: "codex", state: "generating", tokens: { inputTokens: 12_000, cachedInputTokens: 4_000, cacheWriteInputTokens: 0, outputTokens: 1_800, reasoningOutputTokens: 600, totalTokens: 14_400 }, capabilities: { skills: { availability: "available", totalCalls: 2, items: [{ name: "UI Review", count: 2 }] }, mcp: { availability: "available", totalCalls: 3, servers: [{ name: "filesystem", count: 3, tools: [{ name: "read_file", count: 3 }] }] } }, turnOutputTokens: 320, outputTokensPerSecond: 18.4, models: ["gpt-5"], updatedAt: Date.now() }),
       clear: async () => true,
       onChanged: () => () => undefined,
@@ -807,17 +835,12 @@ export function installBrowserPreview() {
     projectSearchApi: {
       searchWorkspaceEntries: async (_sessionId, query, rootPath = "C:\\workspace\\pannel-handle", options = {}) => ({
         root: rootPath,
-        results: [
-          { path: `${rootPath}\\src`, relativePath: "src", name: "src", type: "directory" as const },
-          { path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx", type: "file" as const },
-          { path: `${rootPath}\\src\\components\\agents`, relativePath: "src/components/agents", name: "agents", type: "directory" as const },
-          { path: `${rootPath}\\src\\components\\agents\\CodexAppServerSession.tsx`, relativePath: "src/components/agents/CodexAppServerSession.tsx", name: "CodexAppServerSession.tsx", type: "file" as const }
-        ].filter((item) => (!options.entryType || options.entryType === "all" || options.entryType === item.type)
+        results: workspaceEntries(rootPath).filter((item) => (!options.entryType || options.entryType === "all" || options.entryType === item.type)
           && (!query || item.relativePath.toLowerCase().includes(query.toLowerCase())))
       }),
-      listDirectories: async (_sessionId, rootPath) => ({ workspaceRoot: "C:\\workspace\\pannel-handle", path: rootPath, directories: [{ name: "src", path: `${rootPath}\\src` }, { name: "electron", path: `${rootPath}\\electron` }] }),
-      searchFiles: async (_sessionId, query, rootPath) => ({ root: rootPath, results: [{ path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx" }, { path: `${rootPath}\\package.json`, relativePath: "package.json", name: "package.json" }].filter((item) => item.name.toLowerCase().includes(query.toLowerCase())) }),
-      searchText: async (_sessionId, query, _requestId, rootPath) => ({ root: rootPath, results: [{ path: `${rootPath}\\src\\App.tsx`, relativePath: "src/App.tsx", name: "App.tsx", lineNumber: 42, line: `const preview = "${query}";`, matchStart: 17, matchLength: query.length }], engine: "ripgrep" }),
+      listDirectories: async (_sessionId, rootPath) => ({ workspaceRoot: normalizePreviewPath(rootPath), path: normalizePreviewPath(rootPath), directories: listPreviewDirectory(rootPath).filter((entry) => entry.type === "directory") }),
+      searchFiles: async (_sessionId, query, rootPath) => ({ root: rootPath, results: workspaceEntries(rootPath).filter((entry) => entry.type === "file" && entry.name.toLowerCase().includes(query.toLowerCase())) }),
+      searchText: async (_sessionId, query, _requestId, rootPath) => ({ root: rootPath, results: workspaceEntries(rootPath).filter((entry) => entry.relativePath === "src/App.tsx").map((entry) => ({ ...entry, lineNumber: 42, line: `const preview = "${query}";`, matchStart: 17, matchLength: query.length })), engine: "ripgrep" }),
       cancelFileSearch: async () => true,
       cancelTextSearch: async () => true
     } satisfies Window["projectSearchApi"],

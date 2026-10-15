@@ -205,17 +205,22 @@ function registerRemoteFileIpcHandlers({
     const destination = result.filePaths[0];
     const directories = new Set();
     const requests = new Map();
-    const seenTypes = new Map();
+    const seenTargets = new Map();
     async function collect(entry, relativeParent = "") {
       const name = getDownloadFileName(entry.name, entry.path, pathApi);
       const relativePath = pathApi.join(relativeParent, name);
       const localPath = pathApi.resolve(destination, relativePath);
       const destinationRoot = pathApi.resolve(destination);
-      if (!localPath.startsWith(`${destinationRoot}${pathApi.sep}`)) throw new Error("Invalid download path.");
+      const destinationPrefix = destinationRoot.endsWith(pathApi.sep) ? destinationRoot : `${destinationRoot}${pathApi.sep}`;
+      if (localPath === destinationRoot || !localPath.startsWith(destinationPrefix)) throw new Error("Invalid download path.");
       const key = localPath.toLowerCase();
       const kind = entry.type === "directory" ? "directory" : "file";
-      if (seenTypes.has(key) && seenTypes.get(key) !== kind) throw new Error(`Download name conflict: ${relativePath}`);
-      seenTypes.set(key, kind);
+      const previous = seenTargets.get(key);
+      if (previous && (previous.kind !== kind || previous.remotePath !== entry.path)) {
+        throw new Error(`Download name conflict: ${relativePath} (${previous.remotePath}, ${entry.path})`);
+      }
+      if (previous) return;
+      seenTargets.set(key, { kind, remotePath: entry.path });
       if (entry.type === "directory") {
         directories.add(localPath);
         const children = await remoteFileService.list(sessionId, entry.path);

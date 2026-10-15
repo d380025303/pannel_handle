@@ -7,7 +7,7 @@ import { runFallbackTextSearch } from "./fallback-text-search.cjs";
 import { createRipgrepInvocation, runRipgrepSearch } from "./ripgrep-search.cjs";
 
 describe("WSL fallback text search", () => {
-  it("includes ignored and excluded-directory files only when requested, while excluding VCS metadata", async () => {
+  it.each([false, true])("respects ignore rules and includeIgnored (with .ignore: %s)", async (withIgnore) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-wsl-fallback-"));
     const query = "unique-fallback-search-marker";
     try {
@@ -17,6 +17,17 @@ describe("WSL fallback text search", () => {
         const filePath = path.join(dir, relativePath);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, query);
+      }
+      if (withIgnore) {
+        fs.writeFileSync(path.join(dir, ".ignore"), "root-ignored.txt\ntracked-ignored.txt\n*.log\nblocked/\n");
+        fs.mkdirSync(path.join(dir, "nested"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "nested/.ignore"), "!keep.log\nlocal.txt\n");
+        fs.mkdirSync(path.join(dir, "blocked"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "blocked/.ignore"), "!hit.txt\n");
+        for (const name of ["root-ignored.txt", "tracked-ignored.txt", "drop.log", "nested/drop.log", "nested/keep.log", "nested/local.txt", "nested/normal.txt", "blocked/hit.txt"]) {
+          fs.writeFileSync(path.join(dir, name), query);
+        }
+        execFileSync("git", ["-C", dir, "add", "tracked-ignored.txt"]);
       }
       execFileSync("git", ["-C", dir, "add", "--force", "normal.txt", "dist/tracked.txt"]);
       const spawnProcess = vi.fn((command, args, options) => {
@@ -36,15 +47,16 @@ describe("WSL fallback text search", () => {
 
       const filtered = await search(false);
       expect(filtered.engine).toBe("fallback");
-      expect(filtered.results.map((entry) => entry.relativePath)).toEqual(["normal.txt"]);
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      expect(filtered.results.map((entry) => entry.relativePath)).toEqual(withIgnore ? ["nested/keep.log", "nested/normal.txt", "normal.txt"] : ["normal.txt"]);
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
 
       const inclusive = await search(true);
-      expect(inclusive.results.map((entry) => entry.relativePath).sort())
-        .toEqual(["dist/hit.txt", "dist/tracked.txt", "ignored.txt", "normal.txt"]);
+      const inclusivePaths = ["dist/hit.txt", "dist/tracked.txt", "ignored.txt", "normal.txt"];
+      if (withIgnore) inclusivePaths.push("root-ignored.txt", "tracked-ignored.txt", "drop.log", "nested/drop.log", "nested/keep.log", "nested/local.txt", "nested/normal.txt", "blocked/hit.txt");
+      expect(inclusive.results.map((entry) => entry.relativePath).sort()).toEqual(inclusivePaths.sort());
       expect(inclusive.results.map((entry) => entry.path).sort())
-        .toEqual(["/project/dist/hit.txt", "/project/dist/tracked.txt", "/project/ignored.txt", "/project/normal.txt"]);
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
+        .toEqual(inclusivePaths.map((name) => `/project/${name}`).sort());
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
 
       // Run the bundled binary against the same files to compare filtering semantics.
       for (const [includeIgnored, fallback] of [[false, filtered], [true, inclusive]]) {

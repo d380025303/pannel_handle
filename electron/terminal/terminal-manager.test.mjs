@@ -1183,6 +1183,21 @@ describe("terminal-manager", () => {
     expect(term.writes).toEqual(["pnpm dev\r"]);
   });
 
+  it.each(["w", "p"])("replaces inherited /%s for configured WSL variables", flag => {
+    const previous = process.env.WSLENV;
+    process.env.WSLENV = `OTHER/lp:TASK_VAR/${flag}:TASK_VAR/w`;
+    try {
+      const { manager, pty } = createManager({ environmentService: { resolve: () => ({ TASK_VAR: "value" }) } });
+      manager.createSession({ type: "wsl", cwd: "~" });
+      const { env } = pty.spawn.mock.calls[0][2];
+      expect(env.WSLENV).toBe("OTHER/lp:TASK_VAR/u:PANNEL_HANDLE_SESSION_ID/u:PANNEL_HANDLE_HOOK_URL/u");
+      expect(env.TASK_VAR).toBe("value");
+    } finally {
+      if (previous === undefined) delete process.env.WSLENV;
+      else process.env.WSLENV = previous;
+    }
+  });
+
   it("passes panel hook environment into WSL sessions through WSLENV", () => {
     vi.stubEnv("WSLENV", "EXISTING/p");
     const { manager, pty } = createManager();

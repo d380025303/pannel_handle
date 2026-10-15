@@ -17,16 +17,23 @@ it.each([
   ["multiple text blocks", [[block(" Hello "), { type: "image", text: "ignored" }, { type: "output_text", text: "world" }, { type: "input_text", text: "\nnext " }]], "Hello world\nnext"],
   ["string and object chunks", [" Hello ", { text: "world\n" }, { text: "next " }], "Hello world\nnext"],
   ["invalid content", [null, 42, { text: 42 }, [null, { type: "text", text: 42 }], [block("Hello world")]], "Hello world"],
-  ["only whitespace", [[block(" \t")], { text: "\n" }], null]
-])("keeps local and remote Grok messages consistent for %s", (_name, contents, expected) => {
+  ["only whitespace", [[block(" \t")], { text: "\n" }], null],
+  ["duplicate event IDs", ["Hello", "Hello"], "Hello", ["e1", "e1"]],
+  ["distinct event IDs", ["Hello", "Hello"], "HelloHello", ["e1", "e2"]],
+  ["missing event IDs", ["Hello", "Hello"], "HelloHello"],
+  ["empty event IDs", ["Hello", "Hello"], "HelloHello", ["", ""]],
+  ["invalid content before valid event", [null, "Hello", "Hello"], "Hello", ["e1", "e1", "e1"]]
+])("keeps local and remote Grok messages consistent for %s", (_name, contents, expected, eventIds) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "grok-history-"));
   try {
     const directory = path.join(root, "sessions", "workspace", sessionId);
     fs.mkdirSync(directory, { recursive: true });
     // Exercise both user and agent chunks with the same prompt ID.
     const transcript = ["user_message_chunk", "agent_message_chunk"].flatMap(sessionUpdate =>
-      contents.map(content => JSON.stringify({ timestamp: 1700000000000,
-        params: { _meta: { promptId: "prompt-1" }, update: { sessionUpdate, content } } }))
+      contents.map((content, index) => JSON.stringify({ timestamp: 1700000000000,
+        params: { _meta: { promptId: "prompt-1", ...(eventIds ? {
+          eventId: eventIds[index] ? `${sessionUpdate}:${eventIds[index]}` : eventIds[index]
+        } : {}) }, update: { sessionUpdate, content } } }))
     ).join("\n");
     fs.writeFileSync(path.join(directory, "updates.jsonl"), transcript);
     const local = localModule.parseGrokMessages(transcript);

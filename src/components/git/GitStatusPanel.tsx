@@ -328,13 +328,59 @@ function GitDiffDialog({ state, onRetry, onClose }: {
 
 function ConfirmDialog({ state, onClose }: { state: ConfirmState; onClose: () => void }) {
   const { t } = useI18n();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    cancelButtonRef.current?.focus();
+    const keepFocusInside = (event: FocusEvent) => {
+      if (event.target instanceof Node && !dialogRef.current?.contains(event.target)) {
+        cancelButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("focusin", keepFocusInside);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      if (!previousFocus?.isConnected) return;
+      if (previousFocus.matches(":disabled")) {
+        const observer = new MutationObserver(() => {
+          if (!previousFocus.isConnected) observer.disconnect();
+          else if (!previousFocus.matches(":disabled")) {
+            observer.disconnect();
+            previousFocus.focus();
+          }
+        });
+        observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled"] });
+      } else previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []);
+        const index = controls.indexOf(document.activeElement as HTMLButtonElement);
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [onClose]);
+
   return (
-    <div className="modal-overlay git-confirm-overlay" onMouseDown={onClose}>
-      <div className="modal-dialog git-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="git-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-overlay git-confirm-overlay" onMouseDown={(event) => { event.preventDefault(); onClose(); }}>
+      <div ref={dialogRef} className="modal-dialog git-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="git-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
         <h2 id="git-confirm-title">{state.title}</h2>
         <p>{state.message}</p>
         <div className="modal-actions">
-          <button className="modal-button" type="button" autoFocus onClick={onClose}>{t("common.cancel")}</button>
+          <button ref={cancelButtonRef} className="modal-button" type="button" onClick={onClose}>{t("common.cancel")}</button>
           <button className="modal-button danger" type="button" onClick={() => { onClose(); state.onConfirm(); }}>{state.confirmLabel}</button>
         </div>
       </div>

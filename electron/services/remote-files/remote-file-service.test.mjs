@@ -66,6 +66,98 @@ function readStream(stream) {
 }
 
 describe("remote-file-service", () => {
+  it.each(["windows", "wsl", "ssh", "ssh-method"])("preserves directories when creating an overwrite file for %s", async (variant) => {
+    const type = variant === "ssh-method" ? "ssh" : variant;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-create-overwrite-"));
+    const parent = type === "windows" ? dir : "/files";
+    const hostPath = (entry) => path.join(dir, path.win32.basename(entry));
+    const remove = vi.fn((entry) => fs.promises.rm(hostPath(entry), { recursive: true, force: true }));
+    const trashItem = vi.fn(remove);
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type, cwd: parent, wslDistro: "Ubuntu" }),
+      fsApi: { promises: {
+        lstat: (entry) => fs.promises.lstat(hostPath(entry)),
+        writeFile: (entry, data, options) => fs.promises.writeFile(hostPath(entry), data, options),
+        rm: remove
+      } },
+      shellApi: createShellMock({ trashItem }),
+      sshFileSystem: {
+        exists: async (_id, entry) => fs.existsSync(hostPath(entry)),
+        stat: async (_id, entry) => {
+          const stat = await fs.promises.stat(hostPath(entry));
+          return { isDirectory: variant === "ssh-method" ? () => stat.isDirectory() : stat.isDirectory() };
+        },
+        remove: (_id, entry) => remove(entry),
+        put: (_id, data, entry) => fs.promises.writeFile(hostPath(entry), data)
+      }
+    });
+    try {
+      fs.mkdirSync(path.join(dir, "reports"));
+      fs.writeFileSync(path.join(dir, "reports", "important.txt"), "important content");
+      await expect(service.createEntry("run-1", parent, "reports", "file", "overwrite"))
+        .rejects.toThrow("类型冲突：不能用文件覆盖已有目录");
+      expect(remove).not.toHaveBeenCalled();
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(fs.statSync(path.join(dir, "reports")).isDirectory()).toBe(true);
+      expect(fs.readFileSync(path.join(dir, "reports", "important.txt"), "utf8")).toBe("important content");
+
+      fs.writeFileSync(path.join(dir, "note.txt"), "old content");
+      await expect(service.createEntry("run-1", parent, "note.txt", "file", "overwrite"))
+        .resolves.toMatchObject({ status: "completed", name: "note.txt" });
+      expect(fs.readFileSync(path.join(dir, "note.txt"))).toEqual(Buffer.alloc(0));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["report.txt ", " report.txt", " "])("deletes only the exact SSH filename %j, preserving whitespace", async (name) => {
+    const untouchedPath = `/workspace/${name.trim() || "report.txt"}`;
+    const selectedPath = `/workspace/${name}`;
+    const files = new Map([
+      [untouchedPath, "original content"],
+      [selectedPath, "selected content"]
+    ]);
+    const remove = vi.fn(async (_sessionId, targetPath) => {
+      if (!files.delete(targetPath)) throw new Error(`Missing file: ${targetPath}`);
+    });
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh" }),
+      sshFileSystem: { remove }
+    });
+
+    await expect(service.deleteEntry("run-1", selectedPath)).resolves.toEqual({ mode: "permanent" });
+    expect(remove).toHaveBeenCalledExactlyOnceWith("run-1", selectedPath);
+    expect(files.has(selectedPath)).toBe(false);
+    expect(files.get(untouchedPath)).toBe("original content");
+    expect(files.size).toBe(1);
+  });
+
+  it("lists normal files and dangling links using real filesystem metadata", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-dangling-link-"));
+    const linkPath = path.join(directory, "broken-link");
+    try {
+      fs.writeFileSync(path.join(directory, "visible.txt"), "visible");
+      fs.symlinkSync(path.join(directory, "missing-target"), linkPath, process.platform === "win32" ? "junction" : "dir");
+      await expect(fs.promises.stat(linkPath)).rejects.toMatchObject({ code: "ENOENT" });
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: directory })
+      });
+
+      const entries = await service.list("run-1", directory);
+      expect(entries).toHaveLength(2);
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "visible.txt", path: path.join(directory, "visible.txt"), type: "file", size: 7 }),
+        expect.objectContaining({ name: "broken-link", path: linkPath, type: "symlink" })
+      ]));
+    } finally {
+      // Unlink the junction itself before removing the temporary directory.
+      if (fs.existsSync(directory)) {
+        try { fs.unlinkSync(linkPath); } catch (error) { if (error.code !== "ENOENT") throw error; }
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  });
+
   it.each(["windows", "wsl"])("bounds large %s listings and yields between batches without changing entries", async (type) => {
     const cwd = type === "windows" ? path.resolve("listing") : "/listing";
     const dirents = Array.from({ length: 30000 }, (_, index) => ({
@@ -82,7 +174,7 @@ describe("remote-file-service", () => {
         setImmediate(() => { yielded = true; });
         return dirents;
       },
-      stat: async () => {
+      lstat: async () => {
         pending += 1;
         peak = Math.max(peak, pending);
         if (!yielded) callsBeforeYield += 1;
@@ -110,16 +202,16 @@ describe("remote-file-service", () => {
     expect(entries).toEqual(expected);
   });
 
-  it("stops submitting metadata batches when stat fails", async () => {
-    const stat = vi.fn(async () => { throw new Error("metadata unavailable"); });
+  it("stops submitting metadata batches when lstat fails", async () => {
+    const lstat = vi.fn(async () => { throw new Error("metadata unavailable"); });
     const service = createRemoteFileService({
       terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: process.cwd() }),
       fsApi: { promises: {
-        readdir: async () => Array.from({ length: 100 }, (_, index) => ({ name: String(index) })), stat
+        readdir: async () => Array.from({ length: 100 }, (_, index) => ({ name: String(index) })), lstat
       } }
     });
     await expect(service.list("run-1", process.cwd())).rejects.toThrow("metadata unavailable");
-    expect(stat).toHaveBeenCalledTimes(16);
+    expect(lstat).toHaveBeenCalledTimes(16);
   });
 
   it.each([
@@ -136,7 +228,7 @@ describe("remote-file-service", () => {
           expect(target).toBe(hostPath);
           return [{ name: "alice", isDirectory: () => true, isSymbolicLink: () => false }];
         }),
-        stat: vi.fn(async (target) => {
+        lstat: vi.fn(async (target) => {
           if (target !== childHostPath) {
             throw Object.assign(new Error(`ENOENT: ${target}`), { code: "ENOENT" });
           }
@@ -153,11 +245,11 @@ describe("remote-file-service", () => {
       { name: "alice", path: childPath, type: "directory", size: 4096, modifiedAt: 1234 }
     ]);
     expect(fsApi.promises.readdir).toHaveBeenCalledWith(hostPath, { withFileTypes: true });
-    expect(fsApi.promises.stat).toHaveBeenCalledExactlyOnceWith(childHostPath);
+    expect(fsApi.promises.lstat).toHaveBeenCalledExactlyOnceWith(childHostPath);
   });
 
   it("rejects WSL drive mount traversal before accessing the file system", async () => {
-    const fsApi = { promises: { readdir: vi.fn(), stat: vi.fn() } };
+    const fsApi = { promises: { readdir: vi.fn(), lstat: vi.fn() } };
     const service = createRemoteFileService({
       terminalManager: createTerminalManager({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", cwd: "~" }),
       fsApi
@@ -165,7 +257,36 @@ describe("remote-file-service", () => {
 
     await expect(service.list("run-1", "/mnt/c/../d")).rejects.toThrow("Use a canonical absolute Linux path.");
     expect(fsApi.promises.readdir).not.toHaveBeenCalled();
-    expect(fsApi.promises.stat).not.toHaveBeenCalled();
+    expect(fsApi.promises.lstat).not.toHaveBeenCalled();
+  });
+
+  it("keeps GBK bytes intact and still edits valid UTF-8 files", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-encoding-"));
+    const filePath = path.join(dir, "note.txt");
+    const original = Buffer.from("d6d0cec40a68656c6c6f0a", "hex");
+    const service = createRemoteFileService({ terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }) });
+    try {
+      fs.writeFileSync(filePath, original);
+      await expect(service.readText("run-1", filePath)).resolves.toEqual({ kind: "unsupported_encoding", size: original.length });
+      await expect(service.writeText("run-1", filePath, "hello!", "stale")).rejects.toThrow("Unsupported text encoding");
+      expect(fs.readFileSync(filePath)).toEqual(original);
+      fs.writeFileSync(filePath, "中文\nhello\n");
+      const preview = await service.readText("run-1", filePath);
+      expect(preview.kind).toBe("text");
+      await expect(service.writeText("run-1", filePath, preview.content.replace("hello", "hello!"), preview.version)).resolves.toMatchObject({ status: "saved" });
+      expect(fs.readFileSync(filePath, "utf8")).toBe("中文\nhello!\n");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["d6d0cec40a68656c6c6f0a", "efbbbf61c3", "c0af", "eda080"])("blocks invalid UTF-8 SSH previews (%s)", async (hex) => {
+    const buffer = Buffer.from(hex, "hex");
+    const sshFileSystem = { stat: vi.fn(async () => ({ size: buffer.length })), get: vi.fn(async () => buffer), put: vi.fn() };
+    const service = createRemoteFileService({ terminalManager: createTerminalManager({ id: "run-1", type: "ssh" }), sshFileSystem });
+    await expect(service.readText("run-1", "/note.txt")).resolves.toEqual({ kind: "unsupported_encoding", size: buffer.length });
+    await expect(service.writeText("run-1", "/note.txt", "hello!", "stale")).rejects.toThrow("Unsupported text encoding");
+    expect(sshFileSystem.put).not.toHaveBeenCalled();
   });
 
   it("preserves UTF-8 BOM and CRLF when saving text", async () => {
@@ -653,7 +774,7 @@ describe("remote-file-service", () => {
     const readdir = vi.fn(async () => [
       { name: "app.js", isDirectory: () => false, isSymbolicLink: () => false }
     ]);
-    const stat = vi.fn(async () => ({ size: 8, mtimeMs: 1234 }));
+    const lstat = vi.fn(async () => ({ size: 8, mtimeMs: 1234 }));
     const service = createRemoteFileService({
       terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
       sessionStore: createSessionStore(),
@@ -661,7 +782,7 @@ describe("remote-file-service", () => {
       fsApi: {
         promises: {
           readdir,
-          stat
+          lstat
         }
       }
     });
@@ -671,7 +792,7 @@ describe("remote-file-service", () => {
       expect.objectContaining({ name: "app.js", path: "/home/me/project/app.js", type: "file", size: 8 })
     ]);
     expect(readdir).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project", { withFileTypes: true });
-    expect(stat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\app.js");
+    expect(lstat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\app.js");
   });
 
   it("creates WSL video previews through the distro UNC path", async () => {
@@ -1171,6 +1292,64 @@ describe("remote-file-service", () => {
     }
   });
 
+  it.each(["same path", "hard link"])("preserves a local download source when the target is the %s", async (targetType) => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-same-"));
+    const sourceFile = path.join(sourceDir, "source.txt");
+    const targetFile = targetType === "same path" ? sourceFile : path.join(sourceDir, "link.txt");
+    const content = Buffer.from("local download must retain data!");
+    fs.writeFileSync(sourceFile, content);
+    try {
+      if (targetType === "hard link") fs.linkSync(sourceFile, targetFile);
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: sourceDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      // Reusing the transfer ID also verifies that the early return releases the task.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await expect(service.downloadFile("run-1", sourceFile, targetFile, { transferId: "same-file" })).resolves.toEqual({
+          localPath: targetFile,
+          transferId: "same-file"
+        });
+        expect(fs.readFileSync(sourceFile)).toEqual(content);
+        expect(fs.readFileSync(targetFile)).toEqual(content);
+      }
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["missing", "read failure", "cancel", "success"])("protects an existing download target: %s", async (scenario) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-safe-"));
+    const source = path.join(directory, "source");
+    const target = path.join(directory, "target");
+    fs.writeFileSync(target, "original");
+    if (scenario !== "missing") fs.writeFileSync(source, Buffer.alloc(256 * 1024, 7));
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: directory }),
+      fsApi: scenario === "read failure" ? { ...fs, createReadStream: () => fs.createReadStream(path.join(directory, "missing")) } : fs
+    });
+    try {
+      const download = service.downloadFile("run-1", source, target, {
+        transferId: "safe",
+        onProgress: (event) => {
+          if (scenario === "cancel" && event.transferredBytes > 0) void service.cancelDownload("safe");
+        }
+      });
+      if (scenario === "success") {
+        await download;
+        expect(fs.readFileSync(target)).toEqual(fs.readFileSync(source));
+      } else {
+        await expect(download).rejects.toMatchObject({ code: scenario === "cancel" ? "DOWNLOAD_CANCELED" : "ENOENT" });
+        expect(fs.readFileSync(target, "utf8")).toBe("original");
+      }
+      expect(fs.readdirSync(directory).sort()).toEqual(scenario === "missing" ? ["target"] : ["source", "target"]);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports local download progress and removes a canceled partial file", async () => {
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-src-"));
     const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-dst-"));
@@ -1201,13 +1380,44 @@ describe("remote-file-service", () => {
     }
   });
 
+  it.each(["failure", "cancel", "success"])("protects an existing SSH download target: %s", async (scenario) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-safe-ssh-"));
+    const target = path.join(directory, "target");
+    fs.writeFileSync(target, "original");
+    let service;
+    service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh" }),
+      sshFileSystem: {
+        downloadFile: async (_id, _session, _remote, temporaryPath) => {
+          fs.writeFileSync(temporaryPath, "partial");
+          if (scenario === "failure") throw Object.assign(new Error("read failed"), { code: "EIO" });
+          if (scenario === "cancel") {
+            await service.cancelDownload("ssh-safe");
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          fs.writeFileSync(temporaryPath, "complete");
+        },
+        cancelDownload: async () => true
+      }
+    });
+    try {
+      const download = service.downloadFile("run-1", "/source", target, { transferId: "ssh-safe" });
+      if (scenario === "success") await download;
+      else await expect(download).rejects.toMatchObject({ code: scenario === "cancel" ? "DOWNLOAD_CANCELED" : "EIO" });
+      expect(fs.readFileSync(target, "utf8")).toBe(scenario === "success" ? "complete" : "original");
+      expect(fs.readdirSync(directory)).toEqual(["target"]);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports SSH fastGet progress using a dedicated client", async () => {
     const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-dst-"));
     const targetFile = path.join(targetDir, "remote.bin");
     const progress = [];
     const sftp = createSftpMock({
       stat: vi.fn(async () => ({ size: 10 })),
-      fastGet: vi.fn(async (_remotePath, _localPath, options) => options.step(6, 6, 10))
+      fastGet: vi.fn(async (_remotePath, localPath, options) => { fs.writeFileSync(localPath, "downloaded"); options.step(6, 6, 10); })
     });
     try {
       const service = createRemoteFileService({
@@ -1225,7 +1435,7 @@ describe("remote-file-service", () => {
         onProgress: (event) => progress.push(event)
       });
 
-      expect(sftp.fastGet).toHaveBeenCalledWith("/tmp/remote.bin", targetFile, expect.objectContaining({ step: expect.any(Function) }));
+      expect(sftp.fastGet).toHaveBeenCalledWith("/tmp/remote.bin", expect.stringContaining(".pannel-download-"), expect.objectContaining({ step: expect.any(Function) }));
       expect(progress).toEqual(expect.arrayContaining([
         expect.objectContaining({ transferredBytes: 0, totalBytes: 10, percent: 0 }),
         expect.objectContaining({ transferredBytes: 6, totalBytes: 10, percent: 60 }),

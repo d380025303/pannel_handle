@@ -164,8 +164,8 @@ function createSshSessionRuntime({
         }
         stream.on("data", data => emitStdout(Buffer.isBuffer(data) ? stdoutDecoder.write(data) : String(data)));
         stream.stderr?.on("data", data => emitStderr(Buffer.isBuffer(data) ? stderrDecoder.write(data) : String(data)));
+        stream.on("error", finish);
         if (options.stdin !== undefined) {
-          stream.on("error", finish);
           stream.end(options.stdin);
         }
         stream.on("close", (code, signal) => {

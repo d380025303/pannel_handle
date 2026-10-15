@@ -269,6 +269,11 @@ function createOpenRouterService({
   onOpenCodeModelsChanged = () => {}
 }) {
   const rateLimitCooldowns = new Map();
+  let credentialVersion = 0;
+
+  function assertCurrentCredentials(version) {
+    if (version !== credentialVersion) throw new Error(`${providerName} API Key 已变更，请重新验证模型。`);
+  }
 
   function getConfig() {
     return store.getPublicConfig();
@@ -311,6 +316,7 @@ function createOpenRouterService({
     if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
     const ids = [...new Set((Array.isArray(input.modelIds) ? input.modelIds : []).map(value => String(value || "").trim()).filter(Boolean))];
     const { runAgentModelProbe } = require("../model-sources/agent-model-probe.cjs");
+    const version = credentialVersion;
     const results = [];
     for (const modelId of ids) {
       if (!store.getCachedModels().some(model => model.id === modelId)) throw new Error(`${providerName} 模型不存在：${modelId}`);
@@ -322,6 +328,7 @@ function createOpenRouterService({
       const apiKey = store.getApiKey();
       if (!apiKey) throw new Error(`请先配置 ${providerName} API Key。`);
       const result = await runAgentModelProbe({ agent, providerId, modelId, baseUrl, apiKey, apiKeyEnv });
+      assertCurrentCredentials(version);
       results.push({ modelId, ...store.setAgentModelVerification(agent, modelId, result) });
     }
     if (agent === "opencode" && results.length) await onOpenCodeModelsChanged();
@@ -366,16 +373,27 @@ function createOpenRouterService({
     return listModels();
   }
 
+  async function syncOpenCodeModels() {
+    try {
+      await onOpenCodeModelsChanged();
+      return {};
+    } catch (error) {
+      return { openCodeSyncError: String(error?.message || error) };
+    }
+  }
+
   async function saveApiKey(apiKey) {
     const config = store.setApiKey(apiKey);
-    await onOpenCodeModelsChanged();
-    return config;
+    credentialVersion += 1;
+    rateLimitCooldowns.clear();
+    return { ...config, ...await syncOpenCodeModels() };
   }
 
   async function clearApiKey() {
     const config = store.clearApiKey();
-    await onOpenCodeModelsChanged();
-    return config;
+    credentialVersion += 1;
+    rateLimitCooldowns.clear();
+    return { ...config, ...await syncOpenCodeModels() };
   }
 
   async function testConnection() {
@@ -505,9 +523,11 @@ function createOpenRouterService({
     const apiKey = store.getApiKey();
     if (!apiKey) throw new Error(`请先在设置中配置 ${providerName} API Key。`);
 
+    const version = credentialVersion;
     const stageResults = new Map();
     const runStage = async stage => {
       const result = await runVerificationStage(model, apiKey, stage);
+      assertCurrentCredentials(version);
       stageResults.set(stage, result);
       return result;
     };
@@ -570,6 +590,7 @@ function createOpenRouterService({
       }
     }
 
+    assertCurrentCredentials(version);
     const stages = VERIFICATION_STAGES.map(stage => stageResults.get(stage)).filter(Boolean);
     const verification = {
       status,
@@ -686,6 +707,7 @@ function createOpenRouterService({
     refreshModels,
     saveApiKey,
     clearApiKey,
+    syncOpenCodeModels,
     testConnection,
     verifyModels,
     verifyAgentModels,

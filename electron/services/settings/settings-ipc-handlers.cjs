@@ -23,6 +23,7 @@ const SETTINGS_IPC_CHANNELS = [
   "openrouter:refresh-models",
   "openrouter:save-api-key",
   "openrouter:clear-api-key",
+  "openrouter:sync-opencode-models",
   "openrouter:test",
   "openrouter:verify-models",
   "openrouter:verify-agent-models",
@@ -31,6 +32,7 @@ const SETTINGS_IPC_CHANNELS = [
   "nararouter:refresh-models",
   "nararouter:save-api-key",
   "nararouter:clear-api-key",
+  "nararouter:sync-opencode-models",
   "nararouter:test",
   "nararouter:verify-models",
   "nararouter:verify-agent-models",
@@ -39,6 +41,7 @@ const SETTINGS_IPC_CHANNELS = [
   "minimax:refresh-models",
   "minimax:save-api-key",
   "minimax:clear-api-key",
+  "minimax:sync-opencode-models",
   "minimax:test",
   "minimax:verify-models",
   "minimax:verify-agent-models",
@@ -56,6 +59,7 @@ function registerRouterIpcHandlers(ipcMain, prefix, service) {
   ipcMain.handle(`${prefix}:refresh-models`, () => service.refreshModels());
   ipcMain.handle(`${prefix}:save-api-key`, (_event, apiKey) => service.saveApiKey(apiKey));
   ipcMain.handle(`${prefix}:clear-api-key`, () => service.clearApiKey());
+  ipcMain.handle(`${prefix}:sync-opencode-models`, () => service.syncOpenCodeModels());
   ipcMain.handle(`${prefix}:test`, () => service.testConnection());
   ipcMain.handle(`${prefix}:verify-models`, (_event, input) => service.verifyModels(input));
   ipcMain.handle(`${prefix}:verify-agent-models`, (_event, input) => service.verifyAgentModels(input));

@@ -18,26 +18,35 @@ function createInjectedTools({ config, sessionId, current, respond, fetchRequest
     pending.set(key, controller);
     const timer = setTimeout(() => controller.abort(), config.toolCallback.timeoutMs);
     let result;
+    let failureMessage = "工具回调网络请求失败。";
     try {
       const body = JSON.stringify({ sessionId, threadId: params.threadId, turnId: params.turnId,
         callId: params.callId, tool: params.tool, arguments: params.arguments });
-      if (Buffer.byteLength(body) > MAX_BYTES) throw new Error();
+      if (Buffer.byteLength(body) > MAX_BYTES) { failureMessage = "工具回调请求超过大小限制。"; throw new Error(); }
       const response = await fetchRequest(config.toolCallback.url, { method: "POST", redirect: "error", signal: controller.signal,
         headers: { "Content-Type": "application/json", ...(config.toolCallback.bearerToken
           ? { Authorization: `Bearer ${config.toolCallback.bearerToken}` } : {}) }, body });
-      if (response.status !== 200 || !response.body) { await response.body?.cancel(); throw new Error(); }
+      failureMessage = response.status === 200 ? "工具回调响应格式无效。" : `工具回调失败（HTTP ${response.status}）。`;
+      if (!response.body) throw new Error();
       let size = 0;
       const chunks = [];
       for await (const chunk of response.body) {
         size += chunk.length;
-        if (size > MAX_BYTES) { controller.abort(); throw new Error(); }
+        if (size > MAX_BYTES) { failureMessage = "工具回调响应超过大小限制。"; throw new Error(); }
         chunks.push(Buffer.from(chunk));
       }
       const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (response.status !== 200) {
+        if (value.error?.code === "tool_callback_failed" && typeof value.error.message === "string") {
+          const message = value.error.message.slice(0, 500).replace(/[\r\n]/g, " ");
+          failureMessage = `工具回调失败（HTTP ${response.status}）：${config.toolCallback.bearerToken ? message.split(config.toolCallback.bearerToken).join("[已隐藏]") : message}`;
+        }
+        throw new Error();
+      }
       if (typeof value.success !== "boolean" || typeof value.output !== "string") throw new Error();
       result = { success: value.success, contentItems: [{ type: "inputText", text: value.output }] };
     } catch {
-      result = failure(controller.signal.aborted ? "工具回调超时或已取消。" : "工具回调失败：网络、状态或响应格式无效。");
+      result = failure(controller.signal.aborted ? "工具回调超时或已取消。" : failureMessage);
     } finally { clearTimeout(timer); }
     // Cancellation removes ownership before a late callback can write to the transport.
     if (pending.get(key) !== controller) return;

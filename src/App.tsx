@@ -18,6 +18,7 @@ import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDas
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import type { CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
 import { GraphicalSessionPanel } from "./components/agents/GraphicalSessionPanel";
+import { isAgentCompleted } from "./utils/agentStatus";
 import type { CodexCapabilityReference } from "./vite-env";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { CodexWorkspaceTrustDialog } from "./components/agents/CodexWorkspaceTrustDialog";
@@ -1051,6 +1052,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 />
                 {terminalSessions.sessions.filter(session => session.runtimeMode === "app-server").map(session =>
                   <GraphicalSessionPanel key={session.id} session={session} minimalMode={graphicalSessionMinimalMode}
+                    isCompleted={isAgentCompleted(terminalSessions.agentStatusesBySessionId[session.id])}
                     isActive={isAppServerSession && activeSessionId === session.id && workspaceTab === "terminal"}
                     draft={appServerDrafts[session.id] ?? ""} draftReferences={appServerDraftReferences[session.id] ?? emptyDraftReferences}
                     onDraftChange={handleAppServerDraftChange} onDraftReferencesChange={handleAppServerDraftReferencesChange}

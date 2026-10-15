@@ -687,8 +687,8 @@ describe("statistics snapshot synchronization", () => {
         statsQueries.length = 0;
         await service.backupNow();
         expect(batches.map(batch => batch.length)).toEqual(round === 0 ? [500, 500] : []);
-        // Five deletions, two UPSERTs, COMMIT (plus BEGIN = nine queries).
-        expect(statsQueries).toHaveLength(round === 0 ? 8 : 6);
+        // Seven table deletions, changed batches and COMMIT.
+        expect(statsQueries).toHaveLength(round === 0 ? 10 : 8);
         expect(remote.filter(row => row.device_id === deviceId && row.data.backup_epoch === 0)).toHaveLength(1000);
         if (round === 0) firstRound = structuredClone(remote);
         else expect(remote).toEqual(firstRound);

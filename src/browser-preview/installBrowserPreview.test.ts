@@ -19,6 +19,19 @@ describe("installBrowserPreview", () => {
     ]));
   });
 
+  it.each(["C:\\workspace\\pannel-handle", "C:/workspace/pannel-handle", "/srv/pannel-handle"])("keeps search results reachable through the file tree at %s", async (root) => {
+    const search = await window.projectSearchApi.searchFiles("preview", "App", root);
+    const result = search.results.find((entry) => entry.relativePath === "src/App.tsx")!;
+    expect(result).toBeDefined();
+    const entries = await window.remoteFileApi.list("preview", root);
+    const src = entries.find((entry) => entry.name === "src")!;
+    expect(src.path).toBe(result.path.slice(0, result.path.lastIndexOf("/")));
+    const files = await window.remoteFileApi.list("preview", src.path);
+    expect(files.find((entry) => entry.name === "App.tsx")?.path).toBe(result.path);
+    expect(await window.remoteFileApi.previewFile("preview", result.path)).toMatchObject({ kind: "text" });
+    expect(await window.remoteFileApi.list("preview", src.path.replace(/\//g, "\\"))).toEqual(files);
+  });
+
   it("routes usage through the selected session provider and binds the Qoder account", async () => {
     const session = await window.terminalApi.createSession({ title: "usage" });
     expect((await window.agentUsageApi.getUsage(session.id))?.provider).toBe("codex");

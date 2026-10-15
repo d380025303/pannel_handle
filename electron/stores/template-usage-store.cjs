@@ -12,12 +12,26 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
       : [];
   }
 
-  function save() {
-    try {
-      writeJson(dataStore, usageFile, launchesByTemplateId);
-    } catch (err) {
-      console.error("Failed to save template usage:", err);
+  function pruneHistories(histories, currentTime) {
+    const next = {};
+    if (histories && typeof histories === "object" && !Array.isArray(histories)) {
+      for (const [templateId, timestamps] of Object.entries(histories)) {
+        const recent = pruneTimestamps(timestamps, currentTime);
+        if (recent.length > 0) next[templateId] = recent;
+      }
     }
+    return next;
+  }
+
+  function save(next) {
+    try {
+      writeJson(dataStore, usageFile, next);
+    } catch (err) {
+      const error = new Error(`模板使用记录保存失败：${err.message}`, { cause: err });
+      error.code = err.code;
+      throw error;
+    }
+    launchesByTemplateId = next;
   }
 
   function load() {
@@ -32,15 +46,9 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
       }
     }
 
-    const currentTime = now();
-    launchesByTemplateId = {};
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      for (const [templateId, timestamps] of Object.entries(parsed)) {
-        const recent = pruneTimestamps(timestamps, currentTime);
-        if (recent.length > 0) launchesByTemplateId[templateId] = recent;
-      }
-    }
-    if (loadedFromFile && JSON.stringify(parsed) !== JSON.stringify(launchesByTemplateId)) save();
+    const next = pruneHistories(parsed, now());
+    if (loadedFromFile && JSON.stringify(parsed) !== JSON.stringify(next)) save(next);
+    else launchesByTemplateId = next;
     return launchesByTemplateId;
   }
 
@@ -48,8 +56,10 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
     const id = String(templateId || "").trim();
     if (!id) return;
     const currentTime = now();
-    launchesByTemplateId[id] = [...pruneTimestamps(launchesByTemplateId[id], currentTime), currentTime];
-    save();
+    save({
+      ...pruneHistories(launchesByTemplateId, currentTime),
+      [id]: [...pruneTimestamps(launchesByTemplateId[id], currentTime), currentTime]
+    });
   }
 
   function prepareRemoval(templateId) {
@@ -69,28 +79,23 @@ function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now()
   function remove(templateId) {
     const id = String(templateId || "").trim();
     if (!id || !Object.prototype.hasOwnProperty.call(launchesByTemplateId, id)) return;
-    delete launchesByTemplateId[id];
-    save();
+    const next = { ...launchesByTemplateId };
+    delete next[id];
+    save(next);
   }
 
   function getSummaries(templateIds) {
     const summaries = new Map();
     const currentTime = now();
-    let changed = false;
     for (const templateId of templateIds) {
       const id = String(templateId || "").trim();
       if (summaries.has(id)) continue;
-      const previous = launchesByTemplateId[id];
-      const recent = pruneTimestamps(previous, currentTime);
-      if (recent.length > 0) launchesByTemplateId[id] = recent;
-      else delete launchesByTemplateId[id];
-      if (Array.isArray(previous) && recent.length !== previous.length) changed = true;
+      const recent = pruneTimestamps(launchesByTemplateId[id], currentTime);
       summaries.set(id, {
         recentLaunchCount: recent.length,
         lastLaunchedAt: recent.length > 0 ? Math.max(...recent) : undefined
       });
     }
-    if (changed) save();
     return summaries;
   }
 

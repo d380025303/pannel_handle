@@ -11,6 +11,38 @@ const { readStatsBatches } = require("./stats-reader.cjs");
 const { createPostgresBackupService } = require("./postgres-backup-service.cjs");
 const tables = ["token_sessions", "token_session_models", "token_session_skills", "token_session_mcp_tools", "token_daily"];
 
+it("exports Beijing totals and the calendar marker together, including after clear", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pg-beijing-snapshot-"));
+  const statsFile = path.join(root, "stats.sqlite3");
+  const { createAgentTokenStatsStore } = require("../token-usage/agent-token-stats-store.cjs");
+  const store = createAgentTokenStatsStore({ databaseFile: statsFile });
+  store.load();
+  const snapshot = async () => {
+    const rows = [];
+    for await (const batch of readStatsBatches({ statsFile, epoch: 3,
+      tables: ["token_daily", "token_daily_beijing", "token_calendar"], batchSize: 1 })) rows.push(...batch);
+    return rows;
+  };
+  try {
+    store.update({ provider: "codex", agentSessionId: "one", panelSessionId: "one",
+      tokens: { totalTokens: 42 }, timestamp: Date.parse("2026-10-14T16:00:00Z") });
+    const rows = await snapshot();
+    expect(rows).toHaveLength(3);
+    expect(rows.find(row => row.table_name === "token_daily").data.date).toBe("2026-10-14");
+    expect(rows.find(row => row.table_name === "token_daily_beijing")).toMatchObject({
+      row_key: '3:["2026-10-15","codex"]', data: { date: "2026-10-15", total_tokens: 42, approximate: 0, backup_epoch: 3 }
+    });
+    expect(rows.find(row => row.table_name === "token_calendar")).toMatchObject({ row_key: "3:beijing", data: { id: "beijing", backup_epoch: 3 } });
+    store.clear();
+    const cleared = await snapshot();
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0].table_name).toBe("token_calendar");
+  } finally {
+    store.close();
+    if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("keeps one read-only snapshot across batches and tables while local writes continue", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "pg-stats-snapshot-"));
   const statsFile = path.join(root, "stats.sqlite3");
@@ -121,7 +153,7 @@ it("backs up 100000 real SQLite rows in bounded batches while the main event loo
         expect(upserts).toBe(round === 0 ? 200 : 0);
         if (round === 0) expect(jsonBytes).toBeGreaterThan(0);
         else expect(jsonBytes).toBe(0);
-        expect(deletes).toBe(5);
+        expect(deletes).toBe(7);
         expect(ticks).toBeGreaterThan(10);
         expect(zeroDelay).toBeLessThan(200);
         expect(maxGap).toBeLessThan(200);

@@ -1,3 +1,4 @@
+const { buildWslBashArgs } = require("../../core/wsl-command.cjs");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { parseCliProbe } = require("../cli-version-probe.cjs");
@@ -74,7 +75,7 @@ function createOpenCodeVersionService({ terminalManager, sshAgentTransport, spaw
     if (executeCommand) return executeCommand(value, script, timeoutMs, onOutput);
     if (value.session.type === "ssh" && value.session.agentLocation !== "local")
       return sshAgentTransport.exec(value.session.id, `bash -lic ${quoteBash(script)}`, { actionName: "OpenCode version update", timeoutMs, onStdout: onOutput, onStderr: onOutput });
-    if (value.platform === "linux") return runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", script], { timeoutMs, spawnProcess, onOutput });
+    if (value.platform === "linux") return runProcess("wsl.exe", buildWslBashArgs(value.session.wslDistro, script), { timeoutMs, spawnProcess, onOutput });
     return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs, spawnProcess, onOutput });
   }
   async function probe(value) {
@@ -85,7 +86,7 @@ function createOpenCodeVersionService({ terminalManager, sshAgentTransport, spaw
     });
     const current = parseVersion(lines[0]);
     if (!current || current.parts[0] < 2) throw new Error("当前命中的 OpenCode 不是受支持的 V2 CLI。");
-    return { currentVersion: current.text, commandPath: lines[1], method: installation(lines, value.platform) };
+    return { currentVersion: current.text, commandPath: lines[1], resolvedPath: lines[2], method: installation(lines, value.platform) };
   }
   async function latestVersion() {
     const response = await fetchLatest(REGISTRY_URL, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS), headers: { accept: "application/json" } });

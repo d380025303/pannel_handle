@@ -12,7 +12,36 @@ function createUsageFile() {
 }
 
 describe("template usage store", () => {
-  it("cleans only requested templates, deletes empty histories, and preserves the single summary API", () => {
+  it("propagates failed writes without changing memory and persists a successful retry", () => {
+    let persisted = { demo: [900] };
+    const failure = Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+    const dataStore = {
+      read: () => structuredClone(persisted),
+      write: vi.fn(() => { throw failure; })
+    };
+    const createStore = () => createTemplateUsageStore({ usageFile: "template-usage.json", dataStore, now: () => 1000 });
+    const store = createStore();
+    store.load();
+
+    let received;
+    try { store.record("demo"); } catch (error) { received = error; }
+    expect(received).toMatchObject({ message: expect.stringContaining("模板使用记录保存失败"), code: "SQLITE_FULL", cause: failure });
+    expect(store.getSummary("demo")).toEqual({ recentLaunchCount: 1, lastLaunchedAt: 900 });
+    expect(persisted).toEqual({ demo: [900] });
+    const afterFailure = createStore();
+    afterFailure.load();
+    expect(afterFailure.getSummary("demo")).toEqual(store.getSummary("demo"));
+
+    dataStore.write.mockImplementation((_file, value) => { persisted = structuredClone(value); });
+    store.record("demo");
+    expect(store.getSummary("demo")).toEqual({ recentLaunchCount: 2, lastLaunchedAt: 1000 });
+    const afterSuccess = createStore();
+    afterSuccess.load();
+    expect(afterSuccess.getSummary("demo")).toEqual(store.getSummary("demo"));
+    expect(persisted).toEqual({ demo: [900, 1000] });
+  });
+
+  it("filters summaries without writes and prunes all histories on record", () => {
     let currentTime = 1000;
     let persisted = { a: [500, 900], b: [500], untouched: [500] };
     const dataStore = {
@@ -31,14 +60,15 @@ describe("template usage store", () => {
       ["missing", { recentLaunchCount: 0, lastLaunchedAt: undefined }]
     ]));
     expect(now).toHaveBeenCalledTimes(1);
-    expect(dataStore.write).toHaveBeenCalledTimes(1);
-    expect(persisted).toEqual({ a: [900], untouched: [500] });
+    expect(dataStore.write).not.toHaveBeenCalled();
+    expect(persisted).toEqual({ a: [500, 900], b: [500], untouched: [500] });
     store.getSummaries([]);
     store.getSummaries(["a", "b", "missing"]);
-    expect(dataStore.write).toHaveBeenCalledTimes(1);
     expect(store.getSummary("untouched")).toEqual({ recentLaunchCount: 0, lastLaunchedAt: undefined });
-    expect(dataStore.write).toHaveBeenCalledTimes(2);
-    expect(persisted).toEqual({ a: [900] });
+    expect(dataStore.write).not.toHaveBeenCalled();
+    store.record("new");
+    expect(dataStore.write).toHaveBeenCalledTimes(1);
+    expect(persisted).toEqual({ a: [900], new: [1001] });
   });
 
   it("loads only launches inside the rolling window", () => {

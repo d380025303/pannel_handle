@@ -1,3 +1,4 @@
+const { mergeWslEnv } = require("../core/wsl-env.cjs");
 const os = require("node:os");
 const nodePty = require("node-pty");
 const { mergeEnvironment } = require("../services/environment/index.cjs");
@@ -72,9 +73,12 @@ function appendHistory(shell, data) {
 }
 
 function quoteRemotePath(value, windows) {
-  return windows
-    ? `"${String(value).replace(/"/g, '""')}"`
-    : `'${String(value).replace(/'/g, "'\\''")}'`;
+  const path = String(value);
+  if (windows) return `"${path.replace(/"/g, '""')}"`;
+  // Expand only the home prefix; keep the rest literal, including shell syntax.
+  const homeRelative = path.startsWith("~/");
+  const quoted = `'${(homeRelative ? path.slice(2) : path).replace(/'/g, "'\\''")}'`;
+  return homeRelative ? `"$HOME"/${quoted}` : quoted;
 }
 
 function createSessionShellService({ terminalManager, environmentService, sessionStore, knownHostStore,
@@ -128,12 +132,7 @@ function createSessionShellService({ terminalManager, environmentService, sessio
       const isWsl = session.type === "wsl";
       const env = mergeEnvironment([process.env, configuredEnv], !isWsl);
       if (isWsl && Object.keys(configuredEnv).length) {
-        const existing = String(env.WSLENV || "").split(":").filter(Boolean);
-        const names = new Set(existing.map(entry => entry.split("/")[0]));
-        for (const name of Object.keys(configuredEnv)) {
-          if (!names.has(name)) existing.push(`${name}/u`);
-        }
-        env.WSLENV = existing.join(":");
+        env.WSLENV = mergeWslEnv(env.WSLENV, Object.keys(configuredEnv));
       }
       const args = isWsl ? [
         ...(session.wslDistro ? ["-d", session.wslDistro] : []),
@@ -160,7 +159,7 @@ function createSessionShellService({ terminalManager, environmentService, sessio
     });
     if (session.type === "ssh" && session.cwd && session.cwd !== "~") {
       const windows = session.sshConfig?.remotePlatform === "windows";
-      const command = `cd ${quoteRemotePath(session.cwd, windows)}\r`;
+      const command = `cd ${windows ? "" : "-- "}${quoteRemotePath(session.cwd, windows)}\r`;
       let sent = false;
       const sendCwd = () => {
         if (sent || shells.get(id) !== shell) return;

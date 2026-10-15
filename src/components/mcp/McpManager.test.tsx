@@ -190,10 +190,44 @@ describe("McpManager", () => {
     expect(await screen.findByText("MCP 配置已保存。")).toBeTruthy();
   });
 
-  it("disables project scopes for non-Windows sessions", async () => {
-    renderManager({ ...windowsSession, type: "wsl", cwd: "/srv/app" } as TerminalSession);
+  it.each(["project-local", "project"] as const)("reads and saves SSH local CodeBuddy %s configuration using the session target", async scope => {
+    const session = { ...windowsSession, type: "ssh", agentLocation: "local", agentProvider: "codebuddy", cwd: "/srv/app" } as TerminalSession;
+    save.mockImplementationOnce(async ({ draft }) => ({
+      status: "saved", serverName: draft.name,
+      document: { ...documentFor("codebuddy", scope), servers: [{ ...codexServer, ...draft, provider: "codebuddy", scope }] }
+    }));
+    renderManager(session);
+    await screen.findByRole("heading", { name: "local-tools" });
+    fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ provider: "codebuddy", scope: "user" }));
+    const projectTab = screen.getByRole("tab", { name: scope === "project-local" ? "项目私有" : "项目共享" }) as HTMLButtonElement;
+    expect(projectTab.disabled).toBe(false);
+    fireEvent.click(projectTab);
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ provider: "codebuddy", scope, sessionId: session.id }));
+    fireEvent.click(screen.getByRole("button", { name: "新增 MCP 服务" }));
+    fireEvent.change(screen.getByLabelText("服务名称"), { target: { value: "ssh-local-tools" } });
+    fireEvent.change(screen.getByLabelText("启动命令"), { target: { value: "node" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codebuddy", scope, sessionId: session.id,
+      expectedVersion: `codebuddy-${scope}-v1`,
+      draft: expect.objectContaining({ name: "ssh-local-tools", command: "node" })
+    })));
+    expect(await screen.findByText("MCP 配置已保存。")).toBeTruthy();
+  });
+
+  it.each(["wsl", "ssh"] as const)("disables project scopes for remote %s sessions", async type => {
+    renderManager({ ...windowsSession, type, agentLocation: "remote", agentProvider: "codebuddy", cwd: "/srv/app" } as TerminalSession);
     await screen.findByRole("heading", { name: "local-tools" });
     expect((screen.getByRole("tab", { name: "项目级" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ provider: "codebuddy", scope: "user" }));
+    for (const name of ["项目私有", "项目共享"]) {
+      const tab = screen.getByRole("tab", { name }) as HTMLButtonElement;
+      expect(tab.disabled).toBe(true);
+      fireEvent.click(tab);
+    }
+    expect(list.mock.calls.every(([target]) => target.scope === "user")).toBe(true);
   });
 
   it("copies a selected Codex server to OpenCode and switches to the destination", async () => {
