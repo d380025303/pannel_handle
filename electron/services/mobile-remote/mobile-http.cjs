@@ -5,10 +5,15 @@ const { PROTOCOL_VERSION } = require("./mobile-protocol.cjs");
 
 function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploads, files }) {
   function verifyRequestHost(request) {
-    const config = accessStore.getConfig();
-    const allowed = new Set([`${getAddress()}:${config.port}`, `${getMobileHostname()}:${config.port}`, `127.0.0.1:${config.port}`]);
+    // STCP visitors can expose the service on a different port.
+    const allowed = new Set([getAddress(), getMobileHostname(), "127.0.0.1", "localhost"]);
     const host = String(request.headers.host || "").toLowerCase();
-    if (!allowed.has(host)) return false;
+    try {
+      const parsed = new URL(`http://${host}`);
+      if (parsed.host !== host || !allowed.has(parsed.hostname)) return false;
+    } catch {
+      return false;
+    }
     const origin = request.headers.origin;
     if (!origin) return true;
     try {

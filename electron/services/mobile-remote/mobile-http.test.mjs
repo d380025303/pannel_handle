@@ -164,7 +164,14 @@ it("checks the live bind address and origin for both HTTP and websocket upgrades
   expect(verifyRequestHost({ headers: { host: "192.168.1.1:43123", origin: "http://evil.example" } })).toBe(false);
   expect(verifyRequestHost({ headers: { host: "127.0.0.1:43123", origin: "http://127.0.0.1:43123" } })).toBe(true);
   expect(verifyRequestHost({ headers: { host: "127.0.0.1:43123", origin: "http://evil.example" } })).toBe(false);
-  expect(verifyRequestHost({ headers: { host: "localhost:43123" } })).toBe(false);
+  expect(verifyRequestHost({ headers: { host: "localhost:43123" } })).toBe(true);
+  for (const hostname of ["127.0.0.1", "localhost", "192.168.1.1"]) {
+    expect(verifyRequestHost({ headers: { host: `${hostname}:54321`, origin: `http://${hostname}:54321` } })).toBe(true);
+    expect(verifyRequestHost({ headers: { host: `${hostname}:54321`, origin: `http://${hostname}:43123` } })).toBe(false);
+  }
+  for (const host of ["evil.example:54321", "127.0.0.1:invalid", "127.0.0.1:54321/path", "user@127.0.0.1:54321", ""]) {
+    expect(verifyRequestHost({ headers: { host } })).toBe(false);
+  }
   address = "192.168.1.3";
   expect(verifyRequestHost({ headers: { host: "192.168.1.1:43123" } })).toBe(false);
   expect(verifyRequestHost({ headers: { host: "192.168.1.3:43123" } })).toBe(true);
